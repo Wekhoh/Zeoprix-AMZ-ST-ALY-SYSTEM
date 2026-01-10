@@ -6,6 +6,11 @@
 ## [Unreleased]
 
 ### Added
+- **Sprint 2: 数据处理**
+  - T05-T07: 文件解析器（CSV/Excel，多编码支持，列名映射，数据清洗）
+  - T09-T13: 数据聚合器（ASIN层/活动层/匹配类型层/关键词层，跨活动对比）
+  - Sprint 2单元测试（13个测试用例，100%通过）
+
 - **Sprint 1: 基础设施**
   - T01: 数据库Schema定义（7个表：products, campaigns, search_terms, rules, rule_versions, analysis_results, action_plans）
   - T02: 数据库操作模块（Database类，支持CRUD操作、事务、批量插入）
