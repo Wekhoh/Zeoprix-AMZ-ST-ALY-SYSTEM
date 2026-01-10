@@ -6,6 +6,16 @@
 ## [Unreleased]
 
 ### Added
+- **Sprint 5: UI与导出**
+  - T29-T30: 报告导出器（ReportExporter类，否词表/手动词表/分析报告导出，Excel/CSV格式）
+  - T31-T32: Streamlit主应用（app.py入口，侧边栏导航，Session State管理，AI助手集成）
+  - T33: 首页仪表盘（关键指标卡片，待处理项统计，快速操作入口，规则统计图表）
+  - T34: 文件上传页（产品选择/创建，CSV/Excel上传，数据预览，自动分析）
+  - T35: 搜索词分析页（多维筛选，结果表格，批量AI分析，导出功能，详情面板）
+  - T36: 操作清单页（否词操作/手动投放分类，复制列表，Excel/CSV导出，操作历史）
+  - T37: 系统设置页（规则阈值配置，产品信息管理，API设置，数据管理，配置版本回滚）
+  - Sprint 5单元测试（35个测试用例，100%通过）
+
 - **Sprint 4: AI集成**
   - T24: Gemini API客户端（GeminiClient类，generate/chat方法，超时重试）
   - T25-T26: AI分析器（相关性判断、分歧解决、批量分析、竞品ASIN分析）
