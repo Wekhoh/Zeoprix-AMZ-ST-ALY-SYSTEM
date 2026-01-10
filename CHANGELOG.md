@@ -6,6 +6,12 @@
 ## [Unreleased]
 
 ### Added
+- **Sprint 4: AI集成**
+  - T24: Gemini API客户端（GeminiClient类，generate/chat方法，超时重试）
+  - T25-T26: AI分析器（相关性判断、分歧解决、批量分析、竞品ASIN分析）
+  - T27-T28: AI对话助手（多轮对话、意图检测、引导式选项、数据库集成）
+  - Sprint 4单元测试（7个通过，10个需API Key跳过）
+
 - **Sprint 3: 分析引擎**
   - T14: 规则引擎核心（RuleEngine类，优先级规则匹配，分析结果生成）
   - T15-T19: 关键词规则模块（高花费零转化、低转化高花费、高转化、低相关性、分歧处理）
