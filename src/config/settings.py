@@ -24,7 +24,8 @@ class Settings:
 
         # 加载.env文件
         if env_path:
-            load_dotenv(env_path)
+            # 指定路径时使用override=True，确保测试时能覆盖已有值
+            load_dotenv(env_path, override=True)
         else:
             load_dotenv(self.project_root / ".env")
 
