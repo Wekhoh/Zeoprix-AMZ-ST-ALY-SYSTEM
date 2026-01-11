@@ -12,6 +12,16 @@ from src.config.logger import get_logger
 
 logger = get_logger(__name__)
 
+# 规则优先级常量（数值越小优先级越高）
+class RulePriority:
+    """规则优先级常量"""
+    HIGH_SPEND_ZERO_ORDERS = 10  # 高花费零转化（最高优先级）
+    LOW_CONVERSION_HIGH_SPEND = 20  # 低转化高花费
+    HIGH_CONVERSION = 30  # 高转化词
+    LOW_RELEVANCE = 40  # 低相关性
+    CONFLICT_DETECTION = 50  # 分歧处理
+    COMPETITOR_ASIN = 50  # 竞品ASIN
+
 
 @dataclass
 class KeywordRule:
@@ -129,7 +139,7 @@ KEYWORD_RULES = [
     KeywordRule(
         name="高花费零转化",
         rule_type="keyword",
-        priority=10,
+        priority=RulePriority.HIGH_SPEND_ZERO_ORDERS,
         condition=high_spend_zero_orders,
         action="精确否定",
         description="花费超过阈值但没有产生任何订单的搜索词",
@@ -137,7 +147,7 @@ KEYWORD_RULES = [
     KeywordRule(
         name="低转化高花费",
         rule_type="keyword",
-        priority=20,
+        priority=RulePriority.LOW_CONVERSION_HIGH_SPEND,
         condition=low_conversion_high_spend,
         action="评估否定",
         description="ACOS过高且花费超过阈值的搜索词",
@@ -145,7 +155,7 @@ KEYWORD_RULES = [
     KeywordRule(
         name="高转化词",
         rule_type="keyword",
-        priority=30,
+        priority=RulePriority.HIGH_CONVERSION,
         condition=high_conversion,
         action="手动投放",
         description="ACOS低于阈值且有足够订单的高转化搜索词",
@@ -153,7 +163,7 @@ KEYWORD_RULES = [
     KeywordRule(
         name="低相关性",
         rule_type="keyword",
-        priority=40,
+        priority=RulePriority.LOW_RELEVANCE,
         condition=low_relevance,
         action="短语否定",
         description="与产品可能不相关的搜索词，需AI确认",
@@ -161,7 +171,7 @@ KEYWORD_RULES = [
     KeywordRule(
         name="分歧处理",
         rule_type="keyword",
-        priority=50,
+        priority=RulePriority.CONFLICT_DETECTION,
         condition=conflict_detection,
         action="待AI分析",
         description="在多个活动中表现差异大的搜索词",
@@ -172,7 +182,7 @@ ASIN_RULES = [
     KeywordRule(
         name="竞品ASIN",
         rule_type="asin",
-        priority=50,
+        priority=RulePriority.COMPETITOR_ASIN,
         condition=is_competitor_asin,
         action="监控",
         description="竞争对手的ASIN",

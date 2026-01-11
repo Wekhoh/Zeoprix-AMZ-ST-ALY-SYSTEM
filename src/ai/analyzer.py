@@ -3,6 +3,8 @@ AI 分析器模块
 使用 Gemini AI 进行关键词相关性判断和分歧解决
 """
 
+import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -10,6 +12,66 @@ from src.ai.client import GeminiClient
 from src.config.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+class RateLimiter:
+    """令牌桶限流器"""
+
+    def __init__(self, rate: float = 10.0, capacity: int = 20):
+        """
+        初始化限流器
+
+        Args:
+            rate: 每秒生成的令牌数（默认10个/秒）
+            capacity: 桶的最大容量（默认20个）
+        """
+        self.rate = rate
+        self.capacity = capacity
+        self.tokens = capacity
+        self.last_update = time.time()
+        self._lock = threading.Lock()
+
+    def acquire(self, tokens: int = 1, timeout: float = 30.0) -> bool:
+        """
+        获取令牌
+
+        Args:
+            tokens: 需要的令牌数
+            timeout: 最大等待时间（秒）
+
+        Returns:
+            是否成功获取
+        """
+        start_time = time.time()
+
+        while True:
+            with self._lock:
+                self._refill()
+
+                if self.tokens >= tokens:
+                    self.tokens -= tokens
+                    return True
+
+            # 计算等待时间
+            wait_time = (tokens - self.tokens) / self.rate
+            if time.time() - start_time + wait_time > timeout:
+                logger.warning(f"获取令牌超时（需要{tokens}个，当前{self.tokens}个）")
+                return False
+
+            # 等待一小段时间后重试
+            time.sleep(min(wait_time, 0.1))
+
+    def _refill(self):
+        """补充令牌"""
+        now = time.time()
+        elapsed = now - self.last_update
+        new_tokens = elapsed * self.rate
+        self.tokens = min(self.capacity, self.tokens + new_tokens)
+        self.last_update = now
+
+
+# 全局限流器实例（每秒10次请求，最大突发20次）
+_global_rate_limiter = RateLimiter(rate=10.0, capacity=20)
 
 
 @dataclass
@@ -37,14 +99,23 @@ class ConflictResult:
 class AIAnalyzer:
     """AI 分析器"""
 
-    def __init__(self, client: GeminiClient = None):
+    def __init__(self, client: GeminiClient = None, rate_limiter: RateLimiter = None):
         """
         初始化 AI 分析器
 
         Args:
             client: GeminiClient 实例（可选，默认自动创建）
+            rate_limiter: 限流器实例（可选，默认使用全局限流器）
         """
         self.client = client or GeminiClient()
+        self.rate_limiter = rate_limiter or _global_rate_limiter
+
+    def _wait_for_rate_limit(self, tokens: int = 1) -> bool:
+        """等待速率限制"""
+        if not self.rate_limiter.acquire(tokens):
+            logger.error("API调用被限流，请稍后重试")
+            return False
+        return True
 
     def judge_relevance(
         self,
@@ -108,8 +179,18 @@ class AIAnalyzer:
 - 点击: {performance_data.get('clicks', 0)}
 - 花费: ${performance_data.get('spend', 0):.2f}
 - 订单: {performance_data.get('orders', 0)}
-- ACOS: {performance_data.get('acos', 0):.1%}
+- ACOS: {performance_data.get('acos', 0):.2%}
 """
+
+        # 速率限制
+        if not self._wait_for_rate_limit():
+            return RelevanceResult(
+                keyword=keyword,
+                relevance="medium",
+                confidence=0.5,
+                reason="API调用被限流",
+                suggested_action="观察表现",
+            )
 
         result = self.client.generate_json(
             prompt=prompt,
@@ -185,7 +266,7 @@ class AIAnalyzer:
         campaign_table = "| 活动 | ACOS | 订单 | 花费 | 点击 |\n|------|------|------|------|------|\n"
         for data in campaign_data:
             acos = data.get("acos", 0)
-            acos_str = f"{acos:.1%}" if acos > 0 else "N/A"
+            acos_str = f"{acos:.2%}" if acos > 0 else "N/A"
             campaign_table += f"| {data.get('campaign', '未知')} | {acos_str} | {data.get('orders', 0)} | ${data.get('spend', 0):.2f} | {data.get('clicks', 0)} |\n"
 
         prompt = f"""请分析以下搜索词在不同活动中的表现分歧：
@@ -202,6 +283,16 @@ class AIAnalyzer:
 - 名称: {product_context.get('name', '未知')}
 - 类目: {product_context.get('category', '未知')}
 """
+
+        # 速率限制
+        if not self._wait_for_rate_limit():
+            return ConflictResult(
+                keyword=keyword,
+                suggestion="需要进一步人工分析",
+                reasoning="API调用被限流",
+                confidence=0.3,
+                campaign_analysis=[],
+            )
 
         result = self.client.generate_json(
             prompt=prompt,
@@ -269,6 +360,20 @@ class AIAnalyzer:
 待分析搜索词:
 {keywords_str}
 """
+
+        # 速率限制（批量请求消耗更多令牌）
+        tokens_needed = max(1, len(keywords) // 10)  # 每10个关键词消耗1个令牌
+        if not self._wait_for_rate_limit(tokens_needed):
+            return [
+                RelevanceResult(
+                    keyword=kw,
+                    relevance="medium",
+                    confidence=0.5,
+                    reason="API调用被限流",
+                    suggested_action="观察表现",
+                )
+                for kw in keywords
+            ]
 
         result = self.client.generate_json(
             prompt=prompt,
@@ -348,7 +453,7 @@ class AIAnalyzer:
 - 点击: {performance_data.get('clicks', 0)}
 - 花费: ${performance_data.get('spend', 0):.2f}
 - 订单: {performance_data.get('orders', 0)}
-- ACOS: {performance_data.get('acos', 0):.1%}
+- ACOS: {performance_data.get('acos', 0):.2%}
 """
 
         if product_context:
@@ -357,6 +462,15 @@ class AIAnalyzer:
 - 名称: {product_context.get('name', '未知')}
 - 类目: {product_context.get('category', '未知')}
 """
+
+        # 速率限制
+        if not self._wait_for_rate_limit():
+            return {
+                "value": "medium",
+                "reasoning": "API调用被限流",
+                "recommendation": "观察表现",
+                "confidence": 0.3,
+            }
 
         result = self.client.generate_json(
             prompt=prompt,

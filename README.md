@@ -132,16 +132,16 @@ AMZ搜索词分析系统/
 │   ├── app.py              # Streamlit主应用
 │   ├── config/             # 配置模块
 │   │   ├── settings.py     # 应用设置
-│   │   └── logger.py       # 日志配置
+│   │   ├── logger.py       # 日志配置
+│   │   └── manager.py      # 配置版本管理
 │   ├── data/               # 数据处理
 │   │   ├── db.py           # 数据库操作
 │   │   ├── parser.py       # 文件解析器
 │   │   └── aggregator.py   # 数据聚合器
 │   ├── rules/              # 规则引擎
 │   │   ├── engine.py       # 规则引擎核心
-│   │   ├── keywords.py     # 关键词规则
-│   │   ├── asin.py         # ASIN规则
-│   │   └── config_manager.py # 配置版本管理
+│   │   ├── keyword_rules.py # 关键词规则
+│   │   └── asin_rules.py   # ASIN规则
 │   ├── ai/                 # AI模块
 │   │   ├── client.py       # Gemini客户端
 │   │   ├── analyzer.py     # AI分析器
@@ -149,6 +149,7 @@ AMZ搜索词分析系统/
 │   ├── export/             # 导出模块
 │   │   └── exporter.py     # 报告导出器
 │   └── ui/                 # UI组件
+│       ├── utils.py        # UI工具函数
 │       └── pages/          # 页面
 │           ├── home.py     # 首页仪表盘
 │           ├── upload.py   # 文件上传

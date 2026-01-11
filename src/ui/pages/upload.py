@@ -7,6 +7,7 @@ import streamlit as st
 
 from src.config.logger import get_logger
 from src.data.parser import FileParser
+from src.ui.utils import safe_error
 
 logger = get_logger(__name__)
 
@@ -23,7 +24,7 @@ def render_upload():
     # 产品选择/创建
     st.subheader("1️⃣ 选择或创建产品")
 
-    products = db.get_products()
+    products = db.get_all_products()
     product_options = ["➕ 创建新产品"] + [p["name"] for p in products]
 
     selected_option = st.selectbox("选择产品", product_options)
@@ -148,15 +149,13 @@ def render_upload():
                                             st.success("✅ 分析完成！")
 
                                 except Exception as e:
-                                    st.error(f"导入失败: {str(e)}")
-                                    logger.error(f"导入失败: {e}")
+                                    safe_error("数据导入", e)
 
                 else:
                     st.error("文件解析失败或为空")
 
             except Exception as e:
-                st.error(f"解析失败: {str(e)}")
-                logger.error(f"文件解析失败: {e}")
+                safe_error("文件解析", e)
 
     # 使用说明
     with st.expander("📖 使用说明"):
@@ -205,14 +204,12 @@ def run_analysis(db, product_id: int):
 
     # 保存结果
     for result in results:
-        db.save_analysis_result(
+        db.save_analysis_result_by_term(
             product_id=product_id,
             term=result.term,
-            term_type=result.term_type,
             triggered_rule=result.triggered_rule,
             suggested_action=result.suggested_action,
             action_type=result.action_type,
             confidence=result.confidence,
-            need_ai_judgment=result.need_ai_judgment,
-            data=result.data,
+            ai_reasoning=result.ai_reasoning,
         )

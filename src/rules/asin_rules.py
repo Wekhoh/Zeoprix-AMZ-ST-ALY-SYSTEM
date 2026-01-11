@@ -12,8 +12,21 @@ from src.config.logger import get_logger
 
 logger = get_logger(__name__)
 
-# ASIN格式：B开头，共10位字母数字
-ASIN_PATTERN = re.compile(r"^B0[A-Z0-9]{8}$")
+# ============ ASIN常量配置 ============
+# 北美站ASIN前缀（可扩展支持其他站点）
+ASIN_PREFIX = "B0"
+# ASIN总长度（前缀 + 8位字母数字）
+ASIN_LENGTH = 10
+# ASIN格式正则：B0开头，共10位字母数字
+ASIN_PATTERN = re.compile(rf"^{ASIN_PREFIX}[A-Z0-9]{{{ASIN_LENGTH - len(ASIN_PREFIX)}}}$")
+
+# ============ 分析阈值配置 ============
+# ACOS阈值：低于此值认为投放效果好
+GOOD_ACOS_THRESHOLD = 0.3
+# 花费阈值：高于此值且无订单则建议否定
+HIGH_SPEND_THRESHOLD = 10.0
+# 洞察报告中的Top/Bottom数量
+INSIGHT_TOP_COUNT = 5
 
 
 @dataclass
@@ -68,12 +81,12 @@ def analyze_asin(row: pd.Series, config: dict) -> ASINAnalysis | None:
     else:
         # 竞品ASIN分析
         if performance["orders"] > 0:
-            if performance["acos"] < 0.3:
+            if performance["acos"] < GOOD_ACOS_THRESHOLD:
                 suggested_action = "保留投放"  # 投放竞品效果好
             else:
                 suggested_action = "评估"  # 效果一般，需评估
         else:
-            if performance["spend"] > 10:
+            if performance["spend"] > HIGH_SPEND_THRESHOLD:
                 suggested_action = "否定"  # 高花费无转化
             else:
                 suggested_action = "监控"  # 低花费，继续观察
@@ -175,6 +188,6 @@ def get_competitor_insights(competitor_asins: list[ASINAnalysis]) -> dict:
         "total_spend": total_spend,
         "total_orders": total_orders,
         "avg_acos": avg_acos,
-        "top_performers": sorted_by_orders[:5],
-        "worst_performers": sorted_by_orders[-5:] if len(sorted_by_orders) > 5 else [],
+        "top_performers": sorted_by_orders[:INSIGHT_TOP_COUNT],
+        "worst_performers": sorted_by_orders[-INSIGHT_TOP_COUNT:] if len(sorted_by_orders) > INSIGHT_TOP_COUNT else [],
     }

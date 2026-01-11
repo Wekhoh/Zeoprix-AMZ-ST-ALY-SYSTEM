@@ -3,10 +3,11 @@
 核心分析界面，支持多维筛选和AI分析
 """
 
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
 from src.config.logger import get_logger
+from src.ui.utils import safe_error
 
 logger = get_logger(__name__)
 
@@ -99,7 +100,8 @@ def render_analysis():
         observe_count = len([r for r in results if r["action_type"] == "observe"])
         st.metric("继续观察", observe_count)
     with col4:
-        ai_pending = len([r for r in results if r["need_ai_judgment"]])
+        # need_ai_judgment 列不存在，用 confidence < 1.0 判断
+        ai_pending = len([r for r in results if r.get("confidence", 1.0) < 1.0])
         st.metric("待AI确认", ai_pending)
 
     st.divider()
@@ -110,7 +112,7 @@ def render_analysis():
     # 格式化显示
     display_df = df[["term", "term_type", "triggered_rule", "suggested_action", "action_type", "confidence"]].copy()
     display_df.columns = ["搜索词", "类型", "触发规则", "建议操作", "动作类型", "置信度"]
-    display_df["置信度"] = display_df["置信度"].apply(lambda x: f"{x:.0%}")
+    display_df["置信度"] = display_df["置信度"].apply(lambda x: f"{x:.2%}")
 
     # 使用 data_editor 支持选择
     st.dataframe(
@@ -136,12 +138,18 @@ def render_analysis():
 
     with col1:
         if st.button("🤖 AI分析待确认项", use_container_width=True):
-            ai_pending_items = [r for r in results if r["need_ai_judgment"]]
+            # need_ai_judgment 列不存在，用 confidence < 1.0 判断
+            ai_pending_items = [r for r in results if r.get("confidence", 1.0) < 1.0]
             if ai_pending_items:
-                with st.spinner("AI正在分析..."):
-                    analyze_with_ai(db, product_id, ai_pending_items)
-                    st.success("AI分析完成！")
-                    st.rerun()
+                # 使用进度条显示分析进度
+                total = len(ai_pending_items)
+                progress_bar = st.progress(0, text=f"AI分析中... 0/{total}")
+                success_count = analyze_with_ai(
+                    db, product_id, ai_pending_items, progress_bar
+                )
+                progress_bar.progress(1.0, text=f"分析完成: {success_count}/{total}")
+                st.success(f"AI分析完成！成功分析 {success_count}/{total} 个关键词")
+                st.rerun()
             else:
                 st.info("没有待AI确认的项目")
 
@@ -180,23 +188,29 @@ def get_analysis_results(
 ) -> list[dict]:
     """获取分析结果"""
     try:
-        results = db.get_analysis_results(product_id=product_id)
+        df = db.get_analysis_results(filters={"product_id": product_id})
+
+        if df.empty:
+            return []
+
+        results = df.to_dict("records")
 
         # 应用筛选
         if action_filter:
-            results = [r for r in results if r["action_type"] in action_filter]
+            results = [r for r in results if r.get("action_type") in action_filter]
 
         if term_type_filter:
-            results = [r for r in results if r["term_type"] in term_type_filter]
+            results = [r for r in results if r.get("term_type") in term_type_filter]
 
+        # 注意：analysis_results表没有need_ai_judgment列，改为检查confidence
         if ai_filter == "待AI确认":
-            results = [r for r in results if r["need_ai_judgment"]]
+            results = [r for r in results if r.get("confidence", 1.0) < 1.0]
         elif ai_filter == "已确认":
-            results = [r for r in results if not r["need_ai_judgment"]]
+            results = [r for r in results if r.get("confidence", 1.0) >= 1.0]
 
         if search_term:
             search_lower = search_term.lower()
-            results = [r for r in results if search_lower in r["term"].lower()]
+            results = [r for r in results if search_lower in str(r.get("term", "")).lower()]
 
         return results
     except Exception as e:
@@ -220,27 +234,54 @@ def run_full_analysis(db, product_id: int):
     engine = RuleEngine(db, product_id)
     results = engine.analyze(df)
 
-    # 清除旧结果
-    db.execute("DELETE FROM analysis_results WHERE product_id = ?", (product_id,))
+    # 清除旧结果 - 通过search_term_id关联删除
+    db.execute(
+        """
+        DELETE FROM analysis_results
+        WHERE search_term_id IN (
+            SELECT st.id FROM search_terms st
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ?
+        )
+        """,
+        (product_id,),
+    )
     db.commit()
 
     # 保存新结果
     for result in results:
-        db.save_analysis_result(
+        db.save_analysis_result_by_term(
             product_id=product_id,
             term=result.term,
-            term_type=result.term_type,
             triggered_rule=result.triggered_rule,
             suggested_action=result.suggested_action,
             action_type=result.action_type,
             confidence=result.confidence,
-            need_ai_judgment=result.need_ai_judgment,
-            data=result.data,
+            ai_reasoning=result.ai_reasoning,
         )
 
 
-def analyze_with_ai(db, product_id: int, items: list[dict]):
-    """使用AI分析待确认项"""
+def analyze_with_ai(
+    db,
+    product_id: int,
+    items: list[dict],
+    progress_bar=None,
+) -> int:
+    """
+    使用AI分析待确认项
+
+    Args:
+        db: 数据库实例
+        product_id: 产品ID
+        items: 待分析项目列表
+        progress_bar: Streamlit进度条对象（可选）
+
+    Returns:
+        成功分析的项目数量
+    """
+    success_count = 0
+    total = len(items)
+
     try:
         from src.ai.analyzer import AIAnalyzer
 
@@ -251,28 +292,49 @@ def analyze_with_ai(db, product_id: int, items: list[dict]):
 
         analyzer = AIAnalyzer()
 
-        for item in items:
-            result = analyzer.judge_relevance(
-                keyword=item["term"],
-                product_context=product_context,
-            )
+        for idx, item in enumerate(items):
+            term = item["term"]
 
-            # 更新分析结果
-            new_action = result.suggested_action
-            db.execute(
-                """
-                UPDATE analysis_results
-                SET suggested_action = ?, need_ai_judgment = 0, ai_reasoning = ?
-                WHERE product_id = ? AND term = ?
-                """,
-                (new_action, result.reason, product_id, item["term"]),
-            )
+            # 更新进度条
+            if progress_bar is not None:
+                progress = (idx + 1) / total
+                progress_bar.progress(
+                    progress,
+                    text=f"AI分析中... {idx + 1}/{total}: {term[:30]}{'...' if len(term) > 30 else ''}",
+                )
+
+            try:
+                result = analyzer.judge_relevance(
+                    keyword=term,
+                    product_context=product_context,
+                )
+
+                # 更新分析结果 - 通过 search_term_id 关联更新
+                new_action = result.suggested_action
+                db.execute(
+                    """
+                    UPDATE analysis_results
+                    SET suggested_action = ?, confidence = 1.0, ai_reasoning = ?
+                    WHERE search_term_id IN (
+                        SELECT st.id FROM search_terms st
+                        JOIN campaigns c ON st.campaign_id = c.id
+                        WHERE c.product_id = ? AND st.term = ?
+                    )
+                    """,
+                    (new_action, result.reason, product_id, term),
+                )
+                success_count += 1
+
+            except Exception as e:
+                logger.warning(f"分析关键词 '{term}' 失败: {e}")
+                # 单个失败不影响其他项目的分析
 
         db.commit()
 
     except Exception as e:
-        logger.error(f"AI分析失败: {e}")
-        st.error(f"AI分析失败: {str(e)}")
+        safe_error("AI分析", e)
+
+    return success_count
 
 
 def export_results(db, product_id: int, result_type: str):
@@ -281,11 +343,19 @@ def export_results(db, product_id: int, result_type: str):
         from src.export.exporter import ReportExporter
         from src.rules.engine import AnalysisResult
 
-        results_data = db.get_analysis_results(product_id=product_id)
+        df = db.get_analysis_results(filters={"product_id": product_id})
+
+        if df.empty:
+            st.warning("没有可导出的数据")
+            return
+
+        results_data = df.to_dict("records")
 
         # 转换为 AnalysisResult 对象
         results = []
         for r in results_data:
+            # need_ai_judgment 根据 confidence 推断（<1.0 表示需要AI确认）
+            need_ai = r.get("confidence", 1.0) < 1.0
             results.append(AnalysisResult(
                 term=r["term"],
                 term_type=r["term_type"],
@@ -293,8 +363,8 @@ def export_results(db, product_id: int, result_type: str):
                 suggested_action=r["suggested_action"],
                 action_type=r["action_type"],
                 confidence=r["confidence"],
-                need_ai_judgment=r["need_ai_judgment"],
-                data=r.get("data", {}),
+                need_ai_judgment=need_ai,
+                data={},
             ))
 
         exporter = ReportExporter()
@@ -319,8 +389,7 @@ def export_results(db, product_id: int, result_type: str):
             st.warning("没有可导出的数据")
 
     except Exception as e:
-        logger.error(f"导出失败: {e}")
-        st.error(f"导出失败: {str(e)}")
+        safe_error("导出", e)
 
 
 def render_detail_panel(result: dict):
@@ -333,7 +402,7 @@ def render_detail_panel(result: dict):
         st.write(f"• 类型: {result['term_type']}")
         st.write(f"• 触发规则: {result['triggered_rule']}")
         st.write(f"• 建议操作: {result['suggested_action']}")
-        st.write(f"• 置信度: {result['confidence']:.0%}")
+        st.write(f"• 置信度: {result['confidence']:.2%}")
 
     with col2:
         st.write("**表现数据**")

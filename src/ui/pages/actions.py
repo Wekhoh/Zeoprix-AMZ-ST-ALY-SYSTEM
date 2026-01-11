@@ -3,10 +3,11 @@
 展示待执行的否词和手动投放操作
 """
 
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
 from src.config.logger import get_logger
+from src.ui.utils import safe_error
 
 logger = get_logger(__name__)
 
@@ -49,8 +50,12 @@ def render_negative_actions(db, product_id: int):
     """渲染否词操作清单"""
     st.write("### 待否定关键词")
 
-    # 获取需要否定的词
-    results = db.get_analysis_results(product_id=product_id)
+    # 获取需要否定的词 - 使用 filters 参数，返回 DataFrame
+    df = db.get_analysis_results(filters={"product_id": product_id})
+    if df.empty:
+        st.info("暂无待否定的关键词")
+        return
+    results = df.to_dict("records")
     negative_items = [r for r in results if r["action_type"] == "negative"]
 
     if not negative_items:
@@ -132,8 +137,12 @@ def render_manual_actions(db, product_id: int):
     """渲染手动投放操作清单"""
     st.write("### 推荐手动投放关键词")
 
-    # 获取需要手动投放的词
-    results = db.get_analysis_results(product_id=product_id)
+    # 获取需要手动投放的词 - 使用 filters 参数，返回 DataFrame
+    df = db.get_analysis_results(filters={"product_id": product_id})
+    if df.empty:
+        st.info("暂无推荐手动投放的关键词")
+        return
+    results = df.to_dict("records")
     manual_items = [r for r in results if r["action_type"] == "manual"]
 
     if not manual_items:
@@ -214,12 +223,21 @@ def render_action_history(db, product_id: int):
     st.write("### 操作历史")
 
     # 获取操作计划历史
+    # action_plans 表没有 product_id，需要通过 analysis_results -> search_terms -> campaigns 关联
     try:
         cursor = db.execute(
             """
-            SELECT * FROM action_plans
-            WHERE product_id = ?
-            ORDER BY created_at DESC
+            SELECT
+                ap.created_at,
+                ap.action as action_type,
+                st.term,
+                ap.status
+            FROM action_plans ap
+            JOIN analysis_results ar ON ap.analysis_result_id = ar.id
+            JOIN search_terms st ON ar.search_term_id = st.id
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ?
+            ORDER BY ap.created_at DESC
             LIMIT 50
             """,
             (product_id,),
@@ -255,7 +273,7 @@ def calculate_acos(item: dict) -> str:
 
     if sales > 0:
         acos = spend / sales
-        return f"{acos:.1%}"
+        return f"{acos:.2%}"
     return "N/A"
 
 
@@ -285,11 +303,19 @@ def export_negative_excel(db, product_id: int):
         from src.export.exporter import ReportExporter
         from src.rules.engine import AnalysisResult
 
-        results_data = db.get_analysis_results(product_id=product_id)
+        df = db.get_analysis_results(filters={"product_id": product_id})
+
+        if df.empty:
+            st.warning("没有可导出的数据")
+            return
+
+        results_data = df.to_dict("records")
 
         # 转换为 AnalysisResult 对象
+        # need_ai_judgment 根据 confidence 推断（<1.0 表示需要AI确认）
         results = []
         for r in results_data:
+            need_ai = r.get("confidence", 1.0) < 1.0
             results.append(AnalysisResult(
                 term=r["term"],
                 term_type=r["term_type"],
@@ -297,7 +323,7 @@ def export_negative_excel(db, product_id: int):
                 suggested_action=r["suggested_action"],
                 action_type=r["action_type"],
                 confidence=r["confidence"],
-                need_ai_judgment=r["need_ai_judgment"],
+                need_ai_judgment=need_ai,
                 data=r.get("data", {}),
             ))
 
@@ -317,8 +343,7 @@ def export_negative_excel(db, product_id: int):
             st.warning("没有可导出的数据")
 
     except Exception as e:
-        logger.error(f"导出失败: {e}")
-        st.error(f"导出失败: {str(e)}")
+        safe_error("导出", e)
 
 
 def export_negative_csv(db, product_id: int):
@@ -327,10 +352,18 @@ def export_negative_csv(db, product_id: int):
         from src.export.exporter import ReportExporter
         from src.rules.engine import AnalysisResult
 
-        results_data = db.get_analysis_results(product_id=product_id)
+        df = db.get_analysis_results(filters={"product_id": product_id})
 
+        if df.empty:
+            st.warning("没有可导出的数据")
+            return
+
+        results_data = df.to_dict("records")
+
+        # need_ai_judgment 根据 confidence 推断
         results = []
         for r in results_data:
+            need_ai = r.get("confidence", 1.0) < 1.0
             results.append(AnalysisResult(
                 term=r["term"],
                 term_type=r["term_type"],
@@ -338,7 +371,7 @@ def export_negative_csv(db, product_id: int):
                 suggested_action=r["suggested_action"],
                 action_type=r["action_type"],
                 confidence=r["confidence"],
-                need_ai_judgment=r["need_ai_judgment"],
+                need_ai_judgment=need_ai,
                 data=r.get("data", {}),
             ))
 
@@ -358,8 +391,7 @@ def export_negative_csv(db, product_id: int):
             st.warning("没有可导出的数据")
 
     except Exception as e:
-        logger.error(f"导出失败: {e}")
-        st.error(f"导出失败: {str(e)}")
+        safe_error("导出", e)
 
 
 def export_manual_excel(db, product_id: int):
@@ -368,10 +400,18 @@ def export_manual_excel(db, product_id: int):
         from src.export.exporter import ReportExporter
         from src.rules.engine import AnalysisResult
 
-        results_data = db.get_analysis_results(product_id=product_id)
+        df = db.get_analysis_results(filters={"product_id": product_id})
 
+        if df.empty:
+            st.warning("没有可导出的数据")
+            return
+
+        results_data = df.to_dict("records")
+
+        # need_ai_judgment 根据 confidence 推断
         results = []
         for r in results_data:
+            need_ai = r.get("confidence", 1.0) < 1.0
             results.append(AnalysisResult(
                 term=r["term"],
                 term_type=r["term_type"],
@@ -379,7 +419,7 @@ def export_manual_excel(db, product_id: int):
                 suggested_action=r["suggested_action"],
                 action_type=r["action_type"],
                 confidence=r["confidence"],
-                need_ai_judgment=r["need_ai_judgment"],
+                need_ai_judgment=need_ai,
                 data=r.get("data", {}),
             ))
 
@@ -399,5 +439,4 @@ def export_manual_excel(db, product_id: int):
             st.warning("没有可导出的数据")
 
     except Exception as e:
-        logger.error(f"导出失败: {e}")
-        st.error(f"导出失败: {str(e)}")
+        safe_error("导出", e)

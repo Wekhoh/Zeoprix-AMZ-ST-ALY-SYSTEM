@@ -18,25 +18,46 @@ logger = get_logger(__name__)
 class GeminiClient:
     """Gemini API 客户端"""
 
-    def __init__(self, api_key: str = None, model: str = None):
+    # 默认超时设置（秒）
+    DEFAULT_TIMEOUT = 60.0
+
+    def __init__(self, api_key: str = None, model: str = None, timeout: float = None):
         """
         初始化 Gemini 客户端
 
         Args:
             api_key: API密钥（默认从环境变量获取）
             model: 模型名称（默认 gemini-2.5-flash）
+            timeout: 默认超时时间（秒）
         """
         settings = Settings()
         # 显式检查 None，允许测试时传入空字符串
         self.api_key = api_key if api_key is not None else settings.gemini_api_key
-        self.model = model if model is not None else settings.gemini_model
+
+        # 动态模型选择：优先使用 session_state 中的模型，否则用默认配置
+        if model is not None:
+            self.model = model
+        else:
+            try:
+                import streamlit as st
+                if hasattr(st, 'session_state') and "selected_gemini_model" in st.session_state:
+                    self.model = st.session_state.selected_gemini_model
+                else:
+                    self.model = settings.gemini_model
+            except Exception:
+                # 非Streamlit环境下使用配置文件中的模型
+                self.model = settings.gemini_model
+        self.default_timeout = timeout or self.DEFAULT_TIMEOUT
 
         if not self.api_key:
             raise ValueError("未配置 GEMINI_API_KEY")
 
-        # 初始化客户端
-        self.client = genai.Client(api_key=self.api_key)
-        logger.info(f"Gemini客户端初始化成功，模型: {self.model}")
+        # 初始化客户端，配置HTTP选项（通过client_args传递timeout给httpx）
+        http_options = types.HttpOptions(
+            client_args={'timeout': self.default_timeout}
+        )
+        self.client = genai.Client(api_key=self.api_key, http_options=http_options)
+        logger.info(f"Gemini客户端初始化成功，模型: {self.model}, 超时: {self.default_timeout}s")
 
     def generate(
         self,
@@ -156,31 +177,47 @@ class GeminiClient:
 class ChatSession:
     """聊天会话，支持多轮对话"""
 
-    def __init__(self, client: GeminiClient, system_instruction: str = None):
+    # 默认最大历史轮数（每轮包含用户消息和AI回复）
+    DEFAULT_MAX_HISTORY_TURNS = 20
+
+    def __init__(
+        self,
+        client: GeminiClient,
+        system_instruction: str = None,
+        max_history_turns: int = None,
+    ):
         """
         初始化聊天会话
 
         Args:
             client: GeminiClient 实例
             system_instruction: 系统指令
+            max_history_turns: 最大历史轮数（每轮含user+assistant消息）
         """
         self.gemini_client = client
         self.system_instruction = system_instruction
+        self.max_history_turns = max_history_turns or self.DEFAULT_MAX_HISTORY_TURNS
         self.history: list[dict[str, str]] = []
 
         # 创建 Gemini 聊天
-        config = None
-        if system_instruction:
-            config = types.GenerateContentConfig(
-                system_instruction=system_instruction,
-            )
+        self._chat = self._create_chat()
 
-        self._chat = client.client.chats.create(
-            model=client.model,
-            config=config,
+        logger.debug(
+            f"聊天会话已创建，最大历史轮数: {self.max_history_turns}"
         )
 
-        logger.debug("聊天会话已创建")
+    def _create_chat(self):
+        """创建 Gemini 聊天对象"""
+        config = None
+        if self.system_instruction:
+            config = types.GenerateContentConfig(
+                system_instruction=self.system_instruction,
+            )
+
+        return self.gemini_client.client.chats.create(
+            model=self.gemini_client.model,
+            config=config,
+        )
 
     def send_message(
         self,
@@ -208,6 +245,9 @@ class ChatSession:
                     self.history.append({"role": "user", "content": message})
                     self.history.append({"role": "assistant", "content": response.text})
 
+                    # 检查并裁剪历史（滑动窗口）
+                    self._trim_history_if_needed()
+
                     logger.debug(f"对话回复成功，长度: {len(response.text)}")
                     return response.text
                 else:
@@ -222,6 +262,57 @@ class ChatSession:
                     logger.error(f"对话失败，已达最大重试次数: {e}")
                     raise
 
+    def _trim_history_if_needed(self) -> None:
+        """
+        滑动窗口：如果历史超过限制，裁剪并重建聊天会话
+
+        每轮对话包含2条消息（user + assistant），所以最大消息数 = max_history_turns * 2
+        """
+        max_messages = self.max_history_turns * 2
+
+        if len(self.history) <= max_messages:
+            return
+
+        # 计算需要移除的消息数（保留最近的 max_messages 条）
+        remove_count = len(self.history) - max_messages
+        # 确保移除偶数条消息（完整的对话轮次）
+        remove_count = (remove_count // 2) * 2
+
+        if remove_count <= 0:
+            return
+
+        logger.info(
+            f"对话历史超限，裁剪 {remove_count // 2} 轮对话 "
+            f"(当前 {len(self.history) // 2} 轮，限制 {self.max_history_turns} 轮)"
+        )
+
+        # 裁剪历史
+        self.history = self.history[remove_count:]
+
+        # 重建 Gemini 聊天并重放历史
+        self._rebuild_chat_with_history()
+
+    def _rebuild_chat_with_history(self) -> None:
+        """重建聊天会话并重放历史记录"""
+        self._chat = self._create_chat()
+
+        # 重放历史记录到新会话
+        # 注意：以 user/assistant 对的方式重放
+        for i in range(0, len(self.history), 2):
+            if i + 1 < len(self.history):
+                user_msg = self.history[i]["content"]
+                assistant_msg = self.history[i + 1]["content"]
+                try:
+                    # 发送用户消息并忽略响应（我们有自己的历史记录）
+                    # 使用 Gemini 的历史注入方式
+                    self._chat.send_message(user_msg)
+                except Exception as e:
+                    logger.warning(f"重放历史消息失败: {e}")
+                    # 如果重放失败，保留已有历史但停止重放
+                    break
+
+        logger.debug(f"聊天会话已重建，历史 {len(self.history) // 2} 轮")
+
     def get_history(self) -> list[dict[str, str]]:
         """获取对话历史"""
         return self.history.copy()
@@ -229,19 +320,7 @@ class ChatSession:
     def clear_history(self) -> None:
         """清空对话历史并重建会话"""
         self.history.clear()
-
-        # 重新创建聊天
-        config = None
-        if self.system_instruction:
-            config = types.GenerateContentConfig(
-                system_instruction=self.system_instruction,
-            )
-
-        self._chat = self.gemini_client.client.chats.create(
-            model=self.gemini_client.model,
-            config=config,
-        )
-
+        self._chat = self._create_chat()
         logger.debug("对话历史已清空")
 
 

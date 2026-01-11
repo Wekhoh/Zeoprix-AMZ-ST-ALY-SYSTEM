@@ -46,6 +46,9 @@ if (-not (Test-Path ".env")) {
 }
 Write-Host "[OK] 配置文件就绪" -ForegroundColor Green
 
+# 设置Python路径（解决模块导入问题）
+$env:PYTHONPATH = $PSScriptRoot
+
 # 启动应用
 Write-Host "[3/3] 启动应用..." -ForegroundColor Yellow
 Write-Host ""

@@ -3,10 +3,12 @@
 管理规则配置、产品配置和系统参数
 """
 
-import streamlit as st
 import json
 
+import streamlit as st
+
 from src.config.logger import get_logger
+from src.ui.utils import safe_error
 
 logger = get_logger(__name__)
 
@@ -175,8 +177,7 @@ def render_rule_settings(db, product_id: int):
                 st.success("✅ 配置已保存！")
                 st.rerun()
             except Exception as e:
-                logger.error(f"保存配置失败: {e}")
-                st.error(f"保存失败: {str(e)}")
+                safe_error("配置保存", e)
 
     with col2:
         if st.button("🔄 恢复默认", use_container_width=True):
@@ -186,8 +187,7 @@ def render_rule_settings(db, product_id: int):
                 st.success("✅ 已恢复默认配置！")
                 st.rerun()
             except Exception as e:
-                logger.error(f"恢复默认配置失败: {e}")
-                st.error(f"恢复失败: {str(e)}")
+                safe_error("配置恢复", e)
 
     # 版本历史
     st.divider()
@@ -275,8 +275,7 @@ def render_product_settings(db, product_id: int):
 
             st.success("✅ 产品信息已保存！")
         except Exception as e:
-            logger.error(f"保存产品信息失败: {e}")
-            st.error(f"保存失败: {str(e)}")
+            safe_error("产品信息保存", e)
 
 
 def render_api_settings():
@@ -294,14 +293,45 @@ def render_api_settings():
 
     with col1:
         st.write("**Gemini API**")
-        if settings.gemini_api_key:
+        if settings.is_api_configured:
             st.success(f"✅ 已配置 (****{settings.gemini_api_key[-4:]})")
         else:
-            st.warning("⚠️ 未配置")
+            st.error("❌ 未配置 - 请在 .env 文件中设置有效的 GEMINI_API_KEY")
 
     with col2:
         st.write("**使用模型**")
-        st.info(settings.gemini_model)
+        from src.config.settings import AVAILABLE_GEMINI_MODELS
+
+        # 初始化session中的模型选择
+        if "selected_gemini_model" not in st.session_state:
+            st.session_state.selected_gemini_model = settings.gemini_model
+
+        model_ids = [m[0] for m in AVAILABLE_GEMINI_MODELS]
+        model_labels = [m[1] for m in AVAILABLE_GEMINI_MODELS]
+
+        # 获取当前索引
+        current_model = st.session_state.selected_gemini_model
+        try:
+            current_index = model_ids.index(current_model)
+        except ValueError:
+            current_index = 0  # 默认第一个
+
+        selected_index = st.selectbox(
+            "选择模型",
+            options=range(len(model_labels)),
+            index=current_index,
+            format_func=lambda i: model_labels[i],
+            key="model_selector",
+            label_visibility="collapsed",
+        )
+
+        selected_model = model_ids[selected_index]
+
+        # 更新session_state
+        if selected_model != st.session_state.selected_gemini_model:
+            st.session_state.selected_gemini_model = selected_model
+            st.success(f"✅ 已切换到 {model_labels[selected_index]}")
+            st.rerun()
 
     st.divider()
 
@@ -331,16 +361,25 @@ def render_data_management(db, product_id: int):
     st.write("#### 📊 数据统计")
 
     try:
-        # 搜索词数量
+        # 搜索词数量 - search_terms 没有 product_id，需要通过 campaigns 关联
         cursor = db.execute(
-            "SELECT COUNT(*) as count FROM search_terms WHERE product_id = ?",
+            """
+            SELECT COUNT(*) as count FROM search_terms st
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ?
+            """,
             (product_id,),
         )
         term_count = cursor.fetchone()["count"]
 
-        # 分析结果数量
+        # 分析结果数量 - analysis_results 没有 product_id，需要通过 search_terms→campaigns 关联
         cursor = db.execute(
-            "SELECT COUNT(*) as count FROM analysis_results WHERE product_id = ?",
+            """
+            SELECT COUNT(*) as count FROM analysis_results ar
+            JOIN search_terms st ON ar.search_term_id = st.id
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ?
+            """,
             (product_id,),
         )
         result_count = cursor.fetchone()["count"]
@@ -380,9 +419,16 @@ def render_data_management(db, product_id: int):
                 try:
                     from src.ui.pages.upload import run_analysis
 
-                    # 清除旧结果
+                    # 清除旧结果 - 通过 search_term_id 关联删除
                     db.execute(
-                        "DELETE FROM analysis_results WHERE product_id = ?",
+                        """
+                        DELETE FROM analysis_results
+                        WHERE search_term_id IN (
+                            SELECT st.id FROM search_terms st
+                            JOIN campaigns c ON st.campaign_id = c.id
+                            WHERE c.product_id = ?
+                        )
+                        """,
                         (product_id,),
                     )
                     db.commit()
@@ -390,21 +436,27 @@ def render_data_management(db, product_id: int):
                     run_analysis(db, product_id)
                     st.success("✅ 分析完成！")
                 except Exception as e:
-                    logger.error(f"重新分析失败: {e}")
-                    st.error(f"分析失败: {str(e)}")
+                    safe_error("数据分析", e)
 
     with col2:
         if st.button("🗑️ 清除分析结果", use_container_width=True):
             try:
+                # 通过 search_term_id 关联删除
                 db.execute(
-                    "DELETE FROM analysis_results WHERE product_id = ?",
+                    """
+                    DELETE FROM analysis_results
+                    WHERE search_term_id IN (
+                        SELECT st.id FROM search_terms st
+                        JOIN campaigns c ON st.campaign_id = c.id
+                        WHERE c.product_id = ?
+                    )
+                    """,
                     (product_id,),
                 )
                 db.commit()
                 st.success("✅ 分析结果已清除！")
             except Exception as e:
-                logger.error(f"清除分析结果失败: {e}")
-                st.error(f"清除失败: {str(e)}")
+                safe_error("分析结果清除", e)
 
     st.divider()
 
@@ -425,11 +477,45 @@ def render_data_management(db, product_id: int):
         if st.button("🗑️ 永久删除", type="secondary"):
             if confirm_text == product_name:
                 try:
-                    # 删除相关数据
-                    db.execute("DELETE FROM search_terms WHERE product_id = ?", (product_id,))
-                    db.execute("DELETE FROM analysis_results WHERE product_id = ?", (product_id,))
+                    # 删除相关数据 - 注意顺序：先删子表，再删父表
+                    # 1. 先删 analysis_results（通过 search_term_id 关联）
+                    db.execute(
+                        """
+                        DELETE FROM analysis_results
+                        WHERE search_term_id IN (
+                            SELECT st.id FROM search_terms st
+                            JOIN campaigns c ON st.campaign_id = c.id
+                            WHERE c.product_id = ?
+                        )
+                        """,
+                        (product_id,),
+                    )
+                    # 2. 删 search_terms（通过 campaign_id 关联）
+                    db.execute(
+                        """
+                        DELETE FROM search_terms
+                        WHERE campaign_id IN (
+                            SELECT id FROM campaigns WHERE product_id = ?
+                        )
+                        """,
+                        (product_id,),
+                    )
+                    # 3. 删 action_plans（通过 analysis_results -> search_terms -> campaigns 关联）
+                    db.execute(
+                        """
+                        DELETE FROM action_plans
+                        WHERE analysis_result_id IN (
+                            SELECT ar.id FROM analysis_results ar
+                            JOIN search_terms st ON ar.search_term_id = st.id
+                            JOIN campaigns c ON st.campaign_id = c.id
+                            WHERE c.product_id = ?
+                        )
+                        """,
+                        (product_id,),
+                    )
+                    # 4. 删 campaigns（有 product_id）
                     db.execute("DELETE FROM campaigns WHERE product_id = ?", (product_id,))
-                    db.execute("DELETE FROM action_plans WHERE product_id = ?", (product_id,))
+                    # 5. 最后删 products
                     db.execute("DELETE FROM products WHERE id = ?", (product_id,))
                     db.commit()
 
@@ -437,8 +523,7 @@ def render_data_management(db, product_id: int):
                     st.success("✅ 产品已删除！")
                     st.rerun()
                 except Exception as e:
-                    logger.error(f"删除产品失败: {e}")
-                    st.error(f"删除失败: {str(e)}")
+                    safe_error("产品删除", e)
             else:
                 st.error("产品名称不匹配，请重新输入")
 
@@ -512,7 +597,7 @@ def render_config_history(db, product_id: int):
                         st.success("✅ 已回滚！")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"回滚失败: {str(e)}")
+                        safe_error("配置回滚", e)
 
                 st.divider()
 

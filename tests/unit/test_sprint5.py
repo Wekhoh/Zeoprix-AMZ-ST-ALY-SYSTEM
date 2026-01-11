@@ -393,7 +393,7 @@ class TestUIHelperFunctions:
             }
         }
         result = calculate_acos(item)
-        assert result == "50.0%"
+        assert result == "50.00%"
 
     def test_actions_calculate_acos_zero_sales(self):
         """测试零销售ACOS计算"""

@@ -8,6 +8,15 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# 可用的Gemini模型列表 (model_id, display_name)
+AVAILABLE_GEMINI_MODELS = [
+    ("gemini-2.5-flash", "Gemini 2.5 Flash (推荐)"),
+    ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+    ("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite"),
+    ("gemini-3-flash", "Gemini 3 Flash (预览)"),
+    ("gemini-3-pro", "Gemini 3 Pro (预览)"),
+]
+
 
 class Settings:
     """应用配置类"""

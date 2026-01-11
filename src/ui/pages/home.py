@@ -10,6 +10,33 @@ from src.config.logger import get_logger
 logger = get_logger(__name__)
 
 
+# 缓存时间（秒）
+CACHE_TTL = 60
+
+
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+def get_all_dashboard_data(_db, product_id: int = None) -> dict:
+    """
+    批量获取仪表盘所有统计数据（减少数据库往返次数）
+
+    Args:
+        _db: 数据库连接（前缀_表示不参与缓存key计算）
+        product_id: 产品ID
+
+    Returns:
+        包含 dashboard_stats, pending_stats, rule_stats 的字典
+    """
+    dashboard_stats = _get_dashboard_stats_impl(_db, product_id)
+    pending_stats = _get_pending_stats_impl(_db, product_id)
+    rule_stats = _get_rule_stats_impl(_db, product_id) if dashboard_stats["term_count"] > 0 else {}
+
+    return {
+        "dashboard_stats": dashboard_stats,
+        "pending_stats": pending_stats,
+        "rule_stats": rule_stats,
+    }
+
+
 def render_home():
     """渲染首页"""
     st.title("📊 搜索词分析仪表盘")
@@ -21,8 +48,9 @@ def render_home():
         st.error("数据库未初始化")
         return
 
-    # 获取统计数据
-    stats = get_dashboard_stats(db, product_id)
+    # 批量获取所有统计数据（单次缓存调用替代3次独立查询）
+    all_data = get_all_dashboard_data(db, product_id)
+    stats = all_data["dashboard_stats"]
 
     # 关键指标卡片
     col1, col2, col3, col4 = st.columns(4)
@@ -44,7 +72,7 @@ def render_home():
     with col3:
         st.metric(
             label="整体ACOS",
-            value=f"{stats['acos']:.1%}" if stats['acos'] > 0 else "N/A",
+            value=f"{stats['acos']:.2%}" if stats['acos'] > 0 else "N/A",
             delta=None,
         )
 
@@ -63,7 +91,7 @@ def render_home():
     with col_left:
         st.subheader("⚠️ 待处理项")
 
-        pending_stats = get_pending_stats(db, product_id)
+        pending_stats = all_data["pending_stats"]
 
         if pending_stats["negative_count"] > 0:
             st.warning(f"🔴 {pending_stats['negative_count']} 个词需要否定")
@@ -84,20 +112,29 @@ def render_home():
 
         with col_btn1:
             if st.button("📤 上传新数据", use_container_width=True):
-                st.session_state.page = "文件上传"
+                st.session_state.nav_page = "文件上传"
+                # 删除 nav_radio 状态，让 st.radio 使用新的 index
+                if "nav_radio" in st.session_state:
+                    del st.session_state.nav_radio
                 st.rerun()
 
             if st.button("📋 查看操作清单", use_container_width=True):
-                st.session_state.page = "操作清单"
+                st.session_state.nav_page = "操作清单"
+                if "nav_radio" in st.session_state:
+                    del st.session_state.nav_radio
                 st.rerun()
 
         with col_btn2:
             if st.button("🔍 分析搜索词", use_container_width=True):
-                st.session_state.page = "搜索词分析"
+                st.session_state.nav_page = "搜索词分析"
+                if "nav_radio" in st.session_state:
+                    del st.session_state.nav_radio
                 st.rerun()
 
             if st.button("⚙️ 系统设置", use_container_width=True):
-                st.session_state.page = "系统设置"
+                st.session_state.nav_page = "系统设置"
+                if "nav_radio" in st.session_state:
+                    del st.session_state.nav_radio
                 st.rerun()
 
     st.divider()
@@ -106,8 +143,8 @@ def render_home():
     st.subheader("📈 数据概览")
 
     if stats["term_count"] > 0:
-        # 按规则分类统计
-        rule_stats = get_rule_stats(db, product_id)
+        # 使用缓存的规则统计数据
+        rule_stats = all_data["rule_stats"]
 
         if rule_stats:
             chart_data = {
@@ -119,22 +156,32 @@ def render_home():
         st.info("暂无数据，请先上传搜索词报告")
 
 
-def get_dashboard_stats(db, product_id: int = None) -> dict:
-    """获取仪表盘统计数据"""
+def _get_dashboard_stats_impl(db, product_id: int = None) -> dict:
+    """获取仪表盘统计数据（内部实现）"""
     try:
-        query = """
-            SELECT
-                COUNT(DISTINCT term) as term_count,
-                COALESCE(SUM(spend), 0) as total_spend,
-                COALESCE(SUM(orders), 0) as total_orders,
-                COALESCE(SUM(sales), 0) as total_sales
-            FROM search_terms
-        """
-        params = ()
-
+        # search_terms 表没有 product_id，需要通过 campaigns 关联
         if product_id:
-            query += " WHERE product_id = ?"
+            query = """
+                SELECT
+                    COUNT(DISTINCT st.term) as term_count,
+                    COALESCE(SUM(st.spend), 0) as total_spend,
+                    COALESCE(SUM(st.orders), 0) as total_orders,
+                    COALESCE(SUM(st.sales), 0) as total_sales
+                FROM search_terms st
+                JOIN campaigns c ON st.campaign_id = c.id
+                WHERE c.product_id = ?
+            """
             params = (product_id,)
+        else:
+            query = """
+                SELECT
+                    COUNT(DISTINCT term) as term_count,
+                    COALESCE(SUM(spend), 0) as total_spend,
+                    COALESCE(SUM(orders), 0) as total_orders,
+                    COALESCE(SUM(sales), 0) as total_sales
+                FROM search_terms
+            """
+            params = ()
 
         cursor = db.execute(query, params)
         row = cursor.fetchone()
@@ -169,23 +216,34 @@ def get_dashboard_stats(db, product_id: int = None) -> dict:
         }
 
 
-def get_pending_stats(db, product_id: int = None) -> dict:
-    """获取待处理项统计"""
+def _get_pending_stats_impl(db, product_id: int = None) -> dict:
+    """获取待处理项统计（内部实现）"""
     try:
-        query = """
-            SELECT
-                action_type,
-                need_ai_judgment,
-                COUNT(*) as count
-            FROM analysis_results
-        """
-        params = ()
-
+        # analysis_results 表没有 product_id，需要通过 search_terms 和 campaigns 关联
+        # 也没有 need_ai_judgment 列，用 confidence < 1.0 代替
         if product_id:
-            query += " WHERE product_id = ?"
+            query = """
+                SELECT
+                    ar.action_type,
+                    ar.confidence,
+                    COUNT(*) as count
+                FROM analysis_results ar
+                JOIN search_terms st ON ar.search_term_id = st.id
+                JOIN campaigns c ON st.campaign_id = c.id
+                WHERE c.product_id = ?
+                GROUP BY ar.action_type, CASE WHEN ar.confidence < 1.0 THEN 1 ELSE 0 END
+            """
             params = (product_id,)
-
-        query += " GROUP BY action_type, need_ai_judgment"
+        else:
+            query = """
+                SELECT
+                    action_type,
+                    confidence,
+                    COUNT(*) as count
+                FROM analysis_results
+                GROUP BY action_type, CASE WHEN confidence < 1.0 THEN 1 ELSE 0 END
+            """
+            params = ()
 
         cursor = db.execute(query, params)
         rows = cursor.fetchall()
@@ -201,7 +259,8 @@ def get_pending_stats(db, product_id: int = None) -> dict:
                 stats["negative_count"] += row["count"]
             elif row["action_type"] == "manual":
                 stats["manual_count"] += row["count"]
-            if row["need_ai_judgment"]:
+            # 用 confidence < 1.0 判断是否需要AI确认
+            if row["confidence"] is not None and row["confidence"] < 1.0:
                 stats["ai_pending_count"] += row["count"]
 
         return stats
@@ -214,20 +273,31 @@ def get_pending_stats(db, product_id: int = None) -> dict:
         }
 
 
-def get_rule_stats(db, product_id: int = None) -> dict:
-    """获取规则触发统计"""
+def _get_rule_stats_impl(db, product_id: int = None) -> dict:
+    """获取规则触发统计（内部实现）"""
     try:
-        query = """
-            SELECT triggered_rule, COUNT(*) as count
-            FROM analysis_results
-        """
-        params = ()
-
+        # analysis_results 表没有 product_id，需要通过 search_terms 和 campaigns 关联
         if product_id:
-            query += " WHERE product_id = ?"
+            query = """
+                SELECT ar.triggered_rule, COUNT(*) as count
+                FROM analysis_results ar
+                JOIN search_terms st ON ar.search_term_id = st.id
+                JOIN campaigns c ON st.campaign_id = c.id
+                WHERE c.product_id = ?
+                GROUP BY ar.triggered_rule
+                ORDER BY count DESC
+                LIMIT 10
+            """
             params = (product_id,)
-
-        query += " GROUP BY triggered_rule ORDER BY count DESC LIMIT 10"
+        else:
+            query = """
+                SELECT triggered_rule, COUNT(*) as count
+                FROM analysis_results
+                GROUP BY triggered_rule
+                ORDER BY count DESC
+                LIMIT 10
+            """
+            params = ()
 
         cursor = db.execute(query, params)
         rows = cursor.fetchall()
@@ -236,3 +306,19 @@ def get_rule_stats(db, product_id: int = None) -> dict:
     except Exception as e:
         logger.error(f"获取规则统计失败: {e}")
         return {}
+
+
+# 公开API（向后兼容）
+def get_dashboard_stats(db, product_id: int = None) -> dict:
+    """获取仪表盘统计数据（公开API，用于测试）"""
+    return _get_dashboard_stats_impl(db, product_id)
+
+
+def get_pending_stats(db, product_id: int = None) -> dict:
+    """获取待处理项统计（公开API，用于测试）"""
+    return _get_pending_stats_impl(db, product_id)
+
+
+def get_rule_stats(db, product_id: int = None) -> dict:
+    """获取规则触发统计（公开API，用于测试）"""
+    return _get_rule_stats_impl(db, product_id)

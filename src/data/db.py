@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 
 from src.data.models import ALL_SCHEMAS, DEFAULT_RULES, INDEXES
+from src.rules.asin_rules import is_valid_asin
 
 
 class Database:
@@ -151,17 +152,30 @@ class Database:
 
     def update_product(self, product_id: int, **kwargs) -> None:
         """更新产品信息"""
+        if not kwargs:
+            return  # 没有要更新的字段
+
+        # 白名单验证防止SQL注入
+        VALID_COLUMNS = {"name", "asin", "category", "config"}
+        invalid_cols = set(kwargs.keys()) - VALID_COLUMNS
+        if invalid_cols:
+            raise ValueError(f"Invalid column names: {invalid_cols}")
+
         if "config" in kwargs and isinstance(kwargs["config"], dict):
             kwargs["config"] = json.dumps(kwargs["config"])
 
         set_clause = ", ".join([f"{k} = ?" for k in kwargs.keys()])
         values = list(kwargs.values()) + [product_id]
 
-        self.conn.execute(
-            f"UPDATE products SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            tuple(values),
-        )
-        self.conn.commit()
+        try:
+            self.conn.execute(
+                f"UPDATE products SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                tuple(values),
+            )
+            self.conn.commit()
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            raise RuntimeError(f"更新产品失败: {e}") from e
 
     # ==================== 广告活动操作 ====================
 
@@ -230,16 +244,9 @@ class Database:
 
         rows = []
         for _, row in df.iterrows():
-            # 判断是否为ASIN（B开头的10位字符，如B0XXXXXXXXX）
+            # 使用统一的ASIN验证函数
             term = str(row.get("term", ""))
-            # ASIN格式：B开头，后跟9位字母数字，共10位
-            is_asin = (
-                len(term) == 10
-                and term[0] == "B"
-                and term[1] == "0"
-                and term[2:].isalnum()
-            )
-            term_type = "asin" if is_asin else "keyword"
+            term_type = "asin" if is_valid_asin(term) else "keyword"
 
             rows.append(
                 (
@@ -344,14 +351,27 @@ class Database:
 
     def update_rule(self, rule_id: int, **kwargs) -> None:
         """更新规则"""
+        if not kwargs:
+            return  # 没有要更新的字段
+
+        # 白名单验证防止SQL注入
+        VALID_COLUMNS = {"name", "rule_type", "conditions", "action", "priority", "enabled"}
+        invalid_cols = set(kwargs.keys()) - VALID_COLUMNS
+        if invalid_cols:
+            raise ValueError(f"Invalid column names: {invalid_cols}")
+
         if "conditions" in kwargs and isinstance(kwargs["conditions"], dict):
             kwargs["conditions"] = json.dumps(kwargs["conditions"])
 
         set_clause = ", ".join([f"{k} = ?" for k in kwargs.keys()])
         values = list(kwargs.values()) + [rule_id]
 
-        self.conn.execute(f"UPDATE rules SET {set_clause} WHERE id = ?", tuple(values))
-        self.conn.commit()
+        try:
+            self.conn.execute(f"UPDATE rules SET {set_clause} WHERE id = ?", tuple(values))
+            self.conn.commit()
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            raise RuntimeError(f"更新规则失败: {e}") from e
 
     # ==================== 规则版本操作 ====================
 
@@ -437,6 +457,55 @@ class Database:
         self.conn.commit()
         return cursor.lastrowid
 
+    def save_analysis_result_by_term(
+        self,
+        product_id: int,
+        term: str,
+        triggered_rule: str,
+        suggested_action: str,
+        action_type: str = None,
+        confidence: float = 1.0,
+        ai_reasoning: str = None,
+    ) -> int | None:
+        """
+        通过 term 和 product_id 保存分析结果
+
+        Args:
+            product_id: 产品ID
+            term: 搜索词
+            triggered_rule: 触发的规则
+            suggested_action: 建议操作
+            action_type: 操作类型
+            confidence: 置信度
+            ai_reasoning: AI推理说明
+
+        Returns:
+            分析结果ID，如果找不到对应的search_term则返回None
+        """
+        # 查找对应的 search_term_id（取第一个匹配的）
+        cursor = self.conn.execute(
+            """
+            SELECT st.id FROM search_terms st
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ? AND st.term = ?
+            LIMIT 1
+            """,
+            (product_id, term),
+        )
+        row = cursor.fetchone()
+
+        if not row:
+            return None
+
+        return self.save_analysis_result(
+            search_term_id=row["id"],
+            triggered_rule=triggered_rule,
+            suggested_action=suggested_action,
+            action_type=action_type,
+            confidence=confidence,
+            ai_reasoning=ai_reasoning,
+        )
+
     def get_analysis_results(self, filters: dict = None) -> pd.DataFrame:
         """获取分析结果"""
         sql = """
@@ -474,5 +543,12 @@ class Database:
 
     def get_table_count(self, table_name: str) -> int:
         """获取表中记录数"""
+        # 白名单验证防止SQL注入
+        VALID_TABLES = {
+            "products", "campaigns", "search_terms", "rules",
+            "rule_versions", "analysis_results", "action_plans"
+        }
+        if table_name not in VALID_TABLES:
+            raise ValueError(f"Invalid table name: {table_name}")
         cursor = self.conn.execute(f"SELECT COUNT(*) FROM {table_name}")
         return cursor.fetchone()[0]

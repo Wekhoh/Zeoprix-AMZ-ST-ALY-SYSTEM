@@ -3,6 +3,7 @@
 支持导出否词表、手动词表和分析报告
 """
 
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,28 @@ from src.rules.engine import AnalysisResult
 logger = get_logger(__name__)
 
 
+def secure_filename(filename: str) -> str:
+    """
+    清理文件名，防止路径遍历攻击
+
+    Args:
+        filename: 原始文件名
+
+    Returns:
+        安全的文件名
+    """
+    # 移除路径分隔符和危险字符
+    filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+    # 移除前导点（防止隐藏文件）
+    filename = filename.lstrip('.')
+    # 移除路径遍历尝试
+    filename = filename.replace('..', '_')
+    # 限制长度
+    if len(filename) > 200:
+        filename = filename[:200]
+    return filename or 'unnamed'
+
+
 class ReportExporter:
     """报告导出器"""
 
@@ -25,8 +48,34 @@ class ReportExporter:
         Args:
             output_dir: 输出目录（默认当前目录）
         """
-        self.output_dir = Path(output_dir) if output_dir else Path.cwd()
+        self.output_dir = Path(output_dir).resolve() if output_dir else Path.cwd().resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _validate_output_path(self, output_path: str) -> Path:
+        """
+        验证并规范化输出路径，防止路径遍历攻击
+
+        Args:
+            output_path: 用户提供的输出路径
+
+        Returns:
+            安全的输出路径
+
+        Raises:
+            ValueError: 如果路径不安全
+        """
+        path = Path(output_path).resolve()
+
+        # 检查是否在允许的目录内
+        try:
+            path.relative_to(self.output_dir)
+        except ValueError:
+            # 路径不在 output_dir 内，使用安全文件名放在 output_dir 中
+            safe_name = secure_filename(path.name)
+            path = self.output_dir / safe_name
+            logger.warning(f"输出路径不在允许目录内，已重定向到: {path}")
+
+        return path
 
     def _generate_filename(self, prefix: str, extension: str = "xlsx") -> Path:
         """
@@ -39,8 +88,10 @@ class ReportExporter:
         Returns:
             完整文件路径
         """
+        # 清理前缀中的危险字符
+        safe_prefix = secure_filename(prefix)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{prefix}_{timestamp}.{extension}"
+        filename = f"{safe_prefix}_{timestamp}.{extension}"
         return self.output_dir / filename
 
     def export_negative_keywords(
@@ -76,7 +127,7 @@ class ReportExporter:
                 "触发规则": r.triggered_rule,
                 "建议操作": r.suggested_action,
                 "否定类型": self._get_negative_type(r.suggested_action),
-                "置信度": f"{r.confidence:.0%}",
+                "置信度": f"{r.confidence:.2%}",
                 "需AI确认": "是" if r.need_ai_judgment else "否",
                 "花费": r.data.get("total_spend", r.data.get("spend", 0)),
                 "点击": r.data.get("total_clicks", r.data.get("clicks", 0)),
@@ -87,7 +138,7 @@ class ReportExporter:
 
         # 确定输出路径
         if output_path:
-            filepath = Path(output_path)
+            filepath = self._validate_output_path(output_path)
         else:
             prefix = f"{product_name}_否词表" if product_name else "否词表"
             filepath = self._generate_filename(prefix)
@@ -134,7 +185,7 @@ class ReportExporter:
                 "关键词": r.term,
                 "类型": r.term_type,
                 "触发规则": r.triggered_rule,
-                "当前ACOS": f"{acos:.1%}",
+                "当前ACOS": f"{acos:.2%}",
                 "订单数": orders,
                 "销售额": f"${sales:.2f}",
                 "花费": f"${spend:.2f}",
@@ -153,7 +204,7 @@ class ReportExporter:
 
         # 确定输出路径
         if output_path:
-            filepath = Path(output_path)
+            filepath = self._validate_output_path(output_path)
         else:
             prefix = f"{product_name}_手动词表" if product_name else "手动词表"
             filepath = self._generate_filename(prefix)
@@ -189,7 +240,7 @@ class ReportExporter:
 
         # 确定输出路径
         if output_path:
-            filepath = Path(output_path)
+            filepath = self._validate_output_path(output_path)
         else:
             prefix = f"{product_name}_分析报告" if product_name else "分析报告"
             filepath = self._generate_filename(prefix)
@@ -273,7 +324,7 @@ class ReportExporter:
                 f"${summary.get('total_spend', 0):.2f}",
                 summary.get("total_orders", 0),
                 f"${summary.get('total_sales', 0):.2f}",
-                f"{summary.get('acos', 0):.1%}",
+                f"{summary.get('acos', 0):.2%}",
             ])
 
         df_summary = pd.DataFrame(summary_data)
@@ -306,7 +357,7 @@ class ReportExporter:
                 "触发规则": r.triggered_rule,
                 "建议操作": r.suggested_action,
                 "动作类型": r.action_type,
-                "置信度": f"{r.confidence:.0%}",
+                "置信度": f"{r.confidence:.2%}",
                 "需AI确认": "是" if r.need_ai_judgment else "否",
                 "花费": r.data.get("total_spend", r.data.get("spend", 0)),
                 "点击": r.data.get("total_clicks", r.data.get("clicks", 0)),
@@ -403,7 +454,7 @@ class ReportExporter:
 
         # 确定输出路径
         if output_path:
-            filepath = Path(output_path)
+            filepath = self._validate_output_path(output_path)
         else:
             filepath = self._generate_filename(f"{result_type}_keywords", "csv")
 

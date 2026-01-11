@@ -23,7 +23,7 @@ def init_session_state():
     """初始化Session State"""
     if "db" not in st.session_state:
         settings = Settings()
-        st.session_state.db = Database(settings.db_path)
+        st.session_state.db = Database(settings.database_path)
         st.session_state.db.init_schema()
         st.session_state.db.init_default_rules()
 
@@ -41,18 +41,36 @@ def render_sidebar():
         st.divider()
 
         # 导航菜单
+        NAV_OPTIONS = ["首页", "文件上传", "搜索词分析", "操作清单", "系统设置"]
+
+        # 初始化导航状态
+        if "nav_page" not in st.session_state:
+            st.session_state.nav_page = "首页"
+
+        # 计算当前索引（支持快速操作按钮跳转）
+        current_index = (
+            NAV_OPTIONS.index(st.session_state.nav_page)
+            if st.session_state.nav_page in NAV_OPTIONS
+            else 0
+        )
+
         page = st.radio(
             "导航",
-            options=["首页", "文件上传", "搜索词分析", "操作清单", "系统设置"],
-            index=0,
+            options=NAV_OPTIONS,
+            index=current_index,
+            key="nav_radio",
             label_visibility="collapsed",
         )
+
+        # 同步radio选择到session_state
+        if page != st.session_state.nav_page:
+            st.session_state.nav_page = page
 
         st.divider()
 
         # 产品选择
         db = st.session_state.db
-        products = db.get_products()
+        products = db.get_all_products()
 
         if products:
             product_options = {p["name"]: p["id"] for p in products}

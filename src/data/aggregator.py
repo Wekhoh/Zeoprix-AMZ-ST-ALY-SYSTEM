@@ -3,6 +3,7 @@
 支持ASIN层、广告活动层、匹配类型层、关键词层聚合
 """
 
+import numpy as np
 import pandas as pd
 
 from src.config.logger import get_logger
@@ -58,12 +59,12 @@ class DataAggregator:
             .reset_index()
         )
 
-        # 计算衍生指标
-        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).fillna(0)
-        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).fillna(0)
-        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).fillna(0)
-        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).fillna(0)
-        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).fillna(0)
+        # 计算衍生指标（处理除零产生的Infinity）
+        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
 
         logger.debug(f"ASIN层聚合完成，共 {len(agg_df)} 个ASIN")
         return agg_df
@@ -107,12 +108,12 @@ class DataAggregator:
             .reset_index()
         )
 
-        # 计算衍生指标
-        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).fillna(0)
-        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).fillna(0)
-        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).fillna(0)
-        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).fillna(0)
-        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).fillna(0)
+        # 计算衍生指标（处理除零产生的Infinity）
+        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
 
         logger.debug(f"广告活动层聚合完成，共 {len(agg_df)} 个活动")
         return agg_df
@@ -154,12 +155,12 @@ class DataAggregator:
             .reset_index()
         )
 
-        # 计算衍生指标
-        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).fillna(0)
-        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).fillna(0)
-        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).fillna(0)
-        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).fillna(0)
-        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).fillna(0)
+        # 计算衍生指标（处理除零产生的Infinity）
+        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
 
         logger.debug(f"匹配类型层聚合完成，共 {len(agg_df)} 种类型")
         return agg_df
@@ -201,12 +202,12 @@ class DataAggregator:
             .reset_index()
         )
 
-        # 计算衍生指标
-        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).fillna(0)
-        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).fillna(0)
-        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).fillna(0)
-        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).fillna(0)
-        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).fillna(0)
+        # 计算衍生指标（处理除零产生的Infinity）
+        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
 
         # 按花费降序排序
         agg_df = agg_df.sort_values("total_spend", ascending=False)
@@ -251,10 +252,10 @@ class DataAggregator:
             .reset_index()
         )
 
-        # 计算指标
-        result["ctr"] = (result["clicks"] / result["impressions"]).fillna(0)
-        result["acos"] = (result["spend"] / result["sales"]).fillna(0)
-        result["conversion_rate"] = (result["orders"] / result["clicks"]).fillna(0)
+        # 计算指标（处理除零产生的Infinity）
+        result["ctr"] = (result["clicks"] / result["impressions"]).replace([np.inf, -np.inf], 0).fillna(0)
+        result["acos"] = (result["spend"] / result["sales"]).replace([np.inf, -np.inf], 0).fillna(0)
+        result["conversion_rate"] = (result["orders"] / result["clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
 
         # 标记表现差异
         if len(result) > 1:

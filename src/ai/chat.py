@@ -233,15 +233,14 @@ class ChatAssistant:
 
     def _get_negative_keywords_data(self) -> str:
         """获取需否定的关键词数据"""
-        results = self.db.get_analysis_results(
-            product_id=self.product_id,
-            action_type="negative",
-            limit=10,
+        df = self.db.get_analysis_results(
+            filters={"product_id": self.product_id, "action_type": "negative"}
         )
 
-        if not results:
+        if df.empty:
             return "当前没有需要否定的关键词。"
 
+        results = df.head(10).to_dict("records")
         lines = ["需要否定的关键词（Top 10）："]
         for r in results:
             lines.append(
@@ -253,20 +252,19 @@ class ChatAssistant:
 
     def _get_high_conversion_data(self) -> str:
         """获取高转化关键词数据"""
-        results = self.db.get_analysis_results(
-            product_id=self.product_id,
-            action_type="manual",
-            limit=10,
+        df = self.db.get_analysis_results(
+            filters={"product_id": self.product_id, "action_type": "manual"}
         )
 
-        if not results:
+        if df.empty:
             return "当前没有识别到高转化关键词。"
 
+        results = df.head(10).to_dict("records")
         lines = ["高转化关键词（Top 10）："]
         for r in results:
-            acos = r.get("acos", 0)
+            acos = r.get("acos", 0) or 0
             lines.append(
-                f"- {r['term']}: ACOS={acos:.1%}, "
+                f"- {r['term']}: ACOS={acos:.2%}, "
                 f"订单{r.get('orders', 0)}, 销售额${r.get('sales', 0):.2f}"
             )
 
@@ -274,16 +272,17 @@ class ChatAssistant:
 
     def _get_overview_data(self) -> str:
         """获取数据概览"""
-        # 获取搜索词统计
+        # 获取搜索词统计 - 通过campaigns表关联product_id
         cursor = self.db.execute(
             """
             SELECT
-                COUNT(DISTINCT term) as term_count,
-                SUM(spend) as total_spend,
-                SUM(orders) as total_orders,
-                SUM(sales) as total_sales
-            FROM search_terms
-            WHERE product_id = ?
+                COUNT(DISTINCT st.term) as term_count,
+                SUM(st.spend) as total_spend,
+                SUM(st.orders) as total_orders,
+                SUM(st.sales) as total_sales
+            FROM search_terms st
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ?
             """,
             (self.product_id,),
         )
@@ -301,16 +300,18 @@ class ChatAssistant:
 - 总花费: ${total_spend:.2f}
 - 总订单: {row['total_orders'] or 0}
 - 总销售额: ${total_sales:.2f}
-- 整体ACOS: {overall_acos:.1%}"""
+- 整体ACOS: {overall_acos:.2%}"""
 
     def _get_acos_data(self) -> str:
         """获取ACOS相关数据"""
+        # 通过campaigns表关联product_id
         cursor = self.db.execute(
             """
-            SELECT term, spend, orders, sales,
-                   CASE WHEN sales > 0 THEN spend / sales ELSE 0 END as acos
-            FROM search_terms
-            WHERE product_id = ? AND spend > 0
+            SELECT st.term, st.spend, st.orders, st.sales,
+                   CASE WHEN st.sales > 0 THEN st.spend / st.sales ELSE 0 END as acos
+            FROM search_terms st
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ? AND st.spend > 0
             ORDER BY acos DESC
             LIMIT 10
             """,
@@ -324,7 +325,7 @@ class ChatAssistant:
         lines = ["ACOS最高的搜索词（Top 10）："]
         for r in rows:
             lines.append(
-                f"- {r['term']}: ACOS={r['acos']:.1%}, "
+                f"- {r['term']}: ACOS={r['acos']:.2%}, "
                 f"花费${r['spend']:.2f}, 订单{r['orders']}"
             )
 
@@ -332,12 +333,14 @@ class ChatAssistant:
 
     def _get_competitor_data(self) -> str:
         """获取竞品ASIN数据"""
+        # 通过campaigns表关联product_id
         cursor = self.db.execute(
             """
-            SELECT term, spend, orders, clicks
-            FROM search_terms
-            WHERE product_id = ? AND term_type = 'asin'
-            ORDER BY spend DESC
+            SELECT st.term, st.spend, st.orders, st.clicks
+            FROM search_terms st
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ? AND st.term_type = 'asin'
+            ORDER BY st.spend DESC
             LIMIT 10
             """,
             (self.product_id,),

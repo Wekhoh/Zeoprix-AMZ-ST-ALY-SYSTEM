@@ -5,6 +5,59 @@
 
 ## [Unreleased]
 
+### Fixed
+- **[UI-001]** 修复 API Key 显示逻辑：使用 `is_api_configured` 属性检查，避免默认值误判为已配置
+- **[UI-002]** 修复首页快速操作按钮无响应：
+  - 使用 `nav_page` 统一导航状态
+  - 按钮点击时删除 `nav_radio` session_state，确保 `st.radio` 使用新的 index
+  - 端到端测试验证4个按钮（上传新数据、分析搜索词、查看操作清单、系统设置）全部正常工作
+- **[UI-003]** 统一百分比格式为2位小数：ACOS、置信度等指标统一使用 `.2%` 格式
+  - `ui/pages/home.py`, `ui/pages/analysis.py`, `ui/pages/actions.py`
+  - `ai/analyzer.py`, `ai/chat.py`
+  - `export/exporter.py`
+- **[UI-004]** 修复操作历史页面查询错误 `no such column: product_id`：
+  - `action_plans` 表没有 `product_id` 列，需通过 JOIN 关联获取
+  - `actions.py`: 修改查询通过 `action_plans → analysis_results → search_terms → campaigns` 获取 product_id
+  - `settings.py`: 修复产品删除时 action_plans 的级联删除查询
+
+### Verified (E2E测试 2026-01-11)
+- ✅ 首页仪表盘：4个指标卡片（总花费、总订单、整体ACOS、搜索词数）正常显示
+- ✅ 首页快速操作：4个按钮全部响应正常，导航跳转正确
+- ✅ 侧边栏导航：5个radio选项（首页、文件上传、搜索词分析、操作清单、系统设置）全部工作
+- ✅ 文件上传页：产品创建功能正常（测试创建"测试产品" ASIN "B0TEST123"）
+- ✅ 搜索词分析页：筛选条件（动作类型、词类型、AI确认状态、搜索关键词）和运行分析按钮正常
+- ✅ 操作清单页：3个标签（否词操作、手动投放、操作历史）切换正常，无报错
+- ✅ 系统设置页：4个标签全部可切换，规则配置、API设置、模型选择下拉框正常
+- ✅ AI助手：展开/收起正常，未配置API时显示正确错误提示
+- ✅ 模型选择：下拉框显示5个Gemini模型选项，选择后立即生效
+
+### Added
+- **[FEATURE]** 动态模型选择功能：
+  - 在系统设置页面添加模型下拉选择框
+  - 支持 Gemini 2.5 Flash/Pro/Flash Lite 和 Gemini 3 Flash/Pro (预览版)
+  - 无需重启应用，实时切换生效
+  - `AVAILABLE_GEMINI_MODELS` 常量便于后续扩展
+
+### Fixed (历史)
+- 修复 start.bat 编码问题：中文字符导致Windows CMD解析失败，改为纯英文内容
+- 修复 app.py 属性名错误：`settings.db_path` → `settings.database_path`
+- 修复 app.py 方法名错误：`db.get_products()` → `db.get_all_products()`
+- 修复 ModuleNotFoundError：start.bat 自动设置 PYTHONPATH
+- **[BLOCKER]** 修复 chat.py AI助手数据库查询错误：`search_terms` 表无 `product_id` 列，需通过 `campaigns` 表 JOIN 关联
+- **[BLOCKER]** 修复 db.py SQL注入漏洞：`get_table_count()` 方法添加白名单验证
+- **[BLOCKER]** 修复 aggregator.py 除零产生Infinity问题：添加 `.replace([np.inf, -np.inf], 0)` 处理
+- **[CRITICAL]** 修复 parser.py 百分比转换逻辑缺陷：正确处理带`%`符号的字符串（如"0.5%"→0.005）
+- **[CRITICAL]** 增强 engine.py 规则引擎安全性：添加debug日志和空条件规则检查
+- **[CRITICAL]** 修复敏感错误信息暴露：创建 `ui/utils.py` 的 `safe_error()` 函数，所有UI异常使用通用友好消息
+
+### Improved
+- **[MIN-002]** client.py 对话历史滑动窗口：添加 `max_history_turns` 参数（默认20轮），自动裁剪超限历史
+- **[MIN-004]** parser.py 错误消息增强：CSV/Excel解析失败时提供详细上下文（编码尝试、文件名、建议操作）
+- **[MIN-007]** analysis.py 批量操作进度反馈：AI分析时显示进度条和当前处理关键词
+- **[MIN-011]** asin_rules.py 魔法字符串常量化：ASIN_PREFIX、阈值、洞察数量等抽取为模块常量
+- **[NIT-004]** 使用 isort 规范化所有 src/ 目录下的 import 顺序
+- **[DOC]** 修正 README.md 项目结构中的文件名错误（keyword_rules.py, asin_rules.py, manager.py, utils.py）
+
 ### Added
 - **Sprint 5: UI与导出**
   - T29-T30: 报告导出器（ReportExporter类，否词表/手动词表/分析报告导出，Excel/CSV格式）

@@ -84,11 +84,16 @@ class FileParser:
         logger.info(f"检测到文件类型: {file_type}")
 
         if file_type == "csv":
-            df = self._parse_csv(file)
+            df = self._parse_csv(file, filename)
         elif file_type in ["xlsx", "xls"]:
-            df = self._parse_excel(file)
+            df = self._parse_excel(file, filename=filename)
         else:
-            raise ValueError(f"不支持的文件类型: {file_type}")
+            supported = ", ".join(self.supported_types)
+            raise ValueError(
+                f"不支持的文件类型: {file_type}。"
+                f"支持的格式: {supported}。"
+                f"请上传亚马逊后台导出的CSV或Excel文件。"
+            )
 
         # 列名映射
         df = self.map_columns(df)
@@ -128,40 +133,70 @@ class FileParser:
         else:
             return "csv"
 
-    def _parse_csv(self, file: BinaryIO) -> pd.DataFrame:
+    def _parse_csv(self, file: BinaryIO, filename: str = None) -> pd.DataFrame:
         """解析CSV文件"""
         file.seek(0)
         content = file.read()
 
         # 尝试不同编码
         encodings = ["utf-8", "utf-8-sig", "gbk", "gb2312", "latin-1"]
+        last_error = None
 
         for encoding in encodings:
             try:
                 text = content.decode(encoding)
                 df = pd.read_csv(io.StringIO(text))
+                if df.empty:
+                    continue
                 logger.debug(f"使用编码 {encoding} 成功解析CSV")
                 return df
-            except (UnicodeDecodeError, pd.errors.EmptyDataError):
+            except UnicodeDecodeError as e:
+                last_error = f"编码 {encoding}: 解码失败"
+                continue
+            except pd.errors.EmptyDataError:
+                last_error = f"编码 {encoding}: 文件内容为空"
+                continue
+            except pd.errors.ParserError as e:
+                last_error = f"编码 {encoding}: CSV格式错误 - {str(e)[:100]}"
                 continue
 
-        raise ValueError("无法解析CSV文件，请检查文件编码")
+        file_info = f" (文件: {filename})" if filename else ""
+        raise ValueError(
+            f"无法解析CSV文件{file_info}。"
+            f"已尝试编码: {', '.join(encodings)}。"
+            f"最后错误: {last_error or '未知'}。"
+            f"请确保文件是有效的CSV格式，或尝试用Excel打开后另存为UTF-8编码的CSV。"
+        )
 
-    def _parse_excel(self, file: BinaryIO, sheet_name: int | str = 0) -> pd.DataFrame:
+    def _parse_excel(
+        self,
+        file: BinaryIO,
+        sheet_name: int | str = 0,
+        filename: str = None,
+    ) -> pd.DataFrame:
         """
         解析Excel文件
 
         Args:
             file: 文件对象
             sheet_name: Sheet名称或索引，默认第一个
+            filename: 文件名（用于错误消息）
 
         Returns:
             DataFrame
         """
         file.seek(0)
-        df = pd.read_excel(file, sheet_name=sheet_name)
-        logger.debug(f"解析Excel，Sheet: {sheet_name}")
-        return df
+        try:
+            df = pd.read_excel(file, sheet_name=sheet_name)
+            logger.debug(f"解析Excel，Sheet: {sheet_name}")
+            return df
+        except Exception as e:
+            file_info = f" (文件: {filename})" if filename else ""
+            raise ValueError(
+                f"无法解析Excel文件{file_info}。"
+                f"错误: {str(e)[:200]}。"
+                f"请确保文件是有效的Excel格式（.xlsx或.xls），且未被加密或损坏。"
+            ) from e
 
     def map_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -172,6 +207,9 @@ class FileParser:
 
         Returns:
             列名映射后的DataFrame
+
+        Raises:
+            ValueError: 当没有找到必要的列时
         """
         # 创建列名映射
         rename_map = {}
@@ -183,6 +221,21 @@ class FileParser:
         if rename_map:
             df = df.rename(columns=rename_map)
             logger.debug(f"列名映射: {rename_map}")
+        else:
+            # 没有找到任何已知列，记录警告但不阻止处理
+            logger.warning(
+                f"未识别到任何标准列名。"
+                f"文件列名: {list(df.columns)[:10]}{'...' if len(df.columns) > 10 else ''}。"
+                f"建议使用亚马逊后台原版导出的搜索词报告。"
+            )
+
+        # 检查是否有必要的列（term 是最基础的必需列）
+        if "term" not in df.columns:
+            sample_cols = list(df.columns)[:5]
+            logger.warning(
+                f"未找到搜索词列（term）。当前列: {sample_cols}。"
+                f"可能需要手动指定列映射。"
+            )
 
         return df
 
@@ -256,23 +309,38 @@ class FileParser:
         return series.apply(convert)
 
     def _convert_percent(self, series: pd.Series) -> pd.Series:
-        """转换百分比列"""
+        """
+        转换百分比列
+
+        处理逻辑：
+        - 字符串带%符号（如"1.5%", "150%"）：直接除以100
+        - 字符串不带%符号：大于100才除以100
+        - 纯数值：大于100才除以100（保守策略）
+        """
 
         def convert(val):
             if pd.isna(val):
                 return 0.0
-            if isinstance(val, (int, float)):
-                # 如果值大于1，假设是百分比形式
-                return val / 100 if val > 1 else val
             if isinstance(val, str):
-                val = val.strip().replace("%", "")
-                if val == "" or val == "-":
+                original = val.strip()
+                # 检查是否包含百分号
+                has_percent_sign = "%" in original
+                val_clean = original.replace("%", "")
+                if val_clean == "" or val_clean == "-":
                     return 0.0
                 try:
-                    num = float(val)
-                    return num / 100 if num > 1 else num
+                    num = float(val_clean)
+                    # 如果有百分号，直接除以100（例如 "0.5%" -> 0.005, "150%" -> 1.5）
+                    if has_percent_sign:
+                        return num / 100
+                    # 如果没有百分号，只有大于100的值才除以100
+                    return num / 100 if num > 100 else num
                 except ValueError:
                     return 0.0
+            if isinstance(val, (int, float)):
+                # 纯数值：只有大于100的值才除以100
+                # 保守策略：认为 <= 100 的值可能已经是小数或百分比形式
+                return val / 100 if val > 100 else val
             return 0.0
 
         return series.apply(convert)

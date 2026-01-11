@@ -41,7 +41,54 @@ pip install google-genai>=1.0.0
 
 ## 运行问题
 
-### 问题: Streamlit 启动失败
+### 问题: 双击start.bat后窗口闪退
+
+**症状**: 双击 start.bat 后窗口立即关闭，看不到任何内容
+
+**根因**: 批处理文件中包含中文字符，Windows CMD默认使用GBK编码，而文件保存为UTF-8，导致中文被解析为乱码命令
+
+**解决方案**:
+start.bat 已修复，使用纯英文内容。如果仍有问题：
+1. 右键 start.bat → 编辑
+2. 确认文件内容为英文
+3. 或使用 PowerShell 运行 start.ps1
+
+### 问题: Streamlit 启动失败 (ModuleNotFoundError)
+
+**症状**: `ModuleNotFoundError: No module named 'src'`
+
+**解决方案**:
+使用 start.bat 启动，它会自动设置 PYTHONPATH。
+如需手动运行：
+```bash
+cd "C:\Users\你的用户名\桌面\AMZ搜索词分析系统"
+set PYTHONPATH=%CD%
+streamlit run src/app.py
+```
+
+### 问题: AttributeError: 'Settings' object has no attribute 'db_path'
+
+**症状**: 应用启动后浏览器显示 AttributeError
+
+**根因**: 代码中使用了错误的属性名 `settings.db_path`，正确名称是 `settings.database_path`
+
+**解决方案**:
+此问题已在 v1.0.1 修复。如仍遇到：
+1. 检查 `src/app.py` 第26行
+2. 确保使用 `settings.database_path` 而非 `settings.db_path`
+
+### 问题: AttributeError: 'Database' object has no attribute 'get_products'
+
+**症状**: 应用启动后浏览器显示 AttributeError: get_products
+
+**根因**: 代码中使用了错误的方法名 `db.get_products()`，正确名称是 `db.get_all_products()`
+
+**解决方案**:
+此问题已在 v1.0.1 修复。如仍遇到：
+1. 检查 `src/app.py` 第55行
+2. 确保使用 `db.get_all_products()` 而非 `db.get_products()`
+
+### 问题: Streamlit 启动失败 (旧版)
 
 **症状**: `ModuleNotFoundError: No module named 'src'`
 

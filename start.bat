@@ -1,50 +1,56 @@
 @echo off
-chcp 65001 >nul
-title AMZ搜索词分析系统
+title AMZ Search Term Analyzer
 
 echo ========================================
-echo   AMZ搜索词分析系统 启动器
+echo   AMZ Search Term Analyzer - Launcher
 echo ========================================
 echo.
 
-:: 检查Python
+:: Switch to script directory
+cd /d "%~dp0"
+
+:: Check Python
+echo [1/3] Checking Python...
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [错误] 未找到Python，请先安装Python 3.10+
+    echo [ERROR] Python not found. Please install Python 3.10+
     pause
     exit /b 1
 )
+echo [OK] Python found
 
-:: 切换到脚本所在目录
-cd /d "%~dp0"
-
-:: 检查依赖
-echo [1/3] 检查依赖...
+:: Check dependencies
+echo [2/3] Checking dependencies...
 pip show streamlit >nul 2>&1
 if errorlevel 1 (
-    echo [提示] 正在安装依赖，请稍候...
+    echo [INFO] Installing dependencies...
     pip install -r requirements.txt
     if errorlevel 1 (
-        echo [错误] 依赖安装失败
+        echo [ERROR] Failed to install dependencies
         pause
         exit /b 1
     )
 )
+echo [OK] Dependencies ready
 
-:: 检查.env文件
-echo [2/3] 检查配置...
+:: Check .env file
+echo [3/3] Checking config...
 if not exist ".env" (
-    echo [提示] 未找到.env文件，正在创建...
+    echo [INFO] Creating .env file...
     copy .env.example .env >nul
-    echo [警告] 请编辑.env文件，配置GEMINI_API_KEY
+    echo [WARNING] Please edit .env and set GEMINI_API_KEY
     notepad .env
 )
+echo [OK] Config ready
 
-:: 启动应用
-echo [3/3] 启动应用...
+:: Set Python path
+set PYTHONPATH=%~dp0
+
+:: Start application
 echo.
-echo 应用将在浏览器中打开: http://localhost:8501
-echo 按 Ctrl+C 可停止应用
+echo Starting application...
+echo Browser will open at: http://localhost:8501
+echo Press Ctrl+C to stop
 echo.
 
 streamlit run src/app.py

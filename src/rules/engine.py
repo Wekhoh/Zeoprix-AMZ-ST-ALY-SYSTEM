@@ -14,6 +14,14 @@ from src.data.db import Database
 logger = get_logger(__name__)
 
 
+# 置信度常量
+class Confidence:
+    """规则分析置信度常量"""
+    FULL = 1.0  # 完全确定（规则直接匹配）
+    AI_JUDGMENT = 0.7  # 需要AI判断
+    DEFAULT = 0.5  # 默认值（无规则匹配）
+
+
 @dataclass
 class AnalysisResult:
     """分析结果"""
@@ -84,23 +92,33 @@ class RuleEngine:
         return results
 
     def _analyze_row(self, row: pd.Series) -> AnalysisResult | None:
-        """分析单条数据"""
+        """
+        分析单条数据
+
+        使用 first-match-wins 策略：按优先级遍历规则，
+        第一个匹配的规则生成结果，后续规则不再检查。
+        """
         term = row.get("term", "")
         term_type = row.get("term_type", "keyword")
 
-        # 按优先级遍历规则
+        # 按优先级遍历规则（优先级数值越小越先检查）
         for rule in self.rules:
             if self._match_rule(row, rule):
+                logger.debug(
+                    f"搜索词 '{term}' 匹配规则 '{rule.get('name')}' "
+                    f"(优先级: {rule.get('priority')})"
+                )
                 return self._create_result(row, rule)
 
         # 没有匹配任何规则，标记为观察
+        logger.debug(f"搜索词 '{term}' 无匹配规则，标记为观察")
         return AnalysisResult(
             term=term,
             term_type=term_type,
             triggered_rule="无匹配规则",
             suggested_action="观察",
             action_type="observe",
-            confidence=0.5,
+            confidence=Confidence.DEFAULT,
             data=row.to_dict(),
         )
 
@@ -118,6 +136,13 @@ class RuleEngine:
         conditions = rule.get("conditions", {})
         term_type = row.get("term_type", "keyword")
         rule_type = rule.get("rule_type", "keyword")
+
+        # 安全检查：空条件规则不应匹配任何数据
+        if not conditions:
+            logger.warning(
+                f"规则 '{rule.get('name')}' 没有定义任何条件，跳过匹配"
+            )
+            return False
 
         # 类型不匹配跳过
         if rule_type != term_type and rule_type != "all":
@@ -165,6 +190,7 @@ class RuleEngine:
     def _create_result(self, row: pd.Series, rule: dict) -> AnalysisResult:
         """根据规则创建分析结果"""
         conditions = rule.get("conditions", {})
+        need_ai = conditions.get("need_ai_judgment", False)
 
         return AnalysisResult(
             term=row.get("term", ""),
@@ -172,8 +198,8 @@ class RuleEngine:
             triggered_rule=rule.get("name", ""),
             suggested_action=rule.get("action", ""),
             action_type=self._get_action_type(rule.get("action", "")),
-            confidence=1.0 if not conditions.get("need_ai_judgment") else 0.7,
-            need_ai_judgment=conditions.get("need_ai_judgment", False),
+            confidence=Confidence.AI_JUDGMENT if need_ai else Confidence.FULL,
+            need_ai_judgment=need_ai,
             has_conflict=row.get("has_conflict", False) if "has_conflict" in row else False,
             data=row.to_dict(),
         )
