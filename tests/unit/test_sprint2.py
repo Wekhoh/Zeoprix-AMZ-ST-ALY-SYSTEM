@@ -281,7 +281,7 @@ class TestDataAggregator:
 
         assert len(result) == 2  # 两个活动都有这个词
         assert "has_conflict" in result.columns
-        assert result["has_conflict"].iloc[0] == True  # 表现有分歧
+        assert result["has_conflict"].iloc[0]  # 表现有分歧
 
     def test_get_high_spend_zero_orders(self, db_with_data):
         """测试获取高花费零转化词"""

@@ -244,10 +244,10 @@ class TestKeywordRules:
         row = pd.Series({"total_spend": 15.0, "total_orders": 0})
         config = {"spend_threshold": 10.0}
 
-        assert high_spend_zero_orders(row, config) == True
+        assert high_spend_zero_orders(row, config)
 
         row2 = pd.Series({"total_spend": 5.0, "total_orders": 0})
-        assert high_spend_zero_orders(row2, config) == False
+        assert not high_spend_zero_orders(row2, config)
 
     def test_high_conversion_func(self):
         """测试高转化规则函数"""
@@ -256,10 +256,10 @@ class TestKeywordRules:
         row = pd.Series({"acos": 0.15, "total_orders": 5})
         config = {"acos_threshold": 0.25, "min_orders": 3}
 
-        assert high_conversion(row, config) == True
+        assert high_conversion(row, config)
 
         row2 = pd.Series({"acos": 0.5, "total_orders": 5})
-        assert high_conversion(row2, config) == False
+        assert not high_conversion(row2, config)
 
 
 class TestASINRules:
