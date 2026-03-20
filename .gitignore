@@ -55,11 +55,27 @@ env/
 # ===================
 # 数据文件（敏感）
 # ===================
+*.db
+*.sqlite
+*.sqlite3
 data/db/*.db
 data/db/*.sqlite
 data/db/*.sqlite3
 data/uploads/*
 !data/uploads/.gitkeep
+!data/db/.gitkeep
+
+# ===================
+# 导出文件
+# ===================
+exports/
+
+# ===================
+# 会话/计划工件
+# ===================
+findings.md
+progress.md
+task_plan.md
 
 # ===================
 # 日志文件
