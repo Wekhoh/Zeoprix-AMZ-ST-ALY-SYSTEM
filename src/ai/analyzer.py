@@ -5,7 +5,7 @@ AI 分析器模块
 
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.ai.client import GeminiClient
 from src.config.logger import get_logger
@@ -687,6 +687,164 @@ class AIAnalyzer:
             }
 
         return result
+
+    def generate_insights(
+        self, results: list, product_context: dict = None
+    ) -> "InsightReport":
+        """
+        生成AI洞察报告
+
+        Args:
+            results: 分析结果列表 (AnalysisResult)
+            product_context: 产品上下文 (name, category等)
+
+        Returns:
+            InsightReport 洞察报告
+        """
+        stats = self._compute_insight_statistics(results)
+
+        if not results:
+            return InsightReport(
+                summary="无分析数据",
+                statistics=stats,
+            )
+
+        # 尝试调用AI生成洞察
+        ai_response = self._call_ai_for_insights(stats, product_context)
+
+        if ai_response:
+            return InsightReport(
+                summary=ai_response.get("summary", ""),
+                key_findings=ai_response.get("key_findings", []),
+                recommendations=ai_response.get("recommendations", []),
+                statistics=stats,
+            )
+
+        # 降级：本地生成基础报告
+        return self._build_fallback_report(stats, product_context)
+
+    def _compute_insight_statistics(self, results: list) -> dict:
+        """计算洞察统计数据"""
+        if not results:
+            return {"total_terms": 0}
+
+        negative_count = sum(1 for r in results if "negative" in r.action_type)
+        manual_count = sum(1 for r in results if "manual" in r.action_type)
+        observe_count = sum(
+            1
+            for r in results
+            if r.action_type in ("observe", "continue_observe", "evaluate")
+        )
+        total_spend = sum(
+            r.data.get("total_spend", r.data.get("spend", 0)) for r in results
+        )
+        total_orders = sum(
+            r.data.get("total_orders", r.data.get("orders", 0)) for r in results
+        )
+        total_sales = sum(
+            r.data.get("total_sales", r.data.get("sales", 0)) for r in results
+        )
+        ai_pending = sum(1 for r in results if r.need_ai_judgment)
+
+        return {
+            "total_terms": len(results),
+            "negative_count": negative_count,
+            "manual_count": manual_count,
+            "observe_count": observe_count,
+            "ai_pending_count": ai_pending,
+            "total_spend": total_spend,
+            "total_orders": total_orders,
+            "total_sales": total_sales,
+            "acos": total_spend / total_sales if total_sales > 0 else 0,
+        }
+
+    def _call_ai_for_insights(
+        self, stats: dict, product_context: dict = None
+    ) -> dict | None:
+        """调用AI生成洞察"""
+        if not self.client:
+            return None
+
+        product_name = (product_context or {}).get("name", "未知产品")
+        prompt = f"""请基于以下亚马逊广告搜索词分析数据，生成洞察报告。
+
+产品: {product_name}
+统计:
+- 搜索词总数: {stats["total_terms"]}
+- 建议否定: {stats["negative_count"]}
+- 建议手动投放: {stats["manual_count"]}
+- 继续观察: {stats["observe_count"]}
+- 总花费: ${stats["total_spend"]:.2f}
+- 总订单: {stats["total_orders"]}
+- 整体ACOS: {stats["acos"]:.2%}
+
+请返回JSON:
+{{"summary": "一句话总结", "key_findings": ["发现1", "发现2", "发现3"], "recommendations": ["建议1", "建议2"]}}"""
+
+        system_instruction = "你是亚马逊广告优化专家，请用简洁中文回复。"
+
+        if not self._wait_for_rate_limit():
+            return None
+
+        return self.client.generate_json(
+            prompt=prompt,
+            system_instruction=system_instruction,
+            temperature=0.3,
+        )
+
+    def _build_fallback_report(
+        self, stats: dict, product_context: dict = None
+    ) -> "InsightReport":
+        """降级：本地生成基础报告"""
+        product_name = (product_context or {}).get("name", "产品")
+        total = stats["total_terms"]
+        neg_pct = stats["negative_count"] / total * 100 if total else 0
+        manual_pct = stats["manual_count"] / total * 100 if total else 0
+
+        summary = (
+            f"{product_name}共分析{total}个搜索词，"
+            f"建议否定{stats['negative_count']}个({neg_pct:.0f}%)，"
+            f"建议手动投放{stats['manual_count']}个({manual_pct:.0f}%)"
+        )
+
+        findings = []
+        if stats["negative_count"] > total * 0.3:
+            findings.append("否定词比例较高，建议检查关键词匹配范围")
+        if stats["acos"] > 0.5:
+            findings.append(f"整体ACOS偏高({stats['acos']:.0%})，需优化投放策略")
+        if stats["manual_count"] > 0:
+            findings.append(
+                f"有{stats['manual_count']}个词建议手动投放，可提升精准流量"
+            )
+        if not findings:
+            findings.append("整体表现正常")
+
+        recommendations = []
+        if stats["negative_count"] > 0:
+            recommendations.append("优先执行否词操作，减少无效花费")
+        if stats["manual_count"] > 0:
+            recommendations.append("对高转化词创建手动精准投放活动")
+        if stats["observe_count"] > total * 0.3:
+            recommendations.append("大量词处于观察状态，建议积累更多数据后再决策")
+        if not recommendations:
+            recommendations.append("保持当前策略，定期复查")
+
+        return InsightReport(
+            summary=summary,
+            key_findings=findings,
+            recommendations=recommendations,
+            statistics=stats,
+        )
+
+
+@dataclass
+class InsightReport:
+    """AI洞察报告"""
+
+    summary: str = ""
+    key_findings: list = field(default_factory=list)
+    recommendations: list = field(default_factory=list)
+    statistics: dict = field(default_factory=dict)
 
 
 def get_ai_analyzer(client: GeminiClient = None) -> AIAnalyzer:
