@@ -106,7 +106,7 @@ streamlit run src/app.py
 **解决方案**:
 1. 确保 `data/db/` 目录存在
 ```bash
-mkdir -p data/db
+mkdir data\\db
 ```
 
 2. 检查目录权限
@@ -204,7 +204,126 @@ export GEMINI_API_KEY=你的密钥
 python -m pytest tests/ -v
 ```
 
+## 规则引擎问题
+
+### 问题: 核心词被错误分类为"低相关性" (BUG-001/003)
+
+**症状**: 明显的核心词（如 "neck pillow"）被规则引擎判断为"低相关性"，建议否定
+
+**根因**:
+1. 人工标记的相关性等级（如 `strong_core`）未正确映射到规则匹配时的类别（`strong`）
+2. `_match_rule()` 函数直接比较原始值，没有调用 `RelevanceLevel.to_category()`
+
+**解决方案**:
+在 `src/rules/engine.py` 的 `_match_rule()` 函数中添加类别转换：
+```python
+# 修复后的代码
+actual_category = RelevanceLevel.to_category(actual_relevance) if actual_relevance else None
+if actual_category != required_relevance:
+    return False
+```
+
+**相关性等级映射关系**:
+| 原始等级 | 映射类别 |
+|---------|---------|
+| strong_core | strong |
+| strong_longtail | strong |
+| weak | weak |
+| generic | generic |
+| irrelevant | irrelevant |
+
+### 问题: 强相关高ACOS词被建议否定 (BUG-002)
+
+**症状**: 强相关但ACOS较高的词被"低转化高花费"规则匹配，建议否定
+
+**根因**: "低转化高花费"规则没有排除强相关词的条件
+
+**解决方案**:
+1. 在规则引擎中添加 `relevance_not` 条件支持
+2. 更新规则条件，添加 `relevance_not: strong`
+
+```python
+# engine.py 中添加 relevance_not 支持
+if "relevance_not" in conditions:
+    excluded = conditions["relevance_not"]
+    if actual_category == excluded:
+        return False  # 排除匹配
+```
+
+### 问题: 导出数据不完整，缺少部分搜索词 (BUG-004)
+
+**症状**: 导出的Excel/CSV文件缺少部分搜索词（如145条缺失，覆盖率仅68.5%）
+
+**根因**:
+1. `export_results()` 使用 `db.get_analysis_results()` 读取数据库
+2. `save_analysis_result_by_term()` 使用 `LIMIT 1`，同词跨活动只保存第一条
+3. 数据库中的分析结果不完整
+
+**解决方案**:
+修改 `src/ui/pages/analysis.py` 的 `export_results()` 函数，使用实时计算代替数据库读取：
+```python
+# 修复后 - 使用实时计算
+from src.rules.engine import analyze_search_terms
+raw_results = analyze_search_terms(db, product_id)
+
+# 修复前 - 读取不完整的数据库
+# results = db.get_analysis_results(product_id)
+```
+
+**验证方法**:
+- UI显示的数据量应与导出的数据量一致
+- 核心词（如 "neck pillow"）应包含在导出结果中
+
+### 问题: 待审核数量与上传数量不一致 (常见疑问)
+
+**症状**: 上传461条数据，但待审核只显示316条
+
+**这不是Bug**，而是系统的正确行为：
+
+| 计数类型 | 数据表 | 说明 |
+|---------|-------|------|
+| 原始记录数 (461) | search_terms | 每个CSV的每行一条记录，同一词在不同活动重复出现 |
+| 唯一搜索词 (316) | manual_reviews | 去重后的唯一词，每词只需审核一次 |
+
+**为什么这样设计**:
+1. 同一个词（如 "travel pillow"）可能出现在多个广告活动中
+2. 对同一个词只需要审核一次相关性
+3. 审核结果会自动应用到该词在所有活动中的分析
+
+**如何验证**:
+```sql
+-- 查看原始记录数
+SELECT COUNT(*) FROM search_terms st
+JOIN campaigns c ON st.campaign_id = c.id
+WHERE c.product_id = 1;  -- 461
+
+-- 查看唯一词数
+SELECT COUNT(DISTINCT st.term) FROM search_terms st
+JOIN campaigns c ON st.campaign_id = c.id
+WHERE c.product_id = 1;  -- 316
+```
+
 ## 功能问题
+
+### 问题: 批量上传部分文件失败
+
+**症状**: 批量上传多个文件时，部分文件显示"解析失败"
+
+**解决方案**:
+1. 检查失败文件的格式是否正确（CSV或Excel）
+2. 确认文件未被其他程序占用
+3. 尝试用Excel重新保存为UTF-8 CSV格式
+4. 单独上传失败的文件排查问题
+
+### 问题: 清空数据后无法恢复
+
+**症状**: 点击"清空所有搜索词数据"后想要恢复
+
+**解决方案**:
+⚠️ 清空操作不可逆！建议：
+1. 清空前先使用"导出完整数据备份"功能
+2. 备份文件保存在安全位置
+3. 如需恢复，重新上传原始CSV文件
 
 ### 问题: 分析结果为空
 
@@ -253,6 +372,145 @@ python -m pytest tests/ -v
 1. 减少同时打开的标签页
 2. 清理浏览器缓存
 3. 重启 Streamlit 服务
+
+## UI/CSS问题
+
+### 问题: Streamlit组件CSS样式不生效
+
+**症状**: 写了CSS但Streamlit组件样式没有变化
+
+**根因**: Streamlit组件使用动态生成的class名和`data-testid`属性，普通CSS选择器无法匹配
+
+**解决方案**:
+1. 使用浏览器开发者工具检查元素，找到`data-testid`属性
+2. 使用属性选择器：`[data-testid="stChatInput"]`
+3. 常用Streamlit组件的data-testid：
+   - 聊天输入框：`stChatInput`
+   - 列容器：`stColumn`
+   - 按钮：`stButton`
+   - 侧边栏：`stSidebar`
+4. 添加`!important`确保优先级
+
+**示例**:
+```css
+/* 错误 - 无法匹配 */
+.chat-input { border: none; }
+
+/* 正确 - 使用data-testid */
+[data-testid="stChatInput"] input {
+    border: none !important;
+}
+```
+
+### 问题: Streamlit输入框蓝色焦点边框无法移除
+
+**症状**: 输入框聚焦时出现蓝色边框线，CSS设置`outline:none`无效
+
+**根因**: Streamlit使用多层嵌套元素和伪元素，焦点样式可能在内层元素或`::before`/`::after`上
+
+**解决方案**:
+```css
+/* 需要同时处理多个层级和伪元素 */
+[data-testid="stChatInput"] *:focus,
+[data-testid="stChatInput"] *:focus-visible,
+[data-testid="stChatInput"] *:focus-within {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: transparent !important;
+}
+
+/* 处理伪元素 */
+[data-testid="stChatInput"] *::before,
+[data-testid="stChatInput"] *::after {
+    border: none !important;
+    box-shadow: none !important;
+}
+```
+
+### 问题: Streamlit按钮内SVG图标颜色无法修改
+
+**症状**: 想修改按钮内箭头/图标颜色，设置`color`无效
+
+**根因**: SVG图标使用`fill`属性而非`color`
+
+**解决方案**:
+```css
+/* 修改SVG填充色 */
+button svg path {
+    fill: white !important;
+}
+
+/* 或使用currentColor让SVG继承color */
+button svg {
+    fill: currentColor;
+}
+```
+
+### 问题: CSS选择器优先级不够
+
+**症状**: 样式被Streamlit默认样式覆盖
+
+**解决方案**:
+1. 添加`!important`
+2. 使用更具体的选择器
+3. 使用`[data-testid]`属性选择器提高特异性
+4. 在`st.markdown(unsafe_allow_html=True)`中注入`<style>`标签
+
+### 问题: Streamlit popover/对话框内容贴边无内距
+
+**症状**: `st.popover`弹出框内的文字紧贴边缘，没有内边距，看起来很拥挤
+
+**根因**: Streamlit popover默认内边距较小，需要手动添加padding
+
+**解决方案**:
+```css
+/* 方法1: 给popover容器添加内边距 */
+[data-testid="stPopover"] > div {
+    padding: 16px !important;
+}
+
+/* 方法2: 给popover内的特定元素添加内边距 */
+[data-testid="stPopover"] .stMarkdown {
+    padding: 12px 16px !important;
+}
+
+/* 方法3: 在popover内使用容器包装 */
+```
+
+**Python代码方案**:
+```python
+with st.popover("AI助手"):
+    # 使用container添加间距
+    with st.container():
+        st.markdown("""
+        <div style="padding: 16px;">
+            内容区域
+        </div>
+        """, unsafe_allow_html=True)
+```
+
+### 问题: Streamlit组件间距不一致
+
+**症状**: 页面元素之间间距大小不统一，视觉上不协调
+
+**解决方案**:
+1. 使用CSS变量统一管理间距
+2. 对特定组件设置margin/padding
+3. 使用`st.container()`包装元素控制间距
+
+```css
+/* 统一间距变量 */
+:root {
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+}
+
+/* 应用到组件 */
+.stButton {
+    margin-bottom: var(--spacing-md) !important;
+}
+```
 
 ## 开发问题
 

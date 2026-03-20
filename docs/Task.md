@@ -4,7 +4,7 @@
 **版本**: 1.0.0
 **创建日期**: 2026-01-10
 **作者**: Jack Huang
-**状态**: ✅ 已完成
+**状态**: 🟡 部分完成（T29待实现）
 
 ---
 
@@ -754,19 +754,18 @@ assert len(options) > 0
 **描述**: 生成分析洞察摘要
 
 **验收标准**:
-- [x] 汇总分析结果
-- [x] 生成可读性强的报告
-- [x] 包含关键发现和建议
+- [ ] 汇总分析结果
+- [ ] 生成可读性强的报告
+- [ ] 包含关键发现和建议
 
 **测试方案**:
 ```python
-insights = analyzer.generate_insights(analysis_results)
-assert len(insights) > 100  # 足够详细
+# 待实现 generate_insights 后补充
 ```
 
 **依赖**: T26
 
-- [x] **T29 完成**
+- [ ] **T29 未完成（待实现）**
 
 ---
 
@@ -910,11 +909,11 @@ streamlit run src/app.py
 
 ---
 
-### T36: 实现AI助手侧边栏
+### T36: 实现AI助手浮动组件
 
-**文件**: `src/ui/sidebar.py`
+**文件**: `src/ui/components/ai_chatbox.py`
 
-**描述**: 常驻AI对话侧边栏
+**描述**: AI助手浮动对话组件
 
 **验收标准**:
 - [x] 对话输入框
@@ -989,10 +988,10 @@ exporter.export_manual_keywords(results, 'test_manual.xlsx')
 
 **验收标准**:
 - [x] 多Sheet Excel
-- [x] Sheet1: 摘要
+- [x] Sheet1: 汇总
 - [x] Sheet2: 否词清单
-- [x] Sheet3: 手动词清单
-- [x] Sheet4: 完整数据
+- [x] Sheet3: 待AI确认
+- [x] Sheet4: 全部结果
 
 **测试方案**:
 ```python
@@ -1008,15 +1007,15 @@ exporter.export_analysis_report(results, ai_summary, 'test_report.xlsx')
 
 ### T40: 集成测试
 
-**文件**: `tests/integration/test_workflow.py`
+**文件**: `tests/integration/__init__.py`（仅占位，暂无 test_workflow.py）
 
-**描述**: 测试核心工作流
+**描述**: 测试核心工作流（自动化脚本待补充）
 
 **验收标准**:
-- [x] 上传→解析→存储流程
-- [x] 聚合→规则分析流程
-- [x] AI分析流程（可mock）
-- [x] 导出流程
+- [ ] 上传→解析→存储流程
+- [ ] 聚合→规则分析流程
+- [ ] AI分析流程（可mock）
+- [ ] 导出流程
 
 **测试方案**:
 ```bash
@@ -1025,20 +1024,20 @@ pytest tests/integration/ -v
 
 **依赖**: T39
 
-- [x] **T40 完成**
+- [ ] **T40 未完成（缺少自动化脚本）**
 
 ---
 
 ### T41: 端到端测试
 
-**文件**: `tests/integration/test_e2e.py`
+**文件**: `tests/integration/__init__.py`（仅占位，暂无 test_e2e.py）
 
-**描述**: 完整用户场景测试
+**描述**: 完整用户场景测试（自动化脚本待补充）
 
 **验收标准**:
-- [x] 模拟完整用户操作流程
-- [x] 从上传到导出
-- [x] 验证输出正确性
+- [ ] 模拟完整用户操作流程
+- [ ] 从上传到导出
+- [ ] 验证输出正确性
 
 **测试方案**:
 ```bash
@@ -1047,7 +1046,238 @@ pytest tests/integration/test_e2e.py -v
 
 **依赖**: T40
 
-- [x] **T41 完成**
+- [ ] **T41 未完成（缺少自动化脚本）**
+
+---
+
+## Sprint 6: 相关性人工审核（Manual Review）
+
+### T42: 更新 manual_reviews 表 Schema
+
+**文件**: `src/data/models.py`
+
+**描述**: 扩展相关性/范围/竞争力/AI字段
+
+**验收标准**:
+- [x] relevance/scope/competition/ai 字段可用
+
+**依赖**: Sprint 5
+
+- [x] **T42 完成**
+
+---
+
+### T43: 添加数据库迁移脚本
+
+**文件**: `migrations/002_add_relevance_fields.sql`
+
+**描述**: 迁移脚本新增字段与索引
+
+**验收标准**:
+- [x] 迁移可执行
+- [x] 索引创建完成
+
+**依赖**: T42
+
+- [x] **T43 完成**
+
+---
+
+### T44: 扩展 db.py 的人工审核 CRUD
+
+**文件**: `src/data/db.py`
+
+**描述**: 支持 Local/Global 相关性读取与更新
+
+**验收标准**:
+- [x] 支持人工相关性查询优先级
+- [x] 支持更新 AI 建议字段
+
+**依赖**: T42
+
+- [x] **T44 完成**
+
+---
+
+### T45: 规则引擎优先使用人工相关性标记
+
+**文件**: `src/rules/engine.py`
+
+**描述**: manual_reviews 优先级高于自动检测
+
+**验收标准**:
+- [x] 人工标记优先
+
+**依赖**: T44
+
+- [x] **T45 完成**
+
+---
+
+### T46: pending 状态处理
+
+**文件**: `src/rules/engine.py`
+
+**描述**: pending 继续自动检测并标记 needs_review
+
+**验收标准**:
+- [x] needs_review 输出
+
+**依赖**: T45
+
+- [x] **T46 完成**
+
+---
+
+### T47: 分析结果标记相关性
+
+**文件**: `src/rules/engine.py`
+
+**描述**: 输出 relevance/needs_review
+
+**验收标准**:
+- [x] 结果包含相关性字段
+
+**依赖**: T46
+
+- [x] **T47 完成**
+
+---
+
+### T48: 审核入口提示
+
+**文件**: `src/ui/pages/home.py`
+
+**描述**: 首页展示待审核数量并提供入口
+
+**验收标准**:
+- [x] 待审核提示
+- [x] 审核入口按钮
+
+**依赖**: T47
+
+- [x] **T48 完成**
+
+---
+
+### T49: 单条审核表单
+
+**文件**: `src/ui/pages/review.py`
+
+**描述**: 单条审核相关性与备注
+
+**验收标准**:
+- [x] 单条审核可保存
+
+**依赖**: T48
+
+- [x] **T49 完成**
+
+---
+
+### T50: 批量审核功能
+
+**文件**: `src/ui/pages/review.py`
+
+**描述**: 批量选择与统一标记
+
+**验收标准**:
+- [x] 批量选择与保存
+
+**依赖**: T49
+
+- [x] **T50 完成**
+
+---
+
+### T51: 筛选/搜索功能
+
+**文件**: `src/ui/pages/review.py`
+
+**描述**: 过滤待审词与搜索
+
+**验收标准**:
+- [x] 支持筛选与搜索
+
+**依赖**: T49
+
+- [x] **T51 完成**
+
+---
+
+### T52: AI 相关性建议能力
+
+**文件**: `src/ai/analyzer.py`
+
+**描述**: AI 建议相关性等级
+
+**验收标准**:
+- [x] suggest_relevance 可用
+
+**依赖**: T45
+
+- [x] **T52 完成**
+
+---
+
+### T53: UI 展示 AI 建议并写入数据库
+
+**文件**: `src/ui/pages/review.py`
+
+**描述**: 展示AI建议并保存到 manual_reviews
+
+**验收标准**:
+- [x] AI 建议展示
+- [x] AI 建议写入数据库
+
+**依赖**: T52
+
+- [x] **T53 完成**
+
+---
+
+### T54: 单元测试
+
+**文件**: `tests/unit/test_manual_review_relevance.py`, `tests/unit/test_engine_relevance_priority.py`
+
+**描述**: 人工审核相关性与优先级测试
+
+**验收标准**:
+- [x] 测试用例覆盖
+
+**依赖**: T45
+
+- [x] **T54 完成**
+
+---
+
+### T55: 集成测试
+
+**文件**: `tests/integration/__init__.py`（仅占位）
+
+**描述**: 相关性审核端到端链路测试（自动化脚本待补充）
+
+**验收标准**:
+- [ ] 自动化脚本可运行
+
+**依赖**: T54
+
+- [ ] **T55 未完成（缺少自动化脚本）**
+
+---
+
+### T56: xlsx 对齐验证
+
+**文件**: `tests/unit/test_excel_alignment.py`
+
+**描述**: 对齐用户标注结果
+
+**验收标准**:
+- [x] 对齐测试可运行
+
+**依赖**: T54
+
+- [x] **T56 完成**
 
 ---
 
@@ -1058,9 +1288,10 @@ pytest tests/integration/test_e2e.py -v
 | Sprint 1 | 4 | 4 | 100% |
 | Sprint 2 | 9 | 9 | 100% |
 | Sprint 3 | 10 | 10 | 100% |
-| Sprint 4 | 6 | 6 | 100% |
+| Sprint 4 | 6 | 5 | 83% |
 | Sprint 5 | 12 | 12 | 100% |
-| **总计** | **41** | **41** | **100%** |
+| Sprint 6 | 15 | 13 | 87% |
+| **总计** | **56** | **53** | **95%** |
 
 ---
 
@@ -1072,5 +1303,5 @@ pytest tests/integration/test_e2e.py -v
 
 ---
 
-**文档状态**: ✅ 已完成
-**下一步**: 应用已就绪，可通过 start.bat 启动
+**文档状态**: 🟡 部分完成（T29待实现）
+**下一步**: 完成 T29 后再复核文档与进度

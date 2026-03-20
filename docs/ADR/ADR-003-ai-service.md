@@ -20,8 +20,8 @@
 
 **选择Google Gemini API**作为AI服务。
 
-- 主要模型: `gemini-2.5-flash`（日常分析）
-- 备选模型: `gemini-2.5-pro`（复杂推理）
+- 默认模型: `gemini-2.5-flash`（可在系统设置中切换）
+- 可选模型: `gemini-2.5-pro`, `gemini-2.5-flash-lite`, `gemini-3-flash-preview`, `gemini-3-pro-preview`
 
 ---
 
@@ -77,7 +77,7 @@
 1. **用户指定**: 用户明确要求使用Gemini
 2. **能力匹配**: Gemini的推理能力足以处理关键词相关性判断
 3. **中文支持**: 目标用户是中国卖家，需要良好的中文理解
-4. **上下文窗口**: Flash模型100万token窗口，适合批量分析
+4. **上下文窗口**: 适合批量分析的上下文容量
 5. **成本可控**: Flash模型价格较低
 
 ---
@@ -115,7 +115,7 @@ GEMINI_MODEL=gemini-2.5-flash
 | 相关性判断 | gemini-2.5-flash | 单次判断，低延迟 |
 | 分歧解决 | gemini-2.5-flash | 需要对比多组数据 |
 | 对话助手 | gemini-2.5-flash | 多轮对话，保持上下文 |
-| 深度分析 | gemini-2.5-pro | 复杂场景可选升级 |
+| 深度分析 | gemini-2.5-pro / gemini-3-* preview | 复杂场景可选升级 |
 
 ---
 
