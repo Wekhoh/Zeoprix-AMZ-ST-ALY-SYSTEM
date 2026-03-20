@@ -4,6 +4,7 @@
 """
 
 import os
+import warnings
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -66,7 +67,7 @@ class Settings:
             # 开发模式下只警告，不报错
             if self.debug:
                 for error in errors:
-                    print(f"[警告] {error}")
+                    warnings.warn(error, stacklevel=2)
             else:
                 raise ValueError("\n".join(errors))
 
