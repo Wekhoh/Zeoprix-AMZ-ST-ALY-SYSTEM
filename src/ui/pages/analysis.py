@@ -378,6 +378,13 @@ def render_summary_analysis(db, product_id: int):
 
     st.divider()
 
+    # AI 洞察报告
+    product = db.get_product(product_id)
+    product_name = product.get("name", "") if product else ""
+    _render_ai_insights(results, product_name=product_name)
+
+    st.divider()
+
     # 批量操作
     st.subheader("批量操作")
 
@@ -853,6 +860,81 @@ def export_results(db, product_id: int, result_type: str):
 
     except Exception as e:
         safe_error("导出", e)
+
+
+def _render_ai_insights(results: list, product_name: str = ""):
+    """渲染AI洞察报告区块"""
+    with st.expander("AI 洞察报告", expanded=False):
+        if not results:
+            st.info("暂无分析数据")
+            return
+
+        # 检查缓存
+        cache_key = f"insight_report_{len(results)}_{product_name}"
+        cached = st.session_state.get(cache_key)
+
+        if cached:
+            _display_insight_report(cached)
+            if st.button("重新生成", key="regen_insights"):
+                del st.session_state[cache_key]
+                st.rerun()
+            return
+
+        if st.button("生成 AI 洞察报告", key="gen_insights"):
+            with st.spinner("正在分析数据..."):
+                try:
+                    from src.ai.analyzer import AIAnalyzer, InsightReport
+                    from src.ai.client import GeminiClient
+                    from src.config.settings import get_settings
+
+                    settings = get_settings()
+                    if settings.is_api_configured:
+                        client = GeminiClient(api_key=settings.gemini_api_key)
+                    else:
+                        client = None
+
+                    analyzer = AIAnalyzer(client=client)
+                    report = analyzer.generate_insights(
+                        results,
+                        product_context={"name": product_name},
+                    )
+
+                    st.session_state[cache_key] = report
+                    _display_insight_report(report)
+
+                except Exception as e:
+                    safe_error("AI洞察报告生成", e)
+        else:
+            st.caption("点击按钮，AI 将基于当前分析结果生成洞察报告")
+
+
+def _display_insight_report(report):
+    """展示洞察报告内容"""
+    if report.summary:
+        st.markdown(f"**摘要:** {report.summary}")
+
+    if report.key_findings:
+        st.markdown("**关键发现:**")
+        for finding in report.key_findings:
+            st.markdown(f"- {finding}")
+
+    if report.recommendations:
+        st.markdown("**优化建议:**")
+        for rec in report.recommendations:
+            st.markdown(f"- {rec}")
+
+    if report.statistics:
+        stats = report.statistics
+        cols = st.columns(4)
+        with cols[0]:
+            st.metric("搜索词总数", stats.get("total_terms", 0))
+        with cols[1]:
+            st.metric("建议否定", stats.get("negative_count", 0))
+        with cols[2]:
+            st.metric("建议手动", stats.get("manual_count", 0))
+        with cols[3]:
+            acos_val = stats.get("acos", 0)
+            st.metric("整体ACOS", f"{acos_val:.1%}" if acos_val else "N/A")
 
 
 def render_detail_panel(result: dict):
