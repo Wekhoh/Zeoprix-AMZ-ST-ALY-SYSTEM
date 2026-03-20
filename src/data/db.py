@@ -779,12 +779,13 @@ class Database:
         Returns:
             分析结果ID，如果找不到对应的search_term则返回None
         """
-        # 查找对应的 search_term_id（取第一个匹配的）
+        # 查找对应的 search_term_id（按最早导入记录稳定映射）
         cursor = self.conn.execute(
             """
             SELECT st.id FROM search_terms st
             JOIN campaigns c ON st.campaign_id = c.id
             WHERE c.product_id = ? AND st.term = ?
+            ORDER BY st.id
             LIMIT 1
             """,
             (product_id, term),
@@ -1149,7 +1150,10 @@ class Database:
                 SUM(CASE WHEN term_type = 'asin' THEN 1 ELSE 0 END) as asins
             FROM manual_reviews
             WHERE product_id = ?
-              AND (relevance IS NULL OR relevance = 'pending')
+              AND (
+                    (term_type = 'keyword' AND (relevance IS NULL OR relevance = 'pending'))
+                    OR (term_type = 'asin' AND competition_level IS NULL)
+                  )
             """,
             (product_id,),
         )
@@ -1187,7 +1191,10 @@ class Database:
             FROM manual_reviews mr
             LEFT JOIN campaigns c ON mr.campaign_id = c.id
             WHERE mr.product_id = ?
-              AND (mr.relevance IS NULL OR mr.relevance = 'pending')
+              AND (
+                    (mr.term_type = 'keyword' AND (mr.relevance IS NULL OR mr.relevance = 'pending'))
+                    OR (mr.term_type = 'asin' AND mr.competition_level IS NULL)
+                  )
         """
         params = [product_id]
 

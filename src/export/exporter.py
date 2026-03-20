@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.config.logger import get_logger
+from src.data.models import ActionType
 from src.rules.engine import AnalysisResult
 
 logger = get_logger(__name__)
@@ -113,7 +114,7 @@ class ReportExporter:
             导出文件路径
         """
         # 筛选否词类型结果
-        negative_results = [r for r in results if r.action_type == "negative"]
+        negative_results = [r for r in results if ActionType.is_negative(r.action_type)]
 
         if not negative_results:
             logger.warning("没有需要导出的否词")
@@ -128,7 +129,7 @@ class ReportExporter:
                     "类型": r.term_type,
                     "触发规则": r.triggered_rule,
                     "建议操作": r.suggested_action,
-                    "否定类型": self._get_negative_type(r.suggested_action),
+                    "否定类型": self._get_negative_type(r.suggested_action, r.action_type),
                     "置信度": f"{r.confidence:.2%}",
                     "需AI确认": "是" if r.need_ai_judgment else "否",
                     "花费": r.data.get("total_spend", r.data.get("spend", 0)),
@@ -170,7 +171,7 @@ class ReportExporter:
             导出文件路径
         """
         # 筛选手动投放类型结果
-        manual_results = [r for r in results if r.action_type == "manual"]
+        manual_results = [r for r in results if ActionType.is_manual(r.action_type)]
 
         if not manual_results:
             logger.warning("没有需要导出的手动词")
@@ -258,12 +259,12 @@ class ReportExporter:
             self._write_summary_sheet(writer, results, summary)
 
             # Sheet 2: 否词清单
-            negative_results = [r for r in results if r.action_type == "negative"]
+            negative_results = [r for r in results if ActionType.is_negative(r.action_type)]
             if negative_results:
                 self._write_results_sheet(writer, negative_results, "否词清单")
 
             # Sheet 3: 手动词清单
-            manual_results = [r for r in results if r.action_type == "manual"]
+            manual_results = [r for r in results if ActionType.is_manual(r.action_type)]
             if manual_results:
                 self._write_results_sheet(writer, manual_results, "手动词推荐")
 
@@ -287,9 +288,9 @@ class ReportExporter:
         """写入汇总Sheet"""
         # 统计数据
         total_count = len(results)
-        negative_count = len([r for r in results if r.action_type == "negative"])
-        manual_count = len([r for r in results if r.action_type == "manual"])
-        observe_count = len([r for r in results if r.action_type == "observe"])
+        negative_count = len([r for r in results if ActionType.is_negative(r.action_type)])
+        manual_count = len([r for r in results if ActionType.is_manual(r.action_type)])
+        observe_count = len([r for r in results if ActionType.is_observe(r.action_type)])
         ai_pending_count = len([r for r in results if r.need_ai_judgment])
 
         # 规则触发统计
@@ -392,14 +393,29 @@ class ReportExporter:
         """导出DataFrame到Excel"""
         df.to_excel(filepath, sheet_name=sheet_name, index=False)
 
-    def _get_negative_type(self, suggested_action: str) -> str:
-        """根据建议操作确定否定类型"""
-        if "精确" in suggested_action:
-            return "精确否定"
-        elif "短语" in suggested_action:
+    def _get_negative_type(
+        self,
+        suggested_action: str,
+        action_type: str | None = None,
+    ) -> str:
+        """根据动作类型或建议操作确定否定类型。"""
+        if action_type == ActionType.NEGATIVE_PHRASE or "短语" in suggested_action:
             return "短语否定"
-        else:
-            return "精确否定"  # 默认精确否定
+        if action_type == ActionType.NEGATIVE_EXACT or "精确" in suggested_action:
+            return "精确否定"
+        return "精确否定"
+
+    def _get_csv_match_type(self, result: AnalysisResult) -> str:
+        """根据动作类型生成批量上传所需的 Match Type。"""
+        if result.action_type == ActionType.NEGATIVE_PHRASE:
+            return "Negative phrase"
+        if result.action_type == ActionType.NEGATIVE_EXACT:
+            return "Negative exact"
+        return (
+            "Negative exact"
+            if "精确" in result.suggested_action
+            else "Negative phrase"
+        )
 
     def _suggest_bid(self, result: AnalysisResult) -> str:
         """建议出价"""
@@ -447,9 +463,9 @@ class ReportExporter:
         """
         # 根据类型筛选
         if result_type == "negative":
-            filtered = [r for r in results if r.action_type == "negative"]
+            filtered = [r for r in results if ActionType.is_negative(r.action_type)]
         elif result_type == "manual":
-            filtered = [r for r in results if r.action_type == "manual"]
+            filtered = [r for r in results if ActionType.is_manual(r.action_type)]
         else:
             filtered = results
 
@@ -463,9 +479,7 @@ class ReportExporter:
             data.append(
                 {
                     "Keyword": r.term,
-                    "Match Type": "Negative exact"
-                    if "精确" in r.suggested_action
-                    else "Negative phrase",
+                    "Match Type": self._get_csv_match_type(r),
                 }
             )
 

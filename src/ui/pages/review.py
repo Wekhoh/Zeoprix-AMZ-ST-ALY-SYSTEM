@@ -557,8 +557,9 @@ def _render_batch_form(db, product_id: int, pending_list: list):
                             term=term,
                             term_type=term_type,
                             competition_level=selected_competition,
-                            relevance_notes=batch_notes if batch_notes else None,
+                            competition_notes=batch_notes if batch_notes else None,
                             scope=selected_scope,
+                            reviewed=True,
                         )
                     else:
                         # 关键词: 保存相关性标记
@@ -569,6 +570,7 @@ def _render_batch_form(db, product_id: int, pending_list: list):
                             relevance=selected_relevance,
                             relevance_notes=batch_notes if batch_notes else None,
                             scope=selected_scope,
+                            reviewed=True,
                         )
                     success_count += 1
                 except Exception as e:
@@ -866,8 +868,9 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
                     term=term,
                     term_type=term_type,
                     competition_level=selected_competition,
-                    relevance_notes=notes if notes else None,
+                    competition_notes=notes if notes else None,
                     scope=selected_scope,
+                    reviewed=True,
                 )
                 st.success(f"已保存 ASIN '{term}' 的竞争力评估")
             else:
@@ -879,6 +882,7 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
                     relevance=selected_relevance,
                     relevance_notes=notes if notes else None,
                     scope=selected_scope,
+                    reviewed=True,
                 )
                 st.success(f"已保存 '{term}' 的相关性标记")
 

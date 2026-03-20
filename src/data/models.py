@@ -75,6 +75,36 @@ class ActionType:
     CONTINUE_OBSERVE = "continue_observe"  # 继续观察（样本不足）
     EVALUATE = "evaluate"  # 评估（需要人工判断）
 
+    @classmethod
+    def is_negative(cls, value: str | None) -> bool:
+        """Return whether an action includes a negative component."""
+        return value in {
+            "negative",
+            cls.NEGATIVE_EXACT,
+            cls.NEGATIVE_PHRASE,
+            cls.MANUAL_EXACT_WITH_NEG,
+            cls.MANUAL_PRODUCT_WITH_NEG,
+        }
+
+    @classmethod
+    def is_manual(cls, value: str | None) -> bool:
+        """Return whether an action includes a manual targeting component."""
+        return value in {
+            "manual",
+            cls.MANUAL_EXACT,
+            cls.MANUAL_PRODUCT,
+            cls.MANUAL_EXACT_NO_NEG,
+            cls.MANUAL_EXACT_WITH_NEG,
+            cls.MANUAL_PRODUCT_NO_NEG,
+            cls.MANUAL_PRODUCT_WITH_NEG,
+        }
+
+    @classmethod
+    def is_observe(cls, value: str | None) -> bool:
+        """Return whether an action is an observe-style action."""
+        return value in {cls.OBSERVE, cls.CONTINUE_OBSERVE}
+
+
 
 # ==================== 产品配置结构说明 ====================
 # 产品的config字段应包含以下结构:

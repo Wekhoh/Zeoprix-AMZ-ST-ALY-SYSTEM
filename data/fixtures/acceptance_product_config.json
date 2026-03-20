@@ -1,0 +1,119 @@
+{
+  "is_new_product": false,
+  "high_spend_threshold": 10.0,
+  "low_ctr_threshold": 0.001,
+  "min_clicks_threshold": 10,
+  "high_acos_threshold": 0.5,
+  "min_orders_for_manual": 2,
+  "target_acos": 0.25,
+  "min_conversion_rate": 0.05,
+  "competitor_high_acos": 0.4,
+  "thresholds": {
+    "min_clicks_for_analysis": 20,
+    "min_clicks_for_asin_neg": 6,
+    "high_spend_no_order": 20.0,
+    "good_cvr": 0.1,
+    "bad_cvr": 0.05
+  },
+  "core_keywords": [
+    "neck pillow",
+    "travel pillow",
+    "travel neck pillow",
+    "airplane pillow",
+    "flight pillow",
+    "airplane neck pillow",
+    "pillows for airplane",
+    "travel pillows for airplanes",
+    "memory foam neck pillow",
+    "u shaped pillow",
+    "u-shaped pillow",
+    "travel accessories",
+    "neck pillow for travel",
+    "pillow for airplane",
+    "neck rest pillow",
+    "portable pillow",
+    "travel neck pillow for car"
+  ],
+  "related_keywords": [
+    "neck travel",
+    "sleep pillow",
+    "rest pillow",
+    "foam pillow",
+    "ergonomic pillow"
+  ],
+  "own_asins": [],
+  "own_variants": [
+    "B0FCSM9THX"
+  ],
+  "competitor_asins": [],
+  "keyword_libraries": {
+    "irrelevant_keywords": [
+      "dog",
+      "cat",
+      "pet",
+      "baby",
+      "kids",
+      "cpap",
+      "meditation",
+      "yoga",
+      "acne",
+      "satin",
+      "silk",
+      "toddler",
+      "infant",
+      "therapeutic",
+      "massage chair"
+    ],
+    "weak_category_keywords": [
+      "massager",
+      "blanket",
+      "lumbar",
+      "cushion",
+      "headrest",
+      "eye mask",
+      "ear plugs",
+      "foot rest",
+      "back support",
+      "seat cushion",
+      "sleeping bag",
+      "stuffable",
+      "brace",
+      "microbead",
+      "travelon",
+      "black long pillow"
+    ],
+    "weak_exact_keywords": [
+      "neck support",
+      "pillow for neck",
+      "cover neck pillow",
+      "neck pillow cover",
+      "pillow covers",
+      "neck support office"
+    ],
+    "generic_keywords": [
+      "pillow",
+      "pillows",
+      "neck",
+      "travel",
+      "home",
+      "support",
+      "rest",
+      "foam",
+      "memory foam",
+      "for long flights",
+      "travel flight",
+      "office pillow"
+    ],
+    "car_keywords": [
+      "car",
+      "auto",
+      "vehicle",
+      "driving",
+      "driver",
+      "automobile",
+      "automotive",
+      "truck",
+      "suv"
+    ]
+  }
+}
