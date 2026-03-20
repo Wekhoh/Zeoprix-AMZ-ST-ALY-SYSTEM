@@ -204,6 +204,60 @@ def render_review():
         _render_single_mode(db, product_id, pending_list)
 
 
+def _get_page_items(pending_list: list, page_key: str = "review_page"):
+    """分页辅助：返回当前页的起止索引和每页大小"""
+    if f"{page_key}_size" not in st.session_state:
+        st.session_state[f"{page_key}_size"] = 20
+    if page_key not in st.session_state:
+        st.session_state[page_key] = 0
+
+    page_size = st.session_state[f"{page_key}_size"]
+    page = st.session_state[page_key]
+    total = len(pending_list)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+
+    # 防止越界
+    if page >= total_pages:
+        page = total_pages - 1
+        st.session_state[page_key] = page
+
+    start = page * page_size
+    end = min(start + page_size, total)
+    return start, end, page, total_pages, page_size
+
+
+def _render_pagination(
+    total: int, page: int, total_pages: int, page_key: str = "review_page"
+):
+    """渲染分页控件"""
+    col_prev, col_info, col_next, col_size = st.columns([1, 2, 1, 1])
+
+    with col_prev:
+        if st.button("上一页", disabled=page <= 0, key=f"{page_key}_prev"):
+            st.session_state[page_key] = page - 1
+            st.rerun()
+    with col_info:
+        st.caption(f"第 {page + 1}/{total_pages} 页 (共 {total} 条)")
+    with col_next:
+        if st.button(
+            "下一页", disabled=page >= total_pages - 1, key=f"{page_key}_next"
+        ):
+            st.session_state[page_key] = page + 1
+            st.rerun()
+    with col_size:
+        new_size = st.selectbox(
+            "每页",
+            [10, 20, 50],
+            index=[10, 20, 50].index(st.session_state.get(f"{page_key}_size", 20)),
+            key=f"{page_key}_size_sel",
+            label_visibility="collapsed",
+        )
+        if new_size != st.session_state.get(f"{page_key}_size", 20):
+            st.session_state[f"{page_key}_size"] = new_size
+            st.session_state[page_key] = 0
+            st.rerun()
+
+
 def _render_single_mode(db, product_id: int, pending_list: list):
     """渲染单条审核模式"""
     # 左右分栏布局
@@ -212,8 +266,13 @@ def _render_single_mode(db, product_id: int, pending_list: list):
     with col_list:
         st.subheader(f"待审核列表 ({len(pending_list)})")
 
-        # 显示列表（可点击选择）
-        for idx, item in enumerate(pending_list[:20]):  # 限制显示前20条
+        start, end, page, total_pages, page_size = _get_page_items(
+            pending_list, "single_page"
+        )
+
+        # 显示当前页的列表项
+        for idx in range(start, end):
+            item = pending_list[idx]
             term = item.get("term", "")
             term_type = item.get("term_type", "keyword")
             term_type_label = "[K]" if term_type == "keyword" else "[A]"
@@ -231,8 +290,7 @@ def _render_single_mode(db, product_id: int, pending_list: list):
                 st.session_state.review_current_index = idx
                 st.rerun()
 
-        if len(pending_list) > 20:
-            st.caption(f"还有 {len(pending_list) - 20} 条未显示...")
+        _render_pagination(len(pending_list), page, total_pages, "single_page")
 
     with col_form:
         # 当前审核项
@@ -247,11 +305,17 @@ def _render_batch_mode(db, product_id: int, pending_list: list):
     with col_list:
         st.subheader(f"批量选择 ({len(st.session_state.batch_selected)}选中)")
 
-        # 全选/取消全选
+        start, end, page, total_pages, page_size = _get_page_items(
+            pending_list, "batch_page"
+        )
+
+        # 全选/取消全选（当前页）
         col_sel1, col_sel2 = st.columns(2)
         with col_sel1:
-            if st.button("全选", width="stretch"):
-                st.session_state.batch_selected = set(range(min(20, len(pending_list))))
+            if st.button("全选本页", width="stretch"):
+                st.session_state.batch_selected = st.session_state.batch_selected | set(
+                    range(start, end)
+                )
                 st.rerun()
         with col_sel2:
             if st.button("取消全选", width="stretch"):
@@ -260,8 +324,9 @@ def _render_batch_mode(db, product_id: int, pending_list: list):
 
         st.divider()
 
-        # 显示checkbox列表
-        for idx, item in enumerate(pending_list[:20]):
+        # 显示当前页的checkbox列表
+        for idx in range(start, end):
+            item = pending_list[idx]
             term = item.get("term", "")
             term_type = item.get("term_type", "keyword")
             term_type_label = "[K]" if term_type == "keyword" else "[A]"
@@ -275,6 +340,8 @@ def _render_batch_mode(db, product_id: int, pending_list: list):
                 st.session_state.batch_selected.add(idx)
             else:
                 st.session_state.batch_selected.discard(idx)
+
+        _render_pagination(len(pending_list), page, total_pages, "batch_page")
 
         if len(pending_list) > 20:
             st.caption(f"还有 {len(pending_list) - 20} 条未显示...")
