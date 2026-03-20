@@ -5,7 +5,7 @@ Sprint 5 单元测试
 
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from src.export.exporter import ReportExporter
 from src.rules.engine import AnalysisResult
@@ -301,26 +301,31 @@ class TestUIImports:
     def test_import_render_home(self):
         """测试导入首页渲染函数"""
         from src.ui.pages.home import render_home
+
         assert callable(render_home)
 
     def test_import_render_upload(self):
         """测试导入上传页渲染函数"""
         from src.ui.pages.upload import render_upload
+
         assert callable(render_upload)
 
     def test_import_render_analysis(self):
         """测试导入分析页渲染函数"""
         from src.ui.pages.analysis import render_analysis
+
         assert callable(render_analysis)
 
     def test_import_render_actions(self):
         """测试导入操作清单页渲染函数"""
         from src.ui.pages.actions import render_actions
+
         assert callable(render_actions)
 
     def test_import_render_settings(self):
         """测试导入设置页渲染函数"""
         from src.ui.pages.settings import render_settings
+
         assert callable(render_settings)
 
     def test_import_pages_package(self):
@@ -332,13 +337,16 @@ class TestUIImports:
             render_actions,
             render_settings,
         )
-        assert all([
-            callable(render_home),
-            callable(render_upload),
-            callable(render_analysis),
-            callable(render_actions),
-            callable(render_settings),
-        ])
+
+        assert all(
+            [
+                callable(render_home),
+                callable(render_upload),
+                callable(render_analysis),
+                callable(render_actions),
+                callable(render_settings),
+            ]
+        )
 
 
 class TestUIHelperFunctions:
@@ -386,11 +394,10 @@ class TestUIHelperFunctions:
         """测试ACOS计算"""
         from src.ui.pages.actions import calculate_acos
 
+        # 函数直接使用item的spend/sales键，而非嵌套在data中
         item = {
-            "data": {
-                "total_spend": 50,
-                "total_sales": 100,
-            }
+            "spend": 50,
+            "sales": 100,
         }
         result = calculate_acos(item)
         assert result == "50.00%"
@@ -400,10 +407,8 @@ class TestUIHelperFunctions:
         from src.ui.pages.actions import calculate_acos
 
         item = {
-            "data": {
-                "total_spend": 50,
-                "total_sales": 0,
-            }
+            "spend": 50,
+            "sales": 0,
         }
         result = calculate_acos(item)
         assert result == "N/A"
@@ -412,43 +417,42 @@ class TestUIHelperFunctions:
         """测试精确匹配建议"""
         from src.ui.pages.actions import suggest_match_type
 
+        # 函数直接使用item的orders/spend/sales键
         item = {
-            "data": {
-                "total_orders": 5,
-                "total_spend": 10,
-                "total_sales": 100,
-            }
+            "orders": 5,
+            "spend": 10,
+            "sales": 100,
         }
         result = suggest_match_type(item)
         assert result == "精确匹配"
 
     def test_actions_suggest_match_type_phrase(self):
-        """测试短语匹配建议"""
+        """测试短语匹配建议 - 基于action_type"""
         from src.ui.pages.actions import suggest_match_type
 
+        # 新逻辑：根据action_type确定匹配类型
         item = {
-            "data": {
-                "total_orders": 3,
-                "total_spend": 20,
-                "total_sales": 100,
-            }
+            "action_type": "manual_phrase",
+            "orders": 3,
+            "spend": 20,
+            "sales": 100,
         }
         result = suggest_match_type(item)
         assert result == "短语匹配"
 
-    def test_actions_suggest_match_type_broad(self):
-        """测试广泛匹配建议"""
+    def test_actions_suggest_match_type_product(self):
+        """测试商品定位建议 - 基于action_type"""
         from src.ui.pages.actions import suggest_match_type
 
+        # ASIN使用manual_product
         item = {
-            "data": {
-                "total_orders": 1,
-                "total_spend": 50,
-                "total_sales": 100,
-            }
+            "action_type": "manual_product",
+            "orders": 1,
+            "spend": 50,
+            "sales": 100,
         }
         result = suggest_match_type(item)
-        assert result == "广泛匹配"
+        assert result == "商品定位"
 
     def test_settings_get_default_config(self):
         """测试默认配置"""

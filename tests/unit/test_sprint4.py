@@ -7,7 +7,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -38,7 +38,9 @@ class TestGeminiClient:
 
         client = GeminiClient()
         assert client.client is not None
-        assert client.model == "gemini-2.5-flash"
+        # 模型名称可能因环境变量GEMINI_MODEL而不同
+        assert client.model is not None
+        assert "gemini" in client.model.lower()
 
     @pytest.mark.skipif(not HAS_API_KEY, reason="需要GEMINI_API_KEY")
     def test_generate_simple(self):
@@ -59,7 +61,7 @@ class TestGeminiClient:
         client = GeminiClient()
         result = client.generate_json(
             prompt="Return a JSON object with keys 'name' and 'value'",
-            system_instruction="Always return valid JSON"
+            system_instruction="Always return valid JSON",
         )
 
         assert result is not None
@@ -139,8 +141,20 @@ class TestAIAnalyzer:
 
         analyzer = AIAnalyzer()
         campaign_data = [
-            {"campaign": "Campaign A - Broad", "acos": 0.15, "orders": 10, "spend": 50, "clicks": 100},
-            {"campaign": "Campaign B - Exact", "acos": 0.80, "orders": 2, "spend": 80, "clicks": 50},
+            {
+                "campaign": "Campaign A - Broad",
+                "acos": 0.15,
+                "orders": 10,
+                "spend": 50,
+                "clicks": 100,
+            },
+            {
+                "campaign": "Campaign B - Exact",
+                "acos": 0.80,
+                "orders": 2,
+                "spend": 80,
+                "clicks": 50,
+            },
         ]
 
         result = analyzer.resolve_conflict(
@@ -203,28 +217,31 @@ class TestChatAssistant:
 
         # 添加搜索词数据（直接SQL插入）
         import pandas as pd
-        test_data = pd.DataFrame([
-            {
-                "term": "good keyword",
-                "term_type": "keyword",
-                "match_type": "broad",
-                "impressions": 1000,
-                "clicks": 50,
-                "spend": 10.0,
-                "orders": 5,
-                "sales": 100.0,
-            },
-            {
-                "term": "bad keyword",
-                "term_type": "keyword",
-                "match_type": "broad",
-                "impressions": 500,
-                "clicks": 20,
-                "spend": 15.0,
-                "orders": 0,
-                "sales": 0,
-            },
-        ])
+
+        test_data = pd.DataFrame(
+            [
+                {
+                    "term": "good keyword",
+                    "term_type": "keyword",
+                    "match_type": "broad",
+                    "impressions": 1000,
+                    "clicks": 50,
+                    "spend": 10.0,
+                    "orders": 5,
+                    "sales": 100.0,
+                },
+                {
+                    "term": "bad keyword",
+                    "term_type": "keyword",
+                    "match_type": "broad",
+                    "impressions": 500,
+                    "clicks": 20,
+                    "spend": 15.0,
+                    "orders": 0,
+                    "sales": 0,
+                },
+            ]
+        )
         db.save_search_terms(test_data, campaign_id)
 
         yield db, product_id

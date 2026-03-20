@@ -3,7 +3,6 @@ Sprint 1 单元测试
 测试数据库、配置和日志模块
 """
 
-import json
 import os
 import sys
 import tempfile

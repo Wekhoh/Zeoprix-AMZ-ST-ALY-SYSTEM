@@ -77,7 +77,16 @@ test keyword,1000,50,5%,25.00,3,45.00,55.56%"""
         df = parser.parse(file, "test.csv")
 
         # 验证列名已映射
-        expected_columns = ["term", "impressions", "clicks", "ctr", "spend", "orders", "sales", "acos"]
+        expected_columns = [
+            "term",
+            "impressions",
+            "clicks",
+            "ctr",
+            "spend",
+            "orders",
+            "sales",
+            "acos",
+        ]
         for col in expected_columns:
             assert col in df.columns, f"缺少列: {col}"
 
@@ -149,8 +158,12 @@ class TestDataAggregator:
         product_id = db.create_product(name="测试产品", asin="B0TESTPROD")
 
         # 创建两个广告活动
-        campaign1_id = db.create_campaign(product_id, "自动紧密", match_type="close-match")
-        campaign2_id = db.create_campaign(product_id, "自动宽泛", match_type="loose-match")
+        campaign1_id = db.create_campaign(
+            product_id, "自动紧密", match_type="close-match"
+        )
+        campaign2_id = db.create_campaign(
+            product_id, "自动宽泛", match_type="loose-match"
+        )
 
         # 准备测试数据
         test_data_1 = pd.DataFrame(
