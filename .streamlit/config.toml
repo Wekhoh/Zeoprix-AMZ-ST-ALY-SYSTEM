@@ -1,0 +1,26 @@
+# Streamlit Configuration
+# AMZ搜索词分析系统 - 深蓝色主题
+
+[theme]
+# Primary accent color - 品牌蓝
+primaryColor = "#2563EB"
+
+# Background color - 浅灰白
+backgroundColor = "#FAFBFC"
+
+# Secondary background color - 用于sidebar等
+secondaryBackgroundColor = "#F8FAFC"
+
+# Text color - 深灰
+textColor = "#1E293B"
+
+# Font family
+font = "sans serif"
+
+[server]
+# Enable file watcher for development
+fileWatcherType = "auto"
+
+[browser]
+# Gather usage statistics (disabled for privacy)
+gatherUsageStats = false
