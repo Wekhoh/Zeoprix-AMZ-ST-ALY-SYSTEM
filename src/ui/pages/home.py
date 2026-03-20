@@ -3,9 +3,12 @@
 展示关键指标和快速入口
 """
 
+import altair as alt
+import pandas as pd
 import streamlit as st
 
 from src.config.logger import get_logger
+from src.rules.engine import analyze_search_terms
 
 logger = get_logger(__name__)
 
@@ -28,7 +31,11 @@ def get_all_dashboard_data(_db, product_id: int = None) -> dict:
     """
     dashboard_stats = _get_dashboard_stats_impl(_db, product_id)
     pending_stats = _get_pending_stats_impl(_db, product_id)
-    rule_stats = _get_rule_stats_impl(_db, product_id) if dashboard_stats["term_count"] > 0 else {}
+    rule_stats = (
+        _get_rule_stats_impl(_db, product_id)
+        if dashboard_stats["term_count"] > 0
+        else {}
+    )
 
     return {
         "dashboard_stats": dashboard_stats,
@@ -39,7 +46,7 @@ def get_all_dashboard_data(_db, product_id: int = None) -> dict:
 
 def render_home():
     """渲染首页"""
-    st.title("📊 搜索词分析仪表盘")
+    st.title("搜索词分析仪表盘")
 
     db = st.session_state.get("db")
     product_id = st.session_state.get("current_product_id")
@@ -72,7 +79,7 @@ def render_home():
     with col3:
         st.metric(
             label="整体ACOS",
-            value=f"{stats['acos']:.2%}" if stats['acos'] > 0 else "N/A",
+            value=f"{stats['acos']:.2%}" if stats["acos"] > 0 else "N/A",
             delta=None,
         )
 
@@ -89,69 +96,111 @@ def render_home():
     col_left, col_right = st.columns(2)
 
     with col_left:
-        st.subheader("⚠️ 待处理项")
+        st.subheader("待处理项")
 
         pending_stats = all_data["pending_stats"]
 
         if pending_stats["negative_count"] > 0:
-            st.warning(f"🔴 {pending_stats['negative_count']} 个词需要否定")
+            st.warning(f"{pending_stats['negative_count']} 个词需要否定")
 
         if pending_stats["manual_count"] > 0:
-            st.success(f"🟢 {pending_stats['manual_count']} 个高转化词待投放")
+            st.success(f"{pending_stats['manual_count']} 个高转化词待投放")
 
         if pending_stats["ai_pending_count"] > 0:
-            st.info(f"🤖 {pending_stats['ai_pending_count']} 个词待AI确认")
+            st.info(f"{pending_stats['ai_pending_count']} 个词待AI确认")
+
+        # v2.0: 显示待审核相关性的词
+        if pending_stats.get("review_pending_count", 0) > 0:
+            st.info(f"{pending_stats['review_pending_count']} 个词待审核相关性")
 
         if sum(pending_stats.values()) == 0:
-            st.success("✅ 暂无待处理项")
+            st.success("暂无待处理项")
 
     with col_right:
-        st.subheader("🚀 快速操作")
+        st.subheader("快速操作")
 
         col_btn1, col_btn2 = st.columns(2)
 
         with col_btn1:
-            if st.button("📤 上传新数据", use_container_width=True):
+            if st.button("上传新数据", width="stretch"):
                 st.session_state.nav_page = "文件上传"
-                # 删除 nav_radio 状态，让 st.radio 使用新的 index
-                if "nav_radio" in st.session_state:
-                    del st.session_state.nav_radio
                 st.rerun()
 
-            if st.button("📋 查看操作清单", use_container_width=True):
+            if st.button("查看操作清单", width="stretch"):
                 st.session_state.nav_page = "操作清单"
-                if "nav_radio" in st.session_state:
-                    del st.session_state.nav_radio
+                st.rerun()
+
+            # v2.0: 相关性审核入口
+            if st.button("相关性审核", width="stretch"):
+                st.session_state.nav_page = "相关性审核"
                 st.rerun()
 
         with col_btn2:
-            if st.button("🔍 分析搜索词", use_container_width=True):
+            if st.button("分析搜索词", width="stretch"):
                 st.session_state.nav_page = "搜索词分析"
-                if "nav_radio" in st.session_state:
-                    del st.session_state.nav_radio
                 st.rerun()
 
-            if st.button("⚙️ 系统设置", use_container_width=True):
+            if st.button("系统设置", width="stretch"):
                 st.session_state.nav_page = "系统设置"
-                if "nav_radio" in st.session_state:
-                    del st.session_state.nav_radio
                 st.rerun()
 
     st.divider()
 
     # 最近活动
-    st.subheader("📈 数据概览")
+    st.subheader("数据概览")
 
     if stats["term_count"] > 0:
         # 使用缓存的规则统计数据
         rule_stats = all_data["rule_stats"]
 
         if rule_stats:
-            chart_data = {
-                "规则": list(rule_stats.keys()),
-                "数量": list(rule_stats.values()),
-            }
-            st.bar_chart(chart_data, x="规则", y="数量")
+            # 使用 Altair 创建柱状图，设置X轴标签水平显示
+            df = pd.DataFrame(
+                {
+                    "规则": list(rule_stats.keys()),
+                    "数量": list(rule_stats.values()),
+                }
+            )
+
+            chart = (
+                alt.Chart(df)
+                .mark_bar(
+                    color="#2563EB",  # 品牌蓝色
+                    cornerRadiusTopLeft=4,
+                    cornerRadiusTopRight=4,
+                )
+                .encode(
+                    x=alt.X(
+                        "规则:N",
+                        axis=alt.Axis(
+                            labelAngle=0,  # 水平显示标签
+                            labelFontSize=12,
+                            titleFontSize=13,
+                            titleFontWeight="bold",
+                        ),
+                        sort=alt.EncodingSortField(
+                            field="数量", order="descending"
+                        ),  # 按数量降序排列
+                    ),
+                    y=alt.Y(
+                        "数量:Q",
+                        axis=alt.Axis(
+                            labelFontSize=11,
+                            titleFontSize=13,
+                            titleFontWeight="bold",
+                        ),
+                    ),
+                    tooltip=["规则", "数量"],
+                )
+                .properties(
+                    height=350,
+                )
+                .configure_view(
+                    strokeWidth=0,  # 移除边框
+                )
+            )
+
+            st.altair_chart(chart, width="stretch")
     else:
         st.info("暂无数据，请先上传搜索词报告")
 
@@ -217,51 +266,31 @@ def _get_dashboard_stats_impl(db, product_id: int = None) -> dict:
 
 
 def _get_pending_stats_impl(db, product_id: int = None) -> dict:
-    """获取待处理项统计（内部实现）"""
+    """获取待处理项统计（使用实时分析结果）"""
     try:
-        # analysis_results 表没有 product_id，需要通过 search_terms 和 campaigns 关联
-        # 也没有 need_ai_judgment 列，用 confidence < 1.0 代替
-        if product_id:
-            query = """
-                SELECT
-                    ar.action_type,
-                    ar.confidence,
-                    COUNT(*) as count
-                FROM analysis_results ar
-                JOIN search_terms st ON ar.search_term_id = st.id
-                JOIN campaigns c ON st.campaign_id = c.id
-                WHERE c.product_id = ?
-                GROUP BY ar.action_type, CASE WHEN ar.confidence < 1.0 THEN 1 ELSE 0 END
-            """
-            params = (product_id,)
-        else:
-            query = """
-                SELECT
-                    action_type,
-                    confidence,
-                    COUNT(*) as count
-                FROM analysis_results
-                GROUP BY action_type, CASE WHEN confidence < 1.0 THEN 1 ELSE 0 END
-            """
-            params = ()
-
-        cursor = db.execute(query, params)
-        rows = cursor.fetchall()
+        # 使用规则引擎实时分析，与搜索词分析页面保持一致
+        results = analyze_search_terms(db, product_id)
 
         stats = {
             "negative_count": 0,
             "manual_count": 0,
             "ai_pending_count": 0,
+            "review_pending_count": 0,  # v2.0: 待审核相关性词数
         }
 
-        for row in rows:
-            if row["action_type"] == "negative":
-                stats["negative_count"] += row["count"]
-            elif row["action_type"] == "manual":
-                stats["manual_count"] += row["count"]
+        for result in results:
+            # action_type 可能是 negative_exact, negative_phrase, manual_exact 等
+            action = result.action_type or ""
+            if action.startswith("negative"):
+                stats["negative_count"] += 1
+            elif action.startswith("manual"):
+                stats["manual_count"] += 1
             # 用 confidence < 1.0 判断是否需要AI确认
-            if row["confidence"] is not None and row["confidence"] < 1.0:
-                stats["ai_pending_count"] += row["count"]
+            if result.confidence < 1.0:
+                stats["ai_pending_count"] += 1
+            # v2.0: 统计需要审核相关性的词
+            if getattr(result, "needs_review", False):
+                stats["review_pending_count"] += 1
 
         return stats
     except Exception as e:
@@ -270,39 +299,26 @@ def _get_pending_stats_impl(db, product_id: int = None) -> dict:
             "negative_count": 0,
             "manual_count": 0,
             "ai_pending_count": 0,
+            "review_pending_count": 0,  # v2.0: 待审核相关性词数
         }
 
 
 def _get_rule_stats_impl(db, product_id: int = None) -> dict:
-    """获取规则触发统计（内部实现）"""
+    """获取规则触发统计（使用实时分析结果）"""
     try:
-        # analysis_results 表没有 product_id，需要通过 search_terms 和 campaigns 关联
-        if product_id:
-            query = """
-                SELECT ar.triggered_rule, COUNT(*) as count
-                FROM analysis_results ar
-                JOIN search_terms st ON ar.search_term_id = st.id
-                JOIN campaigns c ON st.campaign_id = c.id
-                WHERE c.product_id = ?
-                GROUP BY ar.triggered_rule
-                ORDER BY count DESC
-                LIMIT 10
-            """
-            params = (product_id,)
-        else:
-            query = """
-                SELECT triggered_rule, COUNT(*) as count
-                FROM analysis_results
-                GROUP BY triggered_rule
-                ORDER BY count DESC
-                LIMIT 10
-            """
-            params = ()
+        # 使用规则引擎实时分析，与搜索词分析页面保持一致
+        results = analyze_search_terms(db, product_id)
 
-        cursor = db.execute(query, params)
-        rows = cursor.fetchall()
+        rule_counts = {}
+        for result in results:
+            rule = result.triggered_rule
+            rule_counts[rule] = rule_counts.get(rule, 0) + 1
 
-        return {row["triggered_rule"]: row["count"] for row in rows}
+        # 按数量降序排列，取前10
+        sorted_rules = sorted(rule_counts.items(), key=lambda x: x[1], reverse=True)[
+            :10
+        ]
+        return dict(sorted_rules)
     except Exception as e:
         logger.error(f"获取规则统计失败: {e}")
         return {}

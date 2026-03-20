@@ -5,11 +5,11 @@ AI 对话助手模块
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable
 
-from src.ai.client import ChatSession, GeminiClient
+from src.ai.client import GeminiClient
 from src.config.logger import get_logger
 from src.data.db import Database
+from src.rules.engine import analyze_search_terms
 
 logger = get_logger(__name__)
 
@@ -232,40 +232,41 @@ class ChatAssistant:
             return ""
 
     def _get_negative_keywords_data(self) -> str:
-        """获取需否定的关键词数据"""
-        df = self.db.get_analysis_results(
-            filters={"product_id": self.product_id, "action_type": "negative"}
-        )
+        """获取需否定的关键词数据（使用实时分析）"""
+        # 使用实时分析结果（与搜索词分析页面保持一致）
+        analysis_results = analyze_search_terms(self.db, self.product_id)
+        negative_results = [r for r in analysis_results if r.action_type == "negative"]
 
-        if df.empty:
+        if not negative_results:
             return "当前没有需要否定的关键词。"
 
-        results = df.head(10).to_dict("records")
         lines = ["需要否定的关键词（Top 10）："]
-        for r in results:
+        for r in negative_results[:10]:
+            spend = r.data.get("total_spend", r.data.get("spend", 0))
+            orders = r.data.get("total_orders", r.data.get("orders", 0))
             lines.append(
-                f"- {r['term']}: 花费${r.get('spend', 0):.2f}, "
-                f"订单{r.get('orders', 0)}, 规则={r.get('triggered_rule', '未知')}"
+                f"- {r.term}: 花费${spend:.2f}, 订单{orders}, 规则={r.triggered_rule}"
             )
 
         return "\n".join(lines)
 
     def _get_high_conversion_data(self) -> str:
-        """获取高转化关键词数据"""
-        df = self.db.get_analysis_results(
-            filters={"product_id": self.product_id, "action_type": "manual"}
-        )
+        """获取高转化关键词数据（使用实时分析）"""
+        # 使用实时分析结果（与搜索词分析页面保持一致）
+        analysis_results = analyze_search_terms(self.db, self.product_id)
+        manual_results = [r for r in analysis_results if r.action_type == "manual"]
 
-        if df.empty:
+        if not manual_results:
             return "当前没有识别到高转化关键词。"
 
-        results = df.head(10).to_dict("records")
         lines = ["高转化关键词（Top 10）："]
-        for r in results:
-            acos = r.get("acos", 0) or 0
+        for r in manual_results[:10]:
+            spend = r.data.get("total_spend", r.data.get("spend", 0))
+            sales = r.data.get("total_sales", r.data.get("sales", 0))
+            orders = r.data.get("total_orders", r.data.get("orders", 0))
+            acos = spend / sales if sales > 0 else 0
             lines.append(
-                f"- {r['term']}: ACOS={acos:.2%}, "
-                f"订单{r.get('orders', 0)}, 销售额${r.get('sales', 0):.2f}"
+                f"- {r.term}: ACOS={acos:.2%}, 订单{orders}, 销售额${sales:.2f}"
             )
 
         return "\n".join(lines)
@@ -296,9 +297,9 @@ class ChatAssistant:
         overall_acos = total_spend / total_sales if total_sales > 0 else 0
 
         return f"""数据概览：
-- 搜索词总数: {row['term_count']}
+- 搜索词总数: {row["term_count"]}
 - 总花费: ${total_spend:.2f}
-- 总订单: {row['total_orders'] or 0}
+- 总订单: {row["total_orders"] or 0}
 - 总销售额: ${total_sales:.2f}
 - 整体ACOS: {overall_acos:.2%}"""
 
@@ -464,7 +465,7 @@ class ChatAssistant:
 
     def get_welcome_message(self) -> ChatResponse:
         """获取欢迎消息"""
-        message = """👋 你好！我是你的亚马逊广告优化助手。
+        message = """你好！我是你的亚马逊广告优化助手。
 
 我可以帮你：
 • 分析搜索词表现

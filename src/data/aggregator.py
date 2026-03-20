@@ -60,16 +60,38 @@ class DataAggregator:
         )
 
         # 计算衍生指标（处理除零产生的Infinity）
-        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["ctr"] = (
+            (agg_df["total_clicks"] / agg_df["total_impressions"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["cpc"] = (
+            (agg_df["total_spend"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["acos"] = (
+            (agg_df["total_spend"] / agg_df["total_sales"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["roas"] = (
+            (agg_df["total_sales"] / agg_df["total_spend"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["conversion_rate"] = (
+            (agg_df["total_orders"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
 
         logger.debug(f"ASIN层聚合完成，共 {len(agg_df)} 个ASIN")
         return agg_df
 
-    def aggregate_by_campaign(self, product_id: int = None, asin: str = None) -> pd.DataFrame:
+    def aggregate_by_campaign(
+        self, product_id: int = None, asin: str = None
+    ) -> pd.DataFrame:
         """
         按广告活动层聚合
 
@@ -109,16 +131,38 @@ class DataAggregator:
         )
 
         # 计算衍生指标（处理除零产生的Infinity）
-        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["ctr"] = (
+            (agg_df["total_clicks"] / agg_df["total_impressions"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["cpc"] = (
+            (agg_df["total_spend"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["acos"] = (
+            (agg_df["total_spend"] / agg_df["total_sales"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["roas"] = (
+            (agg_df["total_sales"] / agg_df["total_spend"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["conversion_rate"] = (
+            (agg_df["total_orders"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
 
         logger.debug(f"广告活动层聚合完成，共 {len(agg_df)} 个活动")
         return agg_df
 
-    def aggregate_by_match_type(self, product_id: int = None, campaign_id: int = None) -> pd.DataFrame:
+    def aggregate_by_match_type(
+        self, product_id: int = None, campaign_id: int = None
+    ) -> pd.DataFrame:
         """
         按匹配类型层聚合
 
@@ -156,18 +200,213 @@ class DataAggregator:
         )
 
         # 计算衍生指标（处理除零产生的Infinity）
-        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["ctr"] = (
+            (agg_df["total_clicks"] / agg_df["total_impressions"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["cpc"] = (
+            (agg_df["total_spend"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["acos"] = (
+            (agg_df["total_spend"] / agg_df["total_sales"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["roas"] = (
+            (agg_df["total_sales"] / agg_df["total_spend"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["conversion_rate"] = (
+            (agg_df["total_orders"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
 
         logger.debug(f"匹配类型层聚合完成，共 {len(agg_df)} 种类型")
         return agg_df
 
-    def aggregate_by_term(self, product_id: int = None, term_type: str = None) -> pd.DataFrame:
+    def aggregate_by_campaign_term(
+        self, product_id: int = None, term_type: str = None
+    ) -> pd.DataFrame:
         """
-        按关键词/ASIN层聚合（最细粒度）
+        按广告活动+关键词聚合（保留活动维度）
+
+        这是"按活动分析"模式的核心方法，同一关键词在不同活动中保持独立行。
+
+        Args:
+            product_id: 产品ID（可选）
+            term_type: 类型筛选（keyword/asin）
+
+        Returns:
+            聚合后的DataFrame，每行是一个(活动, 关键词)组合
+        """
+        filters = {}
+        if product_id:
+            filters["product_id"] = product_id
+        if term_type:
+            filters["term_type"] = term_type
+
+        df = self.db.get_search_terms(filters)
+
+        if df.empty:
+            return pd.DataFrame()
+
+        # 验证关键字段：campaign_id 不能为空（否则 groupby 会合并不同活动）
+        if "campaign_id" in df.columns and df["campaign_id"].isna().any():
+            na_count = df["campaign_id"].isna().sum()
+            logger.warning(f"发现 {na_count} 条记录缺少 campaign_id，已过滤")
+            df = df.dropna(subset=["campaign_id"])
+
+        if df.empty:
+            return pd.DataFrame()
+
+        # 按活动+搜索词聚合（保留活动维度）
+        agg_df = (
+            df.groupby(["campaign_id", "campaign_name", "term", "term_type"])
+            .agg(
+                product_name=("product_name", "first"),
+                product_asin=("product_asin", "first"),
+                match_type=("match_type", "first"),
+                total_impressions=("impressions", "sum"),
+                total_clicks=("clicks", "sum"),
+                total_spend=("spend", "sum"),
+                total_orders=("orders", "sum"),
+                total_sales=("sales", "sum"),
+            )
+            .reset_index()
+        )
+
+        # 计算衍生指标（处理除零产生的Infinity）
+        agg_df["ctr"] = (
+            (agg_df["total_clicks"] / agg_df["total_impressions"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["cpc"] = (
+            (agg_df["total_spend"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["acos"] = (
+            (agg_df["total_spend"] / agg_df["total_sales"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["roas"] = (
+            (agg_df["total_sales"] / agg_df["total_spend"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["conversion_rate"] = (
+            (agg_df["total_orders"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+
+        # 按花费降序排序
+        agg_df = agg_df.sort_values("total_spend", ascending=False)
+
+        logger.debug(f"按活动+关键词聚合完成，共 {len(agg_df)} 条记录")
+        return agg_df
+
+    def aggregate_by_asin_term(
+        self, product_id: int = None, term_type: str = None
+    ) -> pd.DataFrame:
+        """
+        按ASIN标识+关键词聚合（ASIN级别分析）
+
+        ASIN标识从活动名称提取（如 "BLK-xxx" → "BLK"），
+        同一ASIN下所有活动的数据合并。
+
+        这是用户做ASIN层面对比分析的模式。
+
+        Args:
+            product_id: 产品ID（可选）
+            term_type: 类型筛选（keyword/asin）
+
+        Returns:
+            聚合后的DataFrame，每行是一个(ASIN标识, 关键词)组合
+        """
+        filters = {}
+        if product_id:
+            filters["product_id"] = product_id
+        if term_type:
+            filters["term_type"] = term_type
+
+        df = self.db.get_search_terms(filters)
+
+        if df.empty:
+            return pd.DataFrame()
+
+        # 从活动名称提取ASIN标识（取第一个"-"前的部分）
+        def extract_asin_identifier(campaign_name):
+            if pd.isna(campaign_name):
+                return "UNKNOWN"
+            parts = str(campaign_name).split("-")
+            return parts[0].upper() if parts else "UNKNOWN"
+
+        df["asin_identifier"] = df["campaign_name"].apply(extract_asin_identifier)
+
+        # 按ASIN标识+搜索词聚合
+        agg_df = (
+            df.groupby(["asin_identifier", "term", "term_type"])
+            .agg(
+                product_name=("product_name", "first"),
+                product_asin=("product_asin", "first"),
+                campaign_count=("campaign_id", "nunique"),
+                total_impressions=("impressions", "sum"),
+                total_clicks=("clicks", "sum"),
+                total_spend=("spend", "sum"),
+                total_orders=("orders", "sum"),
+                total_sales=("sales", "sum"),
+            )
+            .reset_index()
+        )
+
+        # 计算衍生指标（处理除零产生的Infinity）
+        agg_df["ctr"] = (
+            (agg_df["total_clicks"] / agg_df["total_impressions"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["cpc"] = (
+            (agg_df["total_spend"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["acos"] = (
+            (agg_df["total_spend"] / agg_df["total_sales"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["roas"] = (
+            (agg_df["total_sales"] / agg_df["total_spend"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["conversion_rate"] = (
+            (agg_df["total_orders"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+
+        # 按花费降序排序
+        agg_df = agg_df.sort_values("total_spend", ascending=False)
+
+        logger.debug(f"按ASIN+关键词聚合完成，共 {len(agg_df)} 条记录")
+        return agg_df
+
+    def aggregate_by_term(
+        self, product_id: int = None, term_type: str = None
+    ) -> pd.DataFrame:
+        """
+        按关键词/ASIN层聚合（最细粒度，跨活动汇总）
+
+        这是"汇总分析"模式的方法，同一关键词在所有活动中的数据被合并。
 
         Args:
             product_id: 产品ID（可选）
@@ -203,11 +442,31 @@ class DataAggregator:
         )
 
         # 计算衍生指标（处理除零产生的Infinity）
-        agg_df["ctr"] = (agg_df["total_clicks"] / agg_df["total_impressions"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["cpc"] = (agg_df["total_spend"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["acos"] = (agg_df["total_spend"] / agg_df["total_sales"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["roas"] = (agg_df["total_sales"] / agg_df["total_spend"]).replace([np.inf, -np.inf], 0).fillna(0)
-        agg_df["conversion_rate"] = (agg_df["total_orders"] / agg_df["total_clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
+        agg_df["ctr"] = (
+            (agg_df["total_clicks"] / agg_df["total_impressions"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["cpc"] = (
+            (agg_df["total_spend"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["acos"] = (
+            (agg_df["total_spend"] / agg_df["total_sales"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["roas"] = (
+            (agg_df["total_sales"] / agg_df["total_spend"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        agg_df["conversion_rate"] = (
+            (agg_df["total_orders"] / agg_df["total_clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
 
         # 按花费降序排序
         agg_df = agg_df.sort_values("total_spend", ascending=False)
@@ -215,7 +474,9 @@ class DataAggregator:
         logger.debug(f"关键词层聚合完成，共 {len(agg_df)} 个词")
         return agg_df
 
-    def cross_campaign_analysis(self, term: str, product_id: int = None) -> pd.DataFrame:
+    def cross_campaign_analysis(
+        self, term: str, product_id: int = None
+    ) -> pd.DataFrame:
         """
         跨活动对比分析同一关键词
 
@@ -253,15 +514,29 @@ class DataAggregator:
         )
 
         # 计算指标（处理除零产生的Infinity）
-        result["ctr"] = (result["clicks"] / result["impressions"]).replace([np.inf, -np.inf], 0).fillna(0)
-        result["acos"] = (result["spend"] / result["sales"]).replace([np.inf, -np.inf], 0).fillna(0)
-        result["conversion_rate"] = (result["orders"] / result["clicks"]).replace([np.inf, -np.inf], 0).fillna(0)
+        result["ctr"] = (
+            (result["clicks"] / result["impressions"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
+        result["acos"] = (
+            (result["spend"] / result["sales"]).replace([np.inf, -np.inf], 0).fillna(0)
+        )
+        result["conversion_rate"] = (
+            (result["orders"] / result["clicks"])
+            .replace([np.inf, -np.inf], 0)
+            .fillna(0)
+        )
 
         # 标记表现差异
         if len(result) > 1:
             avg_acos = result["acos"].mean()
             result["performance"] = result["acos"].apply(
-                lambda x: "优于平均" if x < avg_acos else "低于平均" if x > avg_acos else "平均"
+                lambda x: "优于平均"
+                if x < avg_acos
+                else "低于平均"
+                if x > avg_acos
+                else "平均"
             )
             result["has_conflict"] = len(result["performance"].unique()) > 1
         else:
@@ -271,7 +546,9 @@ class DataAggregator:
         logger.debug(f"跨活动分析 '{term}'，涉及 {len(result)} 个活动")
         return result
 
-    def get_high_spend_zero_orders(self, threshold: float = 10.0, product_id: int = None) -> pd.DataFrame:
+    def get_high_spend_zero_orders(
+        self, threshold: float = 10.0, product_id: int = None
+    ) -> pd.DataFrame:
         """
         获取高花费零转化的搜索词
 
@@ -293,7 +570,12 @@ class DataAggregator:
         logger.info(f"高花费零转化词: {len(result)} 个（阈值 ${threshold}）")
         return result
 
-    def get_high_acos_keywords(self, acos_threshold: float = 0.5, spend_threshold: float = 10.0, product_id: int = None) -> pd.DataFrame:
+    def get_high_acos_keywords(
+        self,
+        acos_threshold: float = 0.5,
+        spend_threshold: float = 10.0,
+        product_id: int = None,
+    ) -> pd.DataFrame:
         """
         获取高ACOS的搜索词
 
@@ -311,12 +593,18 @@ class DataAggregator:
             return pd.DataFrame()
 
         # 筛选高ACOS高花费
-        result = df[(df["acos"] >= acos_threshold) & (df["total_spend"] >= spend_threshold)]
+        result = df[
+            (df["acos"] >= acos_threshold) & (df["total_spend"] >= spend_threshold)
+        ]
 
-        logger.info(f"高ACOS词: {len(result)} 个（ACOS>={acos_threshold}, 花费>=${spend_threshold}）")
+        logger.info(
+            f"高ACOS词: {len(result)} 个（ACOS>={acos_threshold}, 花费>=${spend_threshold}）"
+        )
         return result
 
-    def get_high_conversion_keywords(self, acos_threshold: float = 0.25, min_orders: int = 3, product_id: int = None) -> pd.DataFrame:
+    def get_high_conversion_keywords(
+        self, acos_threshold: float = 0.25, min_orders: int = 3, product_id: int = None
+    ) -> pd.DataFrame:
         """
         获取高转化的搜索词
 
@@ -334,7 +622,13 @@ class DataAggregator:
             return pd.DataFrame()
 
         # 筛选低ACOS高订单
-        result = df[(df["acos"] <= acos_threshold) & (df["acos"] > 0) & (df["total_orders"] >= min_orders)]
+        result = df[
+            (df["acos"] <= acos_threshold)
+            & (df["acos"] > 0)
+            & (df["total_orders"] >= min_orders)
+        ]
 
-        logger.info(f"高转化词: {len(result)} 个（ACOS<={acos_threshold}, 订单>={min_orders}）")
+        logger.info(
+            f"高转化词: {len(result)} 个（ACOS<={acos_threshold}, 订单>={min_orders}）"
+        )
         return result

@@ -53,7 +53,7 @@ def safe_error(
 
     # 显示错误
     if show_toast:
-        st.toast(display_message, icon="❌")
+        st.toast(display_message, icon="error")
     else:
         st.error(display_message)
 

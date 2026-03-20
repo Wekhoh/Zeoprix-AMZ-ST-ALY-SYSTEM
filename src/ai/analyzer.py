@@ -6,7 +6,6 @@ AI 分析器模块
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
 
 from src.ai.client import GeminiClient
 from src.config.logger import get_logger
@@ -83,6 +82,17 @@ class RelevanceResult:
     confidence: float
     reason: str
     suggested_action: str
+
+
+@dataclass
+class RelevanceSuggestion:
+    """相关性建议结果（v2.0人工审核用）"""
+
+    term: str
+    suggested_relevance: str  # strong_core, strong_longtail, weak, generic, irrelevant
+    confidence: float  # 0.0-1.0
+    reasoning: str
+    suggested_action: str  # 建议的后续动作
 
 
 @dataclass
@@ -166,20 +176,20 @@ class AIAnalyzer:
 搜索词: {keyword}
 
 产品信息:
-- 名称: {product_context.get('name', '未知')}
-- 类目: {product_context.get('category', '未知')}
-- 核心关键词: {', '.join(product_context.get('core_keywords', []))}
-- 描述: {product_context.get('description', '无')}
+- 名称: {product_context.get("name", "未知")}
+- 类目: {product_context.get("category", "未知")}
+- 核心关键词: {", ".join(product_context.get("core_keywords", []))}
+- 描述: {product_context.get("description", "无")}
 """
 
         if performance_data:
             prompt += f"""
 广告表现数据:
-- 展示: {performance_data.get('impressions', 0)}
-- 点击: {performance_data.get('clicks', 0)}
-- 花费: ${performance_data.get('spend', 0):.2f}
-- 订单: {performance_data.get('orders', 0)}
-- ACOS: {performance_data.get('acos', 0):.2%}
+- 展示: {performance_data.get("impressions", 0)}
+- 点击: {performance_data.get("clicks", 0)}
+- 花费: ${performance_data.get("spend", 0):.2f}
+- 订单: {performance_data.get("orders", 0)}
+- ACOS: {performance_data.get("acos", 0):.2%}
 """
 
         # 速率限制
@@ -215,6 +225,196 @@ class AIAnalyzer:
             reason=result.get("reason", ""),
             suggested_action=result.get("suggested_action", "观察表现"),
         )
+
+    def suggest_relevance(
+        self,
+        term: str,
+        product_context: dict,
+        performance_data: dict = None,
+    ) -> RelevanceSuggestion:
+        """
+        建议搜索词的相关性等级（v2.0人工审核用）
+
+        使用新的6级相关性系统：
+        - strong_core: 强相关核心词（产品核心关键词）
+        - strong_longtail: 强相关长尾词（长尾但相关）
+        - weak: 弱相关（关联度低）
+        - generic: 太泛（泛词不精准）
+        - irrelevant: 不相关（完全无关）
+
+        Args:
+            term: 搜索词
+            product_context: 产品上下文信息
+            performance_data: 表现数据（可选）
+
+        Returns:
+            RelevanceSuggestion
+        """
+        system_instruction = """你是一个亚马逊广告专家，需要判断搜索词与产品的相关性等级。
+
+请返回JSON格式：
+{
+    "relevance": "strong_core" | "strong_longtail" | "weak" | "generic" | "irrelevant",
+    "confidence": 0.0-1.0,
+    "reasoning": "判断理由（简短）",
+    "suggested_action": "建议动作"
+}
+
+相关性等级定义：
+- strong_core: 产品核心关键词，直接描述产品主要功能/特性（如"旅行枕头"对应旅行枕产品）
+- strong_longtail: 长尾但相关的词，与产品有明确关联（如"飞机颈枕"对应旅行枕产品）
+- weak: 弱相关，有一定关联但不是目标需求（如"颈部按摩器"与旅行枕产品）
+- generic: 太泛，搜索意图不明确（如"pillow"这种大词）
+- irrelevant: 完全不相关（如"汽车配件"与旅行枕产品）
+
+建议动作：
+- strong_core/strong_longtail: 优先手动精准投放
+- weak: 否定词组
+- generic: 否定精准
+- irrelevant: 否定词组
+"""
+
+        prompt = f"""请分析以下搜索词与产品的相关性等级：
+
+搜索词: {term}
+
+产品信息:
+- 名称: {product_context.get("name", "未知")}
+- 类目: {product_context.get("category", "未知")}
+- 核心关键词: {", ".join(product_context.get("core_keywords", []))}
+"""
+
+        if performance_data:
+            prompt += f"""
+广告表现数据:
+- 点击: {performance_data.get("clicks", 0)}
+- 花费: ${performance_data.get("spend", 0):.2f}
+- 订单: {performance_data.get("orders", 0)}
+"""
+
+        # 速率限制
+        if not self._wait_for_rate_limit():
+            return RelevanceSuggestion(
+                term=term,
+                suggested_relevance="pending",
+                confidence=0.0,
+                reasoning="API调用被限流",
+                suggested_action="需人工判断",
+            )
+
+        result = self.client.generate_json(
+            prompt=prompt,
+            system_instruction=system_instruction,
+            temperature=0.3,
+        )
+
+        if not result:
+            logger.warning(f"相关性建议失败: {term}")
+            return RelevanceSuggestion(
+                term=term,
+                suggested_relevance="pending",
+                confidence=0.0,
+                reasoning="AI分析失败",
+                suggested_action="需人工判断",
+            )
+
+        return RelevanceSuggestion(
+            term=term,
+            suggested_relevance=result.get("relevance", "pending"),
+            confidence=result.get("confidence", 0.5),
+            reasoning=result.get("reasoning", ""),
+            suggested_action=result.get("suggested_action", "需人工判断"),
+        )
+
+    def batch_suggest_relevance(
+        self,
+        terms: list[str],
+        product_context: dict,
+    ) -> list[RelevanceSuggestion]:
+        """
+        批量建议搜索词的相关性等级
+
+        Args:
+            terms: 搜索词列表
+            product_context: 产品上下文
+
+        Returns:
+            RelevanceSuggestion 列表
+        """
+        system_instruction = """你是一个亚马逊广告专家，需要批量判断搜索词与产品的相关性等级。
+
+请返回JSON数组格式：
+[
+    {
+        "term": "搜索词",
+        "relevance": "strong_core" | "strong_longtail" | "weak" | "generic" | "irrelevant",
+        "confidence": 0.0-1.0,
+        "reasoning": "判断理由（简短）",
+        "suggested_action": "建议动作"
+    },
+    ...
+]
+"""
+
+        terms_str = "\n".join([f"- {t}" for t in terms])
+
+        prompt = f"""请批量分析以下搜索词与产品的相关性等级：
+
+产品信息:
+- 名称: {product_context.get("name", "未知")}
+- 类目: {product_context.get("category", "未知")}
+- 核心关键词: {", ".join(product_context.get("core_keywords", []))}
+
+待分析搜索词:
+{terms_str}
+"""
+
+        # 速率限制
+        tokens_needed = max(1, len(terms) // 10)
+        if not self._wait_for_rate_limit(tokens_needed):
+            return [
+                RelevanceSuggestion(
+                    term=t,
+                    suggested_relevance="pending",
+                    confidence=0.0,
+                    reasoning="API调用被限流",
+                    suggested_action="需人工判断",
+                )
+                for t in terms
+            ]
+
+        result = self.client.generate_json(
+            prompt=prompt,
+            system_instruction=system_instruction,
+            temperature=0.3,
+        )
+
+        if not result or not isinstance(result, list):
+            logger.warning("批量相关性建议失败")
+            return [
+                RelevanceSuggestion(
+                    term=t,
+                    suggested_relevance="pending",
+                    confidence=0.0,
+                    reasoning="批量分析失败",
+                    suggested_action="需人工判断",
+                )
+                for t in terms
+            ]
+
+        results = []
+        for item in result:
+            results.append(
+                RelevanceSuggestion(
+                    term=item.get("term", ""),
+                    suggested_relevance=item.get("relevance", "pending"),
+                    confidence=item.get("confidence", 0.5),
+                    reasoning=item.get("reasoning", ""),
+                    suggested_action=item.get("suggested_action", "需人工判断"),
+                )
+            )
+
+        return results
 
     def resolve_conflict(
         self,
@@ -280,8 +480,8 @@ class AIAnalyzer:
         if product_context:
             prompt += f"""
 产品信息:
-- 名称: {product_context.get('name', '未知')}
-- 类目: {product_context.get('category', '未知')}
+- 名称: {product_context.get("name", "未知")}
+- 类目: {product_context.get("category", "未知")}
 """
 
         # 速率限制
@@ -353,9 +553,9 @@ class AIAnalyzer:
         prompt = f"""请批量分析以下搜索词与产品的相关性：
 
 产品信息:
-- 名称: {product_context.get('name', '未知')}
-- 类目: {product_context.get('category', '未知')}
-- 核心关键词: {', '.join(product_context.get('core_keywords', []))}
+- 名称: {product_context.get("name", "未知")}
+- 类目: {product_context.get("category", "未知")}
+- 核心关键词: {", ".join(product_context.get("core_keywords", []))}
 
 待分析搜索词:
 {keywords_str}
@@ -449,18 +649,18 @@ class AIAnalyzer:
 竞品ASIN: {asin}
 
 投放表现:
-- 展示: {performance_data.get('impressions', 0)}
-- 点击: {performance_data.get('clicks', 0)}
-- 花费: ${performance_data.get('spend', 0):.2f}
-- 订单: {performance_data.get('orders', 0)}
-- ACOS: {performance_data.get('acos', 0):.2%}
+- 展示: {performance_data.get("impressions", 0)}
+- 点击: {performance_data.get("clicks", 0)}
+- 花费: ${performance_data.get("spend", 0):.2f}
+- 订单: {performance_data.get("orders", 0)}
+- ACOS: {performance_data.get("acos", 0):.2%}
 """
 
         if product_context:
             prompt += f"""
 自有产品信息:
-- 名称: {product_context.get('name', '未知')}
-- 类目: {product_context.get('category', '未知')}
+- 名称: {product_context.get("name", "未知")}
+- 类目: {product_context.get("category", "未知")}
 """
 
         # 速率限制

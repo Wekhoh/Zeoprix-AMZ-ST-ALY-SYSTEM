@@ -4,7 +4,6 @@ Gemini API 客户端模块
 """
 
 import time
-from typing import Any
 
 from google import genai
 from google.genai import types
@@ -40,7 +39,11 @@ class GeminiClient:
         else:
             try:
                 import streamlit as st
-                if hasattr(st, 'session_state') and "selected_gemini_model" in st.session_state:
+
+                if (
+                    hasattr(st, "session_state")
+                    and "selected_gemini_model" in st.session_state
+                ):
                     self.model = st.session_state.selected_gemini_model
                 else:
                     self.model = settings.gemini_model
@@ -53,11 +56,11 @@ class GeminiClient:
             raise ValueError("未配置 GEMINI_API_KEY")
 
         # 初始化客户端，配置HTTP选项（通过client_args传递timeout给httpx）
-        http_options = types.HttpOptions(
-            client_args={'timeout': self.default_timeout}
-        )
+        http_options = types.HttpOptions(client_args={"timeout": self.default_timeout})
         self.client = genai.Client(api_key=self.api_key, http_options=http_options)
-        logger.info(f"Gemini客户端初始化成功，模型: {self.model}, 超时: {self.default_timeout}s")
+        logger.info(
+            f"Gemini客户端初始化成功，模型: {self.model}, 超时: {self.default_timeout}s"
+        )
 
     def generate(
         self,
@@ -106,7 +109,7 @@ class GeminiClient:
             except Exception as e:
                 logger.warning(f"生成失败 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt  # 指数退避
+                    wait_time = 2**attempt  # 指数退避
                     logger.info(f"等待 {wait_time} 秒后重试...")
                     time.sleep(wait_time)
                 else:
@@ -135,7 +138,9 @@ class GeminiClient:
         import json
 
         # 添加JSON格式要求
-        json_instruction = (system_instruction or "") + "\n\n请只返回有效的JSON格式，不要包含其他文字。"
+        json_instruction = (
+            system_instruction or ""
+        ) + "\n\n请只返回有效的JSON格式，不要包含其他文字。"
 
         response = self.generate(
             prompt=prompt,
@@ -202,9 +207,7 @@ class ChatSession:
         # 创建 Gemini 聊天
         self._chat = self._create_chat()
 
-        logger.debug(
-            f"聊天会话已创建，最大历史轮数: {self.max_history_turns}"
-        )
+        logger.debug(f"聊天会话已创建，最大历史轮数: {self.max_history_turns}")
 
     def _create_chat(self):
         """创建 Gemini 聊天对象"""
@@ -256,7 +259,7 @@ class ChatSession:
             except Exception as e:
                 logger.warning(f"对话失败 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     time.sleep(wait_time)
                 else:
                     logger.error(f"对话失败，已达最大重试次数: {e}")
@@ -301,7 +304,7 @@ class ChatSession:
         for i in range(0, len(self.history), 2):
             if i + 1 < len(self.history):
                 user_msg = self.history[i]["content"]
-                assistant_msg = self.history[i + 1]["content"]
+                # assistant_msg不需要发送，只需发送user_msg让Gemini重新生成
                 try:
                     # 发送用户消息并忽略响应（我们有自己的历史记录）
                     # 使用 Gemini 的历史注入方式

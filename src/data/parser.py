@@ -18,24 +18,29 @@ COLUMN_MAPPING = {
     "Customer Search Term": "term",
     "Search Term": "term",
     "Keyword": "term",
+    "Matched product": "term",  # 亚马逊SP自动广告报告格式
     "Impressions": "impressions",
     "Clicks": "clicks",
     "Click-Thru Rate (CTR)": "ctr",
     "CTR": "ctr",
     "Spend": "spend",
+    "Spend(USD)": "spend",  # 带货币单位格式
     "Cost Per Click (CPC)": "cpc",
     "CPC": "cpc",
+    "CPC(USD)": "cpc",  # 带货币单位格式
     "7 Day Total Orders (#)": "orders",
     "Orders": "orders",
     "Total Orders": "orders",
     "7 Day Total Sales": "sales",
     "Sales": "sales",
+    "Sales(USD)": "sales",  # 带货币单位格式
     "Total Advertising Cost of Sales (ACOS)": "acos",
     "ACOS": "acos",
     "Total Return on Advertising Spend (ROAS)": "roas",
     "ROAS": "roas",
     "7 Day Conversion Rate": "conversion_rate",
     "Conversion Rate": "conversion_rate",
+    "Conversion rate": "conversion_rate",  # 小写rate
     "Campaign Name": "campaign_name",
     "Ad Group Name": "ad_group_name",
     "Targeting": "targeting",
@@ -150,7 +155,7 @@ class FileParser:
                     continue
                 logger.debug(f"使用编码 {encoding} 成功解析CSV")
                 return df
-            except UnicodeDecodeError as e:
+            except UnicodeDecodeError:
                 last_error = f"编码 {encoding}: 解码失败"
                 continue
             except pd.errors.EmptyDataError:

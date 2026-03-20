@@ -12,9 +12,11 @@ from src.config.logger import get_logger
 
 logger = get_logger(__name__)
 
+
 # 规则优先级常量（数值越小优先级越高）
 class RulePriority:
     """规则优先级常量"""
+
     HIGH_SPEND_ZERO_ORDERS = 10  # 高花费零转化（最高优先级）
     LOW_CONVERSION_HIGH_SPEND = 20  # 低转化高花费
     HIGH_CONVERSION = 30  # 高转化词

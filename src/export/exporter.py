@@ -6,7 +6,6 @@
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -27,15 +26,15 @@ def secure_filename(filename: str) -> str:
         安全的文件名
     """
     # 移除路径分隔符和危险字符
-    filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+    filename = re.sub(r'[<>:"/\\|?*]', "_", filename)
     # 移除前导点（防止隐藏文件）
-    filename = filename.lstrip('.')
+    filename = filename.lstrip(".")
     # 移除路径遍历尝试
-    filename = filename.replace('..', '_')
+    filename = filename.replace("..", "_")
     # 限制长度
     if len(filename) > 200:
         filename = filename[:200]
-    return filename or 'unnamed'
+    return filename or "unnamed"
 
 
 class ReportExporter:
@@ -48,7 +47,9 @@ class ReportExporter:
         Args:
             output_dir: 输出目录（默认当前目录）
         """
-        self.output_dir = Path(output_dir).resolve() if output_dir else Path.cwd().resolve()
+        self.output_dir = (
+            Path(output_dir).resolve() if output_dir else Path.cwd().resolve()
+        )
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def _validate_output_path(self, output_path: str) -> Path:
@@ -121,18 +122,20 @@ class ReportExporter:
         # 构建数据
         data = []
         for r in negative_results:
-            data.append({
-                "关键词": r.term,
-                "类型": r.term_type,
-                "触发规则": r.triggered_rule,
-                "建议操作": r.suggested_action,
-                "否定类型": self._get_negative_type(r.suggested_action),
-                "置信度": f"{r.confidence:.2%}",
-                "需AI确认": "是" if r.need_ai_judgment else "否",
-                "花费": r.data.get("total_spend", r.data.get("spend", 0)),
-                "点击": r.data.get("total_clicks", r.data.get("clicks", 0)),
-                "订单": r.data.get("total_orders", r.data.get("orders", 0)),
-            })
+            data.append(
+                {
+                    "关键词": r.term,
+                    "类型": r.term_type,
+                    "触发规则": r.triggered_rule,
+                    "建议操作": r.suggested_action,
+                    "否定类型": self._get_negative_type(r.suggested_action),
+                    "置信度": f"{r.confidence:.2%}",
+                    "需AI确认": "是" if r.need_ai_judgment else "否",
+                    "花费": r.data.get("total_spend", r.data.get("spend", 0)),
+                    "点击": r.data.get("total_clicks", r.data.get("clicks", 0)),
+                    "订单": r.data.get("total_orders", r.data.get("orders", 0)),
+                }
+            )
 
         df = pd.DataFrame(data)
 
@@ -181,19 +184,23 @@ class ReportExporter:
             sales = r.data.get("total_sales", r.data.get("sales", 0))
             acos = spend / sales if sales > 0 else 0
 
-            data.append({
-                "关键词": r.term,
-                "类型": r.term_type,
-                "触发规则": r.triggered_rule,
-                "当前ACOS": f"{acos:.2%}",
-                "订单数": orders,
-                "销售额": f"${sales:.2f}",
-                "花费": f"${spend:.2f}",
-                "点击": r.data.get("total_clicks", r.data.get("clicks", 0)),
-                "展示": r.data.get("total_impressions", r.data.get("impressions", 0)),
-                "建议出价": self._suggest_bid(r),
-                "优先级": self._calculate_priority(r),
-            })
+            data.append(
+                {
+                    "关键词": r.term,
+                    "类型": r.term_type,
+                    "触发规则": r.triggered_rule,
+                    "当前ACOS": f"{acos:.2%}",
+                    "订单数": orders,
+                    "销售额": f"${sales:.2f}",
+                    "花费": f"${spend:.2f}",
+                    "点击": r.data.get("total_clicks", r.data.get("clicks", 0)),
+                    "展示": r.data.get(
+                        "total_impressions", r.data.get("impressions", 0)
+                    ),
+                    "建议出价": self._suggest_bid(r),
+                    "优先级": self._calculate_priority(r),
+                }
+            )
 
         df = pd.DataFrame(data)
 
@@ -312,30 +319,36 @@ class ReportExporter:
 
         # 添加外部汇总数据
         if summary:
-            summary_data["指标"].extend([
-                "",
-                "总花费",
-                "总订单",
-                "总销售额",
-                "整体ACOS",
-            ])
-            summary_data["数值"].extend([
-                "",
-                f"${summary.get('total_spend', 0):.2f}",
-                summary.get("total_orders", 0),
-                f"${summary.get('total_sales', 0):.2f}",
-                f"{summary.get('acos', 0):.2%}",
-            ])
+            summary_data["指标"].extend(
+                [
+                    "",
+                    "总花费",
+                    "总订单",
+                    "总销售额",
+                    "整体ACOS",
+                ]
+            )
+            summary_data["数值"].extend(
+                [
+                    "",
+                    f"${summary.get('total_spend', 0):.2f}",
+                    summary.get("total_orders", 0),
+                    f"${summary.get('total_sales', 0):.2f}",
+                    f"{summary.get('acos', 0):.2%}",
+                ]
+            )
 
         df_summary = pd.DataFrame(summary_data)
         df_summary.to_excel(writer, sheet_name="汇总", index=False)
 
         # 规则统计
         if rule_counts:
-            df_rules = pd.DataFrame({
-                "规则": list(rule_counts.keys()),
-                "触发次数": list(rule_counts.values()),
-            })
+            df_rules = pd.DataFrame(
+                {
+                    "规则": list(rule_counts.keys()),
+                    "触发次数": list(rule_counts.values()),
+                }
+            )
             df_rules = df_rules.sort_values("触发次数", ascending=False)
             # 写入同一Sheet的不同区域
             df_rules.to_excel(
@@ -351,19 +364,21 @@ class ReportExporter:
         """写入结果Sheet"""
         data = []
         for r in results:
-            data.append({
-                "关键词": r.term,
-                "类型": r.term_type,
-                "触发规则": r.triggered_rule,
-                "建议操作": r.suggested_action,
-                "动作类型": r.action_type,
-                "置信度": f"{r.confidence:.2%}",
-                "需AI确认": "是" if r.need_ai_judgment else "否",
-                "花费": r.data.get("total_spend", r.data.get("spend", 0)),
-                "点击": r.data.get("total_clicks", r.data.get("clicks", 0)),
-                "订单": r.data.get("total_orders", r.data.get("orders", 0)),
-                "销售额": r.data.get("total_sales", r.data.get("sales", 0)),
-            })
+            data.append(
+                {
+                    "关键词": r.term,
+                    "类型": r.term_type,
+                    "触发规则": r.triggered_rule,
+                    "建议操作": r.suggested_action,
+                    "动作类型": r.action_type,
+                    "置信度": f"{r.confidence:.2%}",
+                    "需AI确认": "是" if r.need_ai_judgment else "否",
+                    "花费": r.data.get("total_spend", r.data.get("spend", 0)),
+                    "点击": r.data.get("total_clicks", r.data.get("clicks", 0)),
+                    "订单": r.data.get("total_orders", r.data.get("orders", 0)),
+                    "销售额": r.data.get("total_sales", r.data.get("sales", 0)),
+                }
+            )
 
         df = pd.DataFrame(data)
         df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -445,10 +460,14 @@ class ReportExporter:
         # 构建简化数据（适合批量上传）
         data = []
         for r in filtered:
-            data.append({
-                "Keyword": r.term,
-                "Match Type": "Negative exact" if "精确" in r.suggested_action else "Negative phrase",
-            })
+            data.append(
+                {
+                    "Keyword": r.term,
+                    "Match Type": "Negative exact"
+                    if "精确" in r.suggested_action
+                    else "Negative phrase",
+                }
+            )
 
         df = pd.DataFrame(data)
 

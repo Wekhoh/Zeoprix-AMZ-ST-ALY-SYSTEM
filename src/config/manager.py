@@ -41,7 +41,9 @@ class ConfigManager:
             return product.get("config", {})
         return {}
 
-    def update_product_config(self, product_id: int, config: dict, merge: bool = True) -> None:
+    def update_product_config(
+        self, product_id: int, config: dict, merge: bool = True
+    ) -> None:
         """
         更新产品配置
 
@@ -95,7 +97,9 @@ class ConfigManager:
         self.db.update_rule(rule_id, **kwargs)
         logger.info(f"更新规则 {rule_id}")
 
-    def update_rule_threshold(self, rule_id: int, threshold_name: str, value: Any) -> None:
+    def update_rule_threshold(
+        self, rule_id: int, threshold_name: str, value: Any
+    ) -> None:
         """
         更新规则阈值
 
@@ -105,7 +109,9 @@ class ConfigManager:
             value: 新值
         """
         # 获取当前规则
-        cursor = self.db.execute("SELECT conditions FROM rules WHERE id = ?", (rule_id,))
+        cursor = self.db.execute(
+            "SELECT conditions FROM rules WHERE id = ?", (rule_id,)
+        )
         row = cursor.fetchone()
 
         if not row:
@@ -178,7 +184,7 @@ class ConfigManager:
             target_version: 目标版本号
         """
         # 1. 创建当前状态的快照（保护性备份）
-        self.create_version(product_id, f"回滚前自动备份")
+        self.create_version(product_id, "回滚前自动备份")
 
         # 2. 获取目标版本快照
         snapshot = self.get_version_snapshot(product_id, target_version)
@@ -204,7 +210,9 @@ class ConfigManager:
                     product_id,
                     rule["name"],
                     rule["rule_type"],
-                    json.dumps(rule["conditions"]) if isinstance(rule["conditions"], dict) else rule["conditions"],
+                    json.dumps(rule["conditions"])
+                    if isinstance(rule["conditions"], dict)
+                    else rule["conditions"],
                     rule["action"],
                     rule["priority"],
                     rule.get("enabled", 1),

@@ -18,7 +18,9 @@ ASIN_PREFIX = "B0"
 # ASIN总长度（前缀 + 8位字母数字）
 ASIN_LENGTH = 10
 # ASIN格式正则：B0开头，共10位字母数字
-ASIN_PATTERN = re.compile(rf"^{ASIN_PREFIX}[A-Z0-9]{{{ASIN_LENGTH - len(ASIN_PREFIX)}}}$")
+ASIN_PATTERN = re.compile(
+    rf"^{ASIN_PREFIX}[A-Z0-9]{{{ASIN_LENGTH - len(ASIN_PREFIX)}}}$"
+)
 
 # ============ 分析阈值配置 ============
 # ACOS阈值：低于此值认为投放效果好
@@ -177,11 +179,15 @@ def get_competitor_insights(competitor_asins: list[ASINAnalysis]) -> dict:
     total_orders = sum(a.performance["orders"] for a in competitor_asins)
 
     # 计算平均ACOS（排除无销售的）
-    acos_values = [a.performance["acos"] for a in competitor_asins if a.performance["acos"] > 0]
+    acos_values = [
+        a.performance["acos"] for a in competitor_asins if a.performance["acos"] > 0
+    ]
     avg_acos = sum(acos_values) / len(acos_values) if acos_values else 0
 
     # 按订单排序找出表现最好和最差的
-    sorted_by_orders = sorted(competitor_asins, key=lambda a: a.performance["orders"], reverse=True)
+    sorted_by_orders = sorted(
+        competitor_asins, key=lambda a: a.performance["orders"], reverse=True
+    )
 
     return {
         "total_count": len(competitor_asins),
@@ -189,5 +195,7 @@ def get_competitor_insights(competitor_asins: list[ASINAnalysis]) -> dict:
         "total_orders": total_orders,
         "avg_acos": avg_acos,
         "top_performers": sorted_by_orders[:INSIGHT_TOP_COUNT],
-        "worst_performers": sorted_by_orders[-INSIGHT_TOP_COUNT:] if len(sorted_by_orders) > INSIGHT_TOP_COUNT else [],
+        "worst_performers": sorted_by_orders[-INSIGHT_TOP_COUNT:]
+        if len(sorted_by_orders) > INSIGHT_TOP_COUNT
+        else [],
     }

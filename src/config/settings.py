@@ -9,12 +9,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # 可用的Gemini模型列表 (model_id, display_name)
+# 注意：Gemini 3 系列需要使用 -preview 后缀
 AVAILABLE_GEMINI_MODELS = [
     ("gemini-2.5-flash", "Gemini 2.5 Flash (推荐)"),
     ("gemini-2.5-pro", "Gemini 2.5 Pro"),
     ("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite"),
-    ("gemini-3-flash", "Gemini 3 Flash (预览)"),
-    ("gemini-3-pro", "Gemini 3 Pro (预览)"),
+    ("gemini-3-flash-preview", "Gemini 3 Flash Preview (最新)"),
+    ("gemini-3-pro-preview", "Gemini 3 Pro Preview (最新)"),
 ]
 
 
@@ -31,12 +32,11 @@ class Settings:
         # 确定项目根目录
         self.project_root = Path(__file__).parent.parent.parent
 
-        # 加载.env文件
+        # 加载.env文件 (override=True确保新配置能覆盖旧值)
         if env_path:
-            # 指定路径时使用override=True，确保测试时能覆盖已有值
             load_dotenv(env_path, override=True)
         else:
-            load_dotenv(self.project_root / ".env")
+            load_dotenv(self.project_root / ".env", override=True)
 
         # ==================== Gemini API 配置 ====================
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
@@ -73,7 +73,9 @@ class Settings:
     @property
     def is_api_configured(self) -> bool:
         """检查API是否已配置"""
-        return bool(self.gemini_api_key and self.gemini_api_key != "your_gemini_api_key_here")
+        return bool(
+            self.gemini_api_key and self.gemini_api_key != "your_gemini_api_key_here"
+        )
 
     def __repr__(self) -> str:
         return (
