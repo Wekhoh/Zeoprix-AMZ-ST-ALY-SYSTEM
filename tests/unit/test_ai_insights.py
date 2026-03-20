@@ -3,8 +3,7 @@ T29: AI洞察报告测试
 TDD RED阶段 — 测试先于实现
 """
 
-from dataclasses import dataclass, field
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

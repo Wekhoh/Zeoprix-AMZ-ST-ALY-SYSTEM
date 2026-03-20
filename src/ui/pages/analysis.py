@@ -883,7 +883,7 @@ def _render_ai_insights(results: list, product_name: str = ""):
         if st.button("生成 AI 洞察报告", key="gen_insights"):
             with st.spinner("正在分析数据..."):
                 try:
-                    from src.ai.analyzer import AIAnalyzer, InsightReport
+                    from src.ai.analyzer import AIAnalyzer
                     from src.ai.client import GeminiClient
                     from src.config.settings import get_settings
 

@@ -7,14 +7,10 @@ import pandas as pd
 import pytest
 
 from src.data.db import Database
-from src.data.models import ActionType, RelevanceLevel
+from src.data.models import ActionType
 from src.rules.engine import (
     AnalysisResult,
-    ASINAnalysisResult,
-    CampaignAnalysisResult,
-    Confidence,
     RuleEngine,
-    analyze_search_terms_by_asin,
 )
 
 

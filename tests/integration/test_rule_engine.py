@@ -3,8 +3,6 @@
 测试 聚合→规则分析→结果验证 + 人工审核覆盖
 """
 
-import pandas as pd
-
 
 class TestRuleEngineIntegration:
     """规则引擎集成测试"""
@@ -63,10 +61,7 @@ class TestRuleEngineIntegration:
         """测试相关性等级正确分配"""
         from src.data.models import RelevanceLevel
         from src.rules.engine import RuleEngine
-        from src.data.aggregator import DataAggregator
 
-        aggregator = DataAggregator(db_with_data)
-        df = aggregator.aggregate_by_term(product_id)
         engine = RuleEngine(db_with_data, product_id)
 
         # 核心词应为STRONG
