@@ -4,7 +4,7 @@
 **版本**: 1.0.0
 **创建日期**: 2026-01-10
 **作者**: Jack Huang
-**状态**: 🟡 部分完成（T29待实现）
+**状态**: 🟢 全部完成
 
 ---
 
@@ -754,18 +754,18 @@ assert len(options) > 0
 **描述**: 生成分析洞察摘要
 
 **验收标准**:
-- [ ] 汇总分析结果
-- [ ] 生成可读性强的报告
-- [ ] 包含关键发现和建议
+- [x] 汇总分析结果
+- [x] 生成可读性强的报告
+- [x] 包含关键发现和建议
 
 **测试方案**:
 ```python
-# 待实现 generate_insights 后补充
+pytest tests/unit/test_ai_insights.py -v
 ```
 
 **依赖**: T26
 
-- [ ] **T29 未完成（待实现）**
+- [x] **T29 完成** — InsightReport + generate_insights() + UI集成
 
 ---
 
@@ -1007,24 +1007,24 @@ exporter.export_analysis_report(results, ai_summary, 'test_report.xlsx')
 
 ### T40: 集成测试
 
-**文件**: `tests/integration/__init__.py`（仅占位，暂无 test_workflow.py）
+**文件**: `tests/integration/test_data_pipeline.py`, `tests/integration/test_rule_engine.py`, `tests/integration/test_export.py`
 
-**描述**: 测试核心工作流（自动化脚本待补充）
+**描述**: 测试核心工作流
 
 **验收标准**:
-- [ ] 上传→解析→存储流程
-- [ ] 聚合→规则分析流程
-- [ ] AI分析流程（可mock）
-- [ ] 导出流程
+- [x] 上传→解析→存储流程 (test_data_pipeline.py, 8 tests)
+- [x] 聚合→规则分析流程 (test_rule_engine.py, 10 tests)
+- [x] AI分析流程（mock） (test_rule_engine.py)
+- [x] 导出流程 (test_export.py, 6 tests)
 
 **测试方案**:
 ```bash
-pytest tests/integration/ -v
+pytest tests/integration/ -v  # 24 tests
 ```
 
 **依赖**: T39
 
-- [ ] **T40 未完成（缺少自动化脚本）**
+- [x] **T40 完成** — 24个集成测试全部通过
 
 ---
 
@@ -1303,5 +1303,5 @@ pytest tests/integration/test_e2e.py -v
 
 ---
 
-**文档状态**: 🟡 部分完成（T29待实现）
-**下一步**: 完成 T29 后再复核文档与进度
+**文档状态**: 🟢 全部完成
+**最后更新**: 2026-03-19 — T29(AI洞察报告), T40(集成测试) 已完成，总测试数 188
