@@ -24,7 +24,7 @@
 ### 技术亮点
 - 本地SQLite数据库，数据安全
 - Streamlit现代化UI
-- 188个自动化测试（单元+集成），覆盖率80%+
+- 自动化测试覆盖单元+集成核心路径；当前本地验证：`DEBUG=true pytest -q` → `189 passed, 10 skipped`
 - 实时数据分析，确保数据一致性
 
 ## 安装指南
@@ -80,7 +80,9 @@ streamlit run src/app.py
 
 ### 运行测试
 ```bash
-# 运行所有测试
+# 本地未配置 GEMINI_API_KEY 时，先启用 DEBUG 模式
+# PowerShell:
+$env:DEBUG='true'
 python -m pytest tests/ -v
 
 # 运行单元测试
@@ -89,6 +91,8 @@ python -m pytest tests/unit/ -v
 # 查看测试覆盖率
 python -m pytest tests/ -v --cov=src --cov-report=html
 ```
+
+> 如果已经配置有效的 `GEMINI_API_KEY`，可直接按常规方式运行测试；未配置时建议保留 `DEBUG=true` 以跳过在线 AI 依赖。
 
 ## 使用说明
 
@@ -332,7 +336,7 @@ A: 所有规则都支持编辑、启用/禁用和删除；需要恢复默认规�
 ### 测试
 - 单元测试: pytest
 - 测试覆盖: pytest-cov
-- 单元测试 164个 + 集成测试 24个 = 188个
+- 当前本地验证：`DEBUG=true pytest -q` → `189 passed, 10 skipped, 3 warnings`
 
 ### 版本控制
 - 遵循 [语义化版本](https://semver.org/lang/zh-CN/)

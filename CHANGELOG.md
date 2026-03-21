@@ -6,12 +6,19 @@
 ## [Unreleased]
 
 ### Added
+- **[TEST-004]** 恢复验收环境的固定配置模板与回归测试 (2026-03-21):
+  - 新增 `data/fixtures/acceptance_product_config.json` 作为真实 6 CSV 恢复时的产品配置模板
+  - 新增 `tests/integration/test_import_test_data.py`，覆盖配置注入与边界词对齐场景
 - **[DOC-002]** 数据计数说明文档 (2026-01-16 Ralph Loop #6):
   - 在 `SYSTEM_WORKFLOW.md` 添加"数据计数说明"章节
   - 解释461条原始记录 vs 316条唯一搜索词的差异
   - 明确 search_terms 表和 manual_reviews 表的关系
 
 ### Changed
+- **[CORE-002]** 恢复链路与规则对齐收口 (2026-03-21):
+  - `scripts/import_test_data.py` 支持恢复时自动注入验收配置，避免空 `products.config` 导致规则环境失真
+  - `src/rules/engine.py` 增加 `weak_exact_keywords` 识别，并为“评估类规则”增加强相关保护，避免强相关词被泛化规则抢走
+  - 验收模板补充 `weak_exact_keywords`、`weak_category_keywords`、核心词/相关词修正，用于贴近 workbook 的真实判断口径
 - **[DOC-005]** 文档同步（以代码+数据库为准）:
   - 更新 README/PRD/Design/SYSTEM_WORKFLOW/RULE_ALIGNMENT_REPORT/CAMPAIGN_ANALYSIS_PLAN/TROUBLESHOOTING/Plan/Task
   - 修正文档中 T43 迁移脚本“缺失”描述为已存在；AI分歧/洞察未接入 UI 仍为现状
@@ -25,6 +32,10 @@
   - `docs/CAMPAIGN_ANALYSIS_PLAN.md`：更新数据库统计（analysis_results=632）
 
 ### Verified
+- **[TEST-005]** 当前本地回归口径 (2026-03-21):
+  - `DEBUG=true pytest -q` → 189 passed, 10 skipped, 3 warnings
+  - 真实 6 CSV 恢复烟测：`search_terms=461`，`analysis_results=316`
+  - mismatch 对齐率从 `56/71 = 78.9%` 提升至 `64/71 = 90.1%`
 - **[TEST-002]** 边缘案例测试 (2026-01-16 Ralph Loop #7):
   - 空DataFrame处理 ✅
   - 最小必须列 ✅
@@ -41,6 +52,11 @@
   - 461条记录处理时间 < 0.02秒
 
 ### Fixed
+- **[BUG-005]** 导出/审核/动作类型语义漂移修复 (2026-03-21):
+  - `src/data/models.py` 为 `ActionType` 增加动作族判断，兼容新旧 `negative` / `manual` 语义
+  - `src/export/exporter.py` 与 `src/ai/chat.py` 改为使用动作族判断，恢复否词/手动词导出与聊天查询结果
+  - `src/ui/pages/review.py` 与 `src/data/db.py` 修正 `reviewed` / pending 语义，并让 `save_analysis_result_by_term()` 使用确定性映射
+  - `analyze_mismatches.py` 支持空数据库与显式参数，不再因空数据集崩溃
 - **[BUG-004]** 导出功能数据不完整修复 (2026-01-16 Ralph Loop #13):
   - **问题**：导出功能使用`db.get_analysis_results()`读取数据库，但数据库只有68.5%覆盖率（316/461）
   - **根因**：`save_analysis_result_by_term`使用`LIMIT 1`，同词跨活动只保存第一条
