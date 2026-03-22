@@ -5,6 +5,7 @@
 
 import re
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -96,31 +97,18 @@ class ReportExporter:
         filename = f"{safe_prefix}_{timestamp}.{extension}"
         return self.output_dir / filename
 
-    def export_negative_keywords(
-        self,
-        results: list[AnalysisResult],
-        output_path: str = None,
-        product_name: str = None,
-    ) -> Path:
-        """
-        导出否词记录表
+    def _generate_download_name(self, prefix: str, extension: str = "xlsx") -> str:
+        """生成下载文件名（不包含目录）。"""
+        return self._generate_filename(prefix, extension).name
 
-        Args:
-            results: 分析结果列表
-            output_path: 输出路径（可选）
-            product_name: 产品名称（可选）
-
-        Returns:
-            导出文件路径
-        """
-        # 筛选否词类型结果
+    def _build_negative_dataframe(self, results: list[AnalysisResult]) -> pd.DataFrame | None:
+        """构建否词导出 DataFrame。"""
         negative_results = [r for r in results if ActionType.is_negative(r.action_type)]
 
         if not negative_results:
             logger.warning("没有需要导出的否词")
             return None
 
-        # 构建数据
         data = []
         for r in negative_results:
             data.append(
@@ -138,46 +126,16 @@ class ReportExporter:
                 }
             )
 
-        df = pd.DataFrame(data)
+        return pd.DataFrame(data)
 
-        # 确定输出路径
-        if output_path:
-            filepath = self._validate_output_path(output_path)
-        else:
-            prefix = f"{product_name}_否词表" if product_name else "否词表"
-            filepath = self._generate_filename(prefix)
-
-        # 导出到Excel
-        self._export_to_excel(df, filepath, "否词记录")
-        logger.info(f"否词表已导出: {filepath}")
-
-        return filepath
-
-    def export_manual_keywords(
-        self,
-        results: list[AnalysisResult],
-        output_path: str = None,
-        product_name: str = None,
-    ) -> Path:
-        """
-        导出手动词追踪表
-
-        Args:
-            results: 分析结果列表
-            output_path: 输出路径（可选）
-            product_name: 产品名称（可选）
-
-        Returns:
-            导出文件路径
-        """
-        # 筛选手动投放类型结果
+    def _build_manual_dataframe(self, results: list[AnalysisResult]) -> pd.DataFrame | None:
+        """构建手动词导出 DataFrame。"""
         manual_results = [r for r in results if ActionType.is_manual(r.action_type)]
 
         if not manual_results:
             logger.warning("没有需要导出的手动词")
             return None
 
-        # 构建数据
         data = []
         for r in manual_results:
             spend = r.data.get("total_spend", r.data.get("spend", 0))
@@ -204,21 +162,147 @@ class ReportExporter:
             )
 
         df = pd.DataFrame(data)
-
-        # 按优先级排序
         priority_order = {"高": 0, "中": 1, "低": 2}
         df["排序键"] = df["优先级"].map(priority_order)
-        df = df.sort_values("排序键").drop("排序键", axis=1)
+        return df.sort_values("排序键").drop("排序键", axis=1)
+
+    def _build_csv_dataframe(
+        self,
+        results: list[AnalysisResult],
+        result_type: str = "all",
+    ) -> pd.DataFrame | None:
+        """构建批量上传 CSV DataFrame。"""
+        if result_type == "negative":
+            filtered = [r for r in results if ActionType.is_negative(r.action_type)]
+        elif result_type == "manual":
+            filtered = [r for r in results if ActionType.is_manual(r.action_type)]
+        else:
+            filtered = results
+
+        if not filtered:
+            logger.warning(f"没有{result_type}类型的结果可导出")
+            return None
+
+        data = []
+        for r in filtered:
+            data.append(
+                {
+                    "Keyword": r.term,
+                    "Match Type": self._get_csv_match_type(r),
+                }
+            )
+
+        return pd.DataFrame(data)
+
+    def export_negative_keywords_bytes(
+        self,
+        results: list[AnalysisResult],
+        product_name: str = None,
+    ) -> tuple[bytes, str] | None:
+        """生成否词 Excel 下载内容。"""
+        df = self._build_negative_dataframe(results)
+        if df is None:
+            return None
+
+        prefix = f"{product_name}_否词表" if product_name else "否词表"
+        file_name = self._generate_download_name(prefix)
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="否词记录", index=False)
+        return buffer.getvalue(), file_name
+
+    def export_manual_keywords_bytes(
+        self,
+        results: list[AnalysisResult],
+        product_name: str = None,
+    ) -> tuple[bytes, str] | None:
+        """生成手动词 Excel 下载内容。"""
+        df = self._build_manual_dataframe(results)
+        if df is None:
+            return None
+
+        prefix = f"{product_name}_手动词表" if product_name else "手动词表"
+        file_name = self._generate_download_name(prefix)
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="手动投放推荐", index=False)
+        return buffer.getvalue(), file_name
+
+    def export_to_csv_bytes(
+        self,
+        results: list[AnalysisResult],
+        result_type: str = "all",
+    ) -> tuple[bytes, str] | None:
+        """生成批量上传 CSV 下载内容。"""
+        df = self._build_csv_dataframe(results, result_type=result_type)
+        if df is None:
+            return None
+
+        file_name = self._generate_download_name(f"{result_type}_keywords", "csv")
+        return df.to_csv(index=False).encode("utf-8"), file_name
+
+    def export_negative_keywords(
+        self,
+        results: list[AnalysisResult],
+        output_path: str = None,
+        product_name: str = None,
+    ) -> Path:
+        """
+        导出否词记录表
+
+        Args:
+            results: 分析结果列表
+            output_path: 输出路径（可选）
+            product_name: 产品名称（可选）
+
+        Returns:
+            导出文件路径
+        """
+        payload = self.export_negative_keywords_bytes(results, product_name=product_name)
+        if payload is None:
+            return None
+        file_bytes, default_name = payload
 
         # 确定输出路径
         if output_path:
             filepath = self._validate_output_path(output_path)
         else:
-            prefix = f"{product_name}_手动词表" if product_name else "手动词表"
-            filepath = self._generate_filename(prefix)
+            filepath = self.output_dir / default_name
 
-        # 导出到Excel
-        self._export_to_excel(df, filepath, "手动投放推荐")
+        filepath.write_bytes(file_bytes)
+        logger.info(f"否词表已导出: {filepath}")
+
+        return filepath
+
+    def export_manual_keywords(
+        self,
+        results: list[AnalysisResult],
+        output_path: str = None,
+        product_name: str = None,
+    ) -> Path:
+        """
+        导出手动词追踪表
+
+        Args:
+            results: 分析结果列表
+            output_path: 输出路径（可选）
+            product_name: 产品名称（可选）
+
+        Returns:
+            导出文件路径
+        """
+        payload = self.export_manual_keywords_bytes(results, product_name=product_name)
+        if payload is None:
+            return None
+        file_bytes, default_name = payload
+
+        # 确定输出路径
+        if output_path:
+            filepath = self._validate_output_path(output_path)
+        else:
+            filepath = self.output_dir / default_name
+
+        filepath.write_bytes(file_bytes)
         logger.info(f"手动词表已导出: {filepath}")
 
         return filepath
@@ -461,37 +545,18 @@ class ReportExporter:
         Returns:
             导出文件路径
         """
-        # 根据类型筛选
-        if result_type == "negative":
-            filtered = [r for r in results if ActionType.is_negative(r.action_type)]
-        elif result_type == "manual":
-            filtered = [r for r in results if ActionType.is_manual(r.action_type)]
-        else:
-            filtered = results
-
-        if not filtered:
-            logger.warning(f"没有{result_type}类型的结果可导出")
+        payload = self.export_to_csv_bytes(results, result_type=result_type)
+        if payload is None:
             return None
-
-        # 构建简化数据（适合批量上传）
-        data = []
-        for r in filtered:
-            data.append(
-                {
-                    "Keyword": r.term,
-                    "Match Type": self._get_csv_match_type(r),
-                }
-            )
-
-        df = pd.DataFrame(data)
+        file_bytes, default_name = payload
 
         # 确定输出路径
         if output_path:
             filepath = self._validate_output_path(output_path)
         else:
-            filepath = self._generate_filename(f"{result_type}_keywords", "csv")
+            filepath = self.output_dir / default_name
 
-        df.to_csv(filepath, index=False)
+        filepath.write_bytes(file_bytes)
         logger.info(f"CSV已导出: {filepath}")
 
         return filepath

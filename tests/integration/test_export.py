@@ -4,6 +4,7 @@
 """
 
 import tempfile
+from io import BytesIO
 
 import pandas as pd
 
@@ -251,6 +252,71 @@ class TestExportIntegration:
             assert filepath is not None
             df = pd.read_csv(filepath)
             assert set(df["Keyword"]) == {"pillows", "travel blanket"}
+
+    def test_export_negative_keywords_bytes_support_direct_download(self):
+        """否词导出应支持直接生成下载字节内容。"""
+        from src.export.exporter import ReportExporter
+
+        results = [
+            build_result(
+                term="pillows",
+                action_type=ActionType.NEGATIVE_EXACT,
+                suggested_action="自动直接否定精准",
+            )
+        ]
+
+        exporter = ReportExporter()
+        payload = exporter.export_negative_keywords_bytes(results, product_name="旅行枕")
+
+        assert payload is not None
+        file_bytes, file_name = payload
+        assert file_name.endswith(".xlsx")
+        parsed = pd.read_excel(BytesIO(file_bytes))
+        assert list(parsed["关键词"]) == ["pillows"]
+
+    def test_export_manual_keywords_bytes_support_direct_download(self):
+        """手动词导出应支持直接生成下载字节内容。"""
+        from src.export.exporter import ReportExporter
+
+        results = [
+            build_result(
+                term="travel pillow for airplane",
+                action_type=ActionType.MANUAL_EXACT_NO_NEG,
+                suggested_action="去拉手动精准，先不否",
+                total_orders=5,
+                total_sales=110.0,
+            )
+        ]
+
+        exporter = ReportExporter()
+        payload = exporter.export_manual_keywords_bytes(results, product_name="旅行枕")
+
+        assert payload is not None
+        file_bytes, file_name = payload
+        assert file_name.endswith(".xlsx")
+        parsed = pd.read_excel(BytesIO(file_bytes))
+        assert list(parsed["关键词"]) == ["travel pillow for airplane"]
+
+    def test_export_csv_bytes_support_direct_download(self):
+        """CSV 导出应支持直接生成下载字节内容。"""
+        from src.export.exporter import ReportExporter
+
+        results = [
+            build_result(
+                term="pillows",
+                action_type=ActionType.NEGATIVE_EXACT,
+                suggested_action="自动直接否定精准",
+            )
+        ]
+
+        exporter = ReportExporter()
+        payload = exporter.export_to_csv_bytes(results, result_type="negative")
+
+        assert payload is not None
+        file_bytes, file_name = payload
+        assert file_name.endswith(".csv")
+        parsed = pd.read_csv(BytesIO(file_bytes))
+        assert list(parsed["Keyword"]) == ["pillows"]
 
     def test_export_empty_results_returns_none(self):
         """测试空结果导出返回None"""

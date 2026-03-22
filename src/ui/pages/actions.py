@@ -9,7 +9,6 @@ import streamlit as st
 from src.analysis.truth_replay import get_truth_first_action_buckets
 from src.config.logger import get_logger
 from src.rules.engine import AnalysisResult, analyze_search_terms
-from src.ui.utils import safe_error
 
 logger = get_logger(__name__)
 
@@ -57,6 +56,34 @@ def _get_export_results(db, product_id: int, export_kind: str) -> list[AnalysisR
             )
 
     return export_results
+
+
+def _get_export_payload(db, product_id: int, export_kind: str, export_format: str):
+    """返回页面可直接下载的导出载荷。"""
+    from src.export.exporter import ReportExporter
+
+    results = _get_export_results(db, product_id, export_kind=export_kind)
+    if not results:
+        return None
+
+    exporter = ReportExporter()
+    if export_kind == "negative" and export_format == "xlsx":
+        payload = exporter.export_negative_keywords_bytes(results)
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif export_kind == "negative" and export_format == "csv":
+        payload = exporter.export_to_csv_bytes(results, result_type="negative")
+        mime = "text/csv"
+    elif export_kind == "manual" and export_format == "xlsx":
+        payload = exporter.export_manual_keywords_bytes(results)
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        raise ValueError(f"不支持的导出类型: {export_kind}/{export_format}")
+
+    if payload is None:
+        return None
+
+    file_bytes, file_name = payload
+    return {"data": file_bytes, "file_name": file_name, "mime": mime}
 
 
 def render_actions():
@@ -229,14 +256,32 @@ def render_negative_actions(db, product_id: int):
 
     # 导出按钮
     col1, col2 = st.columns(2)
+    negative_excel_payload = _get_export_payload(db, product_id, "negative", "xlsx")
+    negative_csv_payload = _get_export_payload(db, product_id, "negative", "csv")
 
     with col1:
-        if st.button("导出否词Excel", width="stretch"):
-            export_negative_excel(db, product_id)
+        if negative_excel_payload:
+            st.download_button(
+                label="导出否词Excel",
+                data=negative_excel_payload["data"],
+                file_name=negative_excel_payload["file_name"],
+                mime=negative_excel_payload["mime"],
+                key="download_negative_excel",
+            )
+        else:
+            st.button("导出否词Excel", disabled=True, width="stretch")
 
     with col2:
-        if st.button("导出否词CSV（批量上传格式）", width="stretch"):
-            export_negative_csv(db, product_id)
+        if negative_csv_payload:
+            st.download_button(
+                label="导出否词CSV（批量上传格式）",
+                data=negative_csv_payload["data"],
+                file_name=negative_csv_payload["file_name"],
+                mime=negative_csv_payload["mime"],
+                key="download_negative_csv",
+            )
+        else:
+            st.button("导出否词CSV（批量上传格式）", disabled=True, width="stretch")
 
 
 def render_manual_actions(db, product_id: int):
@@ -374,8 +419,17 @@ def render_manual_actions(db, product_id: int):
     st.divider()
 
     # 导出按钮
-    if st.button("导出手动词Excel", width="stretch"):
-        export_manual_excel(db, product_id)
+    manual_excel_payload = _get_export_payload(db, product_id, "manual", "xlsx")
+    if manual_excel_payload:
+        st.download_button(
+            label="导出手动词Excel",
+            data=manual_excel_payload["data"],
+            file_name=manual_excel_payload["file_name"],
+            mime=manual_excel_payload["mime"],
+            key="download_manual_excel",
+        )
+    else:
+        st.button("导出手动词Excel", disabled=True, width="stretch")
 
 
 def render_action_history(db, product_id: int):
@@ -461,93 +515,3 @@ def suggest_match_type(item: dict) -> str:
 
     # 默认：精确匹配（用户的Excel标注大多是"手动精准"）
     return "精确匹配"
-
-
-def export_negative_excel(db, product_id: int):
-    """导出否词Excel"""
-    try:
-        from src.export.exporter import ReportExporter
-
-        results = _get_export_results(db, product_id, export_kind="negative")
-
-        if not results:
-            st.warning("没有可导出的数据")
-            return
-
-        exporter = ReportExporter()
-        filepath = exporter.export_negative_keywords(results)
-
-        if filepath:
-            st.success(f"导出成功: {filepath}")
-            with open(filepath, "rb") as f:
-                st.download_button(
-                    label="点击下载",
-                    data=f.read(),
-                    file_name=filepath.name,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-        else:
-            st.warning("没有可导出的数据")
-
-    except Exception as e:
-        safe_error("导出", e)
-
-
-def export_negative_csv(db, product_id: int):
-    """导出否词CSV（批量上传格式）"""
-    try:
-        from src.export.exporter import ReportExporter
-
-        results = _get_export_results(db, product_id, export_kind="negative")
-
-        if not results:
-            st.warning("没有可导出的数据")
-            return
-
-        exporter = ReportExporter()
-        filepath = exporter.export_to_csv(results, result_type="negative")
-
-        if filepath:
-            st.success(f"导出成功: {filepath}")
-            with open(filepath, "rb") as f:
-                st.download_button(
-                    label="点击下载",
-                    data=f.read(),
-                    file_name=filepath.name,
-                    mime="text/csv",
-                )
-        else:
-            st.warning("没有可导出的数据")
-
-    except Exception as e:
-        safe_error("导出", e)
-
-
-def export_manual_excel(db, product_id: int):
-    """导出手动词Excel"""
-    try:
-        from src.export.exporter import ReportExporter
-
-        results = _get_export_results(db, product_id, export_kind="manual")
-
-        if not results:
-            st.warning("没有可导出的数据")
-            return
-
-        exporter = ReportExporter()
-        filepath = exporter.export_manual_keywords(results)
-
-        if filepath:
-            st.success(f"导出成功: {filepath}")
-            with open(filepath, "rb") as f:
-                st.download_button(
-                    label="点击下载",
-                    data=f.read(),
-                    file_name=filepath.name,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-        else:
-            st.warning("没有可导出的数据")
-
-    except Exception as e:
-        safe_error("导出", e)
