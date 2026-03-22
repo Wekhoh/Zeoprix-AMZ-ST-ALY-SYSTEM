@@ -180,6 +180,8 @@ h3 {
     background: linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 40%, #E2E8F0 100%) !important;
     border-right: 1px solid var(--border-subtle);
     position: relative;
+    z-index: 30 !important;
+    isolation: isolate;
 }
 
 /* 侧边栏顶部装饰渐变 */
@@ -229,6 +231,8 @@ section[data-testid="stSidebar"] > div::before,
 [data-testid="stSidebar"] > div:first-child {
     background: transparent !important;
     padding-top: var(--space-lg);
+    position: relative;
+    z-index: 1;
 }
 
 /* 强制覆盖Streamlit主题色变量 */
