@@ -192,9 +192,10 @@ def render_keyword_distribution(
         "选择ASIN", options=["全部"] + asin_ids, key="kw_dist_asin_select"
     )
 
-    asin_filter = None if selected_asin == "全部" else selected_asin
-
-    distribution = analyzer.get_keyword_distribution(product_id, asin_filter)
+    if selected_asin == "全部":
+        distribution = analyzer.get_keyword_distribution_summary(product_id)
+    else:
+        distribution = analyzer.get_keyword_distribution(product_id, selected_asin)
 
     if not distribution:
         st.info("暂无分布数据")

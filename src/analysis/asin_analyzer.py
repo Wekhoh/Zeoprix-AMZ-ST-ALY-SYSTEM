@@ -258,6 +258,15 @@ class ASINAnalyzer:
 
     # ==================== 层次三: 决策支撑 ====================
 
+    @staticmethod
+    def _combine_action_counts(distribution: dict[str, dict[str, int]]) -> dict[str, int]:
+        """合并多个ASIN的操作分布计数。"""
+        combined: dict[str, int] = {}
+        for action_counts in distribution.values():
+            for action, count in action_counts.items():
+                combined[action] = combined.get(action, 0) + int(count)
+        return dict(sorted(combined.items(), key=lambda item: item[1], reverse=True))
+
     def get_keyword_distribution(
         self, product_id: int, asin_id: Optional[str] = None
     ) -> dict:
@@ -341,6 +350,18 @@ class ASINAnalyzer:
             result[aid] = action_counts
 
         return result
+
+    def get_keyword_distribution_summary(self, product_id: int) -> dict:
+        """
+        获取“全部”视角下的合并关键词操作分布。
+
+        Returns:
+            dict，固定返回 {"全部": 合并后的操作类型计数}
+        """
+        distribution = self.get_keyword_distribution(product_id)
+        if not distribution:
+            return {}
+        return {"全部": self._combine_action_counts(distribution)}
 
     def detect_conflicts(
         self, product_id: int, asin_id: Optional[str] = None

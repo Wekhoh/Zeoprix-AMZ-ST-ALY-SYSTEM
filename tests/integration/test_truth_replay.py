@@ -919,6 +919,10 @@ class TestTruthFirstViews:
         assert distribution["BLK"]["手动精准"] == 1
         assert distribution["DBL"]["否定词组"] == 1
 
+        combined_distribution = analyzer.get_keyword_distribution_summary(product_id)
+        assert combined_distribution["全部"]["手动精准"] == 1
+        assert combined_distribution["全部"]["否定词组"] == 1
+
         conflicts = analyzer.detect_conflicts(product_id, "BLK")
         assert not conflicts.empty
         assert conflicts.iloc[0]["term"] == "travel pillow"
