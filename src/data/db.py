@@ -115,6 +115,8 @@ class Database:
             cursor.execute(
                 "ALTER TABLE manual_reviews ADD COLUMN scope TEXT DEFAULT 'local'"
             )
+        if "asin_identifier" not in mr_columns:
+            cursor.execute("ALTER TABLE manual_reviews ADD COLUMN asin_identifier TEXT")
 
         # ASIN竞争力评估字段
         if "competition_level" not in mr_columns:
@@ -132,6 +134,23 @@ class Database:
         if "ai_confidence" not in mr_columns:
             cursor.execute("ALTER TABLE manual_reviews ADD COLUMN ai_confidence REAL")
 
+        truth_columns = {
+            "review_source": "TEXT",
+            "truth_action_type": "TEXT",
+            "manual_action": "TEXT",
+            "auto_action": "TEXT",
+            "negate_keyword": "TEXT",
+            "negate_asin": "TEXT",
+            "action_matrix": "TEXT",
+            "conflict_flag": "INTEGER DEFAULT 0",
+            "evidence_payload": "TEXT",
+        }
+        for column_name, column_type in truth_columns.items():
+            if column_name not in mr_columns:
+                cursor.execute(
+                    f"ALTER TABLE manual_reviews ADD COLUMN {column_name} {column_type}"
+                )
+
         # 创建新索引
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_manual_reviews_relevance ON manual_reviews(product_id, relevance)"
@@ -141,6 +160,16 @@ class Database:
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_manual_reviews_reviewed ON manual_reviews(product_id, reviewed)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_manual_reviews_truth_action ON manual_reviews(product_id, truth_action_type)"
+        )
+        cursor.execute("DROP INDEX IF EXISTS idx_manual_reviews_unique")
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_reviews_unique
+            ON manual_reviews(product_id, term, COALESCE(campaign_id, 0), COALESCE(asin_identifier, ''))
+            """
         )
 
         # 将已审核但无相关性标记的记录设为pending
@@ -301,6 +330,151 @@ class Database:
         self.update_product(product_id, config=config)
 
     # ==================== 广告活动操作 ====================
+
+    def _save_rule_version_snapshot(
+        self,
+        product_id: int,
+        config_snapshot: dict,
+        description: str,
+    ) -> int:
+        """保存产品配置快照到 rule_versions。"""
+        cursor = self.conn.execute(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM rule_versions WHERE product_id = ?",
+            (product_id,),
+        )
+        next_version = cursor.fetchone()[0]
+        cursor = self.conn.execute(
+            """
+            INSERT INTO rule_versions (product_id, version, rules_snapshot, description)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                product_id,
+                next_version,
+                json.dumps(config_snapshot, ensure_ascii=False),
+                description,
+            ),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def save_strategy_profile(
+        self,
+        name: str,
+        config_snapshot: dict,
+        lifecycle: str = None,
+        goal: str = None,
+        notes: str = None,
+        source_product_id: int = None,
+    ) -> int:
+        """保存或更新可复用策略组合。"""
+        cursor = self.conn.execute(
+            "SELECT id FROM strategy_profiles WHERE name = ?",
+            (name,),
+        )
+        existing = cursor.fetchone()
+        payload = json.dumps(config_snapshot, ensure_ascii=False)
+
+        if existing:
+            self.conn.execute(
+                """
+                UPDATE strategy_profiles
+                SET lifecycle = ?,
+                    goal = ?,
+                    config_snapshot = ?,
+                    notes = ?,
+                    source_product_id = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    lifecycle,
+                    goal,
+                    payload,
+                    notes,
+                    source_product_id,
+                    existing["id"],
+                ),
+            )
+            self.conn.commit()
+            return existing["id"]
+
+        cursor = self.conn.execute(
+            """
+            INSERT INTO strategy_profiles
+            (name, lifecycle, goal, config_snapshot, notes, source_product_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (name, lifecycle, goal, payload, notes, source_product_id),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_strategy_profile(
+        self,
+        profile_id: int = None,
+        name: str = None,
+    ) -> dict | None:
+        """按 ID 或名称获取策略组合。"""
+        if profile_id is None and name is None:
+            raise ValueError("profile_id 或 name 至少需要一个")
+
+        if profile_id is not None:
+            cursor = self.conn.execute(
+                "SELECT * FROM strategy_profiles WHERE id = ?",
+                (profile_id,),
+            )
+        else:
+            cursor = self.conn.execute(
+                "SELECT * FROM strategy_profiles WHERE name = ?",
+                (name,),
+            )
+
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        result = dict(row)
+        result["config_snapshot"] = (
+            json.loads(result["config_snapshot"]) if result["config_snapshot"] else {}
+        )
+        return result
+
+    def list_strategy_profiles(self) -> list[dict]:
+        """列出所有策略组合。"""
+        cursor = self.conn.execute(
+            "SELECT * FROM strategy_profiles ORDER BY created_at DESC"
+        )
+        profiles = []
+        for row in cursor.fetchall():
+            profile = dict(row)
+            profile["config_snapshot"] = (
+                json.loads(profile["config_snapshot"])
+                if profile["config_snapshot"]
+                else {}
+            )
+            profiles.append(profile)
+        return profiles
+
+    def apply_strategy_profile(
+        self,
+        product_id: int,
+        profile_id: int = None,
+        profile_name: str = None,
+    ) -> dict:
+        """将策略组合应用到产品，并写入版本历史。"""
+        profile = self.get_strategy_profile(profile_id=profile_id, name=profile_name)
+        if not profile:
+            raise ValueError("未找到指定的策略组合")
+
+        config_snapshot = profile.get("config_snapshot", {})
+        self.update_product_config(product_id, config_snapshot)
+        self._save_rule_version_snapshot(
+            product_id=product_id,
+            config_snapshot=config_snapshot,
+            description=f"应用策略组合: {profile['name']}",
+        )
+        return profile
 
     def create_campaign(
         self,
@@ -915,6 +1089,21 @@ class Database:
         )
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_reviewed_truth_rows(self, product_id: int) -> list[dict]:
+        """获取所有带 truth_action_type 的已审核记录。"""
+        cursor = self.conn.execute(
+            """
+            SELECT *
+            FROM manual_reviews
+            WHERE product_id = ?
+              AND reviewed = 1
+              AND truth_action_type IS NOT NULL
+            ORDER BY updated_at DESC, id DESC
+            """,
+            (product_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
     def get_manual_review_relevance(
         self,
         product_id: int,
@@ -948,6 +1137,7 @@ class Database:
                        ai_suggestion, ai_confidence
                 FROM manual_reviews
                 WHERE product_id = ? AND term = ? AND campaign_id = ?
+                  AND asin_identifier IS NULL
                   AND relevance IS NOT NULL
                 """,
                 (product_id, term, campaign_id),
@@ -964,6 +1154,7 @@ class Database:
                    ai_suggestion, ai_confidence
             FROM manual_reviews
             WHERE product_id = ? AND term = ? AND campaign_id IS NULL
+              AND asin_identifier IS NULL
               AND relevance IS NOT NULL
             """,
             (product_id, term),
@@ -980,6 +1171,7 @@ class Database:
                    ai_suggestion, ai_confidence
             FROM manual_reviews
             WHERE product_id = ? AND term = ? AND scope = 'global'
+              AND asin_identifier IS NULL
               AND relevance IS NOT NULL
             LIMIT 1
             """,
@@ -997,6 +1189,7 @@ class Database:
         term: str,
         term_type: str = "keyword",
         campaign_id: int = None,
+        asin_identifier: str = None,
         system_action: str = None,
         final_action: str = None,
         reviewed: bool = False,
@@ -1009,6 +1202,15 @@ class Database:
         competition_notes: str = None,
         ai_suggestion: str = None,
         ai_confidence: float = None,
+        review_source: str = None,
+        truth_action_type: str = None,
+        manual_action: str = None,
+        auto_action: str = None,
+        negate_keyword: str = None,
+        negate_asin: str = None,
+        action_matrix: str = None,
+        conflict_flag: bool = None,
+        evidence_payload: dict | str = None,
     ) -> int:
         """
         插入或更新人工审核记录（Upsert）
@@ -1034,6 +1236,11 @@ class Database:
             记录ID
         """
         cursor = self.conn.cursor()
+        evidence_payload_json = (
+            json.dumps(evidence_payload, ensure_ascii=False)
+            if isinstance(evidence_payload, dict)
+            else evidence_payload
+        )
 
         # 检查是否已存在
         if campaign_id is not None:
@@ -1041,16 +1248,18 @@ class Database:
                 """
                 SELECT id FROM manual_reviews
                 WHERE product_id = ? AND term = ? AND campaign_id = ?
+                  AND COALESCE(asin_identifier, '') = COALESCE(?, '')
                 """,
-                (product_id, term, campaign_id),
+                (product_id, term, campaign_id, asin_identifier),
             )
         else:
             cursor.execute(
                 """
                 SELECT id FROM manual_reviews
                 WHERE product_id = ? AND term = ? AND campaign_id IS NULL
+                  AND COALESCE(asin_identifier, '') = COALESCE(?, '')
                 """,
-                (product_id, term),
+                (product_id, term, asin_identifier),
             )
 
         existing = cursor.fetchone()
@@ -1061,6 +1270,7 @@ class Database:
                 """
                 UPDATE manual_reviews
                 SET term_type = ?,
+                    asin_identifier = COALESCE(?, asin_identifier),
                     system_action = COALESCE(?, system_action),
                     final_action = COALESCE(?, final_action),
                     reviewed = ?,
@@ -1072,11 +1282,21 @@ class Database:
                     competition_notes = COALESCE(?, competition_notes),
                     ai_suggestion = COALESCE(?, ai_suggestion),
                     ai_confidence = COALESCE(?, ai_confidence),
+                    review_source = COALESCE(?, review_source),
+                    truth_action_type = COALESCE(?, truth_action_type),
+                    manual_action = COALESCE(?, manual_action),
+                    auto_action = COALESCE(?, auto_action),
+                    negate_keyword = COALESCE(?, negate_keyword),
+                    negate_asin = COALESCE(?, negate_asin),
+                    action_matrix = COALESCE(?, action_matrix),
+                    conflict_flag = COALESCE(?, conflict_flag),
+                    evidence_payload = COALESCE(?, evidence_payload),
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
                 (
                     term_type,
+                    asin_identifier,
                     system_action,
                     final_action,
                     1 if reviewed else 0,
@@ -1088,6 +1308,15 @@ class Database:
                     competition_notes,
                     ai_suggestion,
                     ai_confidence,
+                    review_source,
+                    truth_action_type,
+                    manual_action,
+                    auto_action,
+                    negate_keyword,
+                    negate_asin,
+                    action_matrix,
+                    None if conflict_flag is None else (1 if conflict_flag else 0),
+                    evidence_payload_json,
                     existing["id"],
                 ),
             )
@@ -1098,16 +1327,18 @@ class Database:
             cursor.execute(
                 """
                 INSERT INTO manual_reviews
-                (product_id, term, term_type, campaign_id, system_action, final_action, reviewed, notes,
+                (product_id, term, term_type, campaign_id, asin_identifier, system_action, final_action, reviewed, notes,
                  relevance, relevance_notes, scope, competition_level, competition_notes,
-                 ai_suggestion, ai_confidence)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ai_suggestion, ai_confidence, review_source, truth_action_type, manual_action,
+                 auto_action, negate_keyword, negate_asin, action_matrix, conflict_flag, evidence_payload)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     product_id,
                     term,
                     term_type,
                     campaign_id,
+                    asin_identifier,
                     system_action,
                     final_action,
                     1 if reviewed else 0,
@@ -1119,6 +1350,15 @@ class Database:
                     competition_notes,
                     ai_suggestion,
                     ai_confidence,
+                    review_source,
+                    truth_action_type,
+                    manual_action,
+                    auto_action,
+                    negate_keyword,
+                    negate_asin,
+                    action_matrix,
+                    None if conflict_flag is None else (1 if conflict_flag else 0),
+                    evidence_payload_json,
                 ),
             )
             self.conn.commit()

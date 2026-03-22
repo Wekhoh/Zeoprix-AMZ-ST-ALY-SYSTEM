@@ -221,6 +221,22 @@ CREATE TABLE IF NOT EXISTS rule_versions (
 );
 """
 
+# 可复用策略组合表
+STRATEGY_PROFILES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS strategy_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    lifecycle TEXT,
+    goal TEXT,
+    config_snapshot JSON NOT NULL,
+    notes TEXT,
+    source_product_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (source_product_id) REFERENCES products(id) ON DELETE SET NULL
+);
+"""
+
 # 分析结果表
 ANALYSIS_RESULTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS analysis_results (
@@ -260,6 +276,7 @@ CREATE TABLE IF NOT EXISTS manual_reviews (
     term TEXT NOT NULL,
     term_type TEXT DEFAULT 'keyword',  -- keyword | asin
     campaign_id INTEGER,  -- NULL = 全局, 有值 = 仅该活动
+    asin_identifier TEXT,  -- NULL = 不区分ASIN汇总, 有值 = BLK/DBL级 truth
 
     -- ==================== 相关性人工审核字段 ====================
     -- 相关性标记（人工判断）
@@ -278,6 +295,17 @@ CREATE TABLE IF NOT EXISTS manual_reviews (
     -- AI辅助
     ai_suggestion TEXT,  -- AI建议的相关性
     ai_confidence REAL,  -- AI置信度 (0.0-1.0)
+
+    -- 已审核真相回放/导入字段
+    review_source TEXT,  -- upload_pending | campaign_truth | aggregate_truth | ui_review
+    truth_action_type TEXT,  -- 规范化动作类型，用于回放
+    manual_action TEXT,  -- workbook中的手动动作
+    auto_action TEXT,  -- workbook中的自动动作
+    negate_keyword TEXT,  -- workbook中的否定关键词
+    negate_asin TEXT,  -- workbook中的否定ASIN
+    action_matrix TEXT,  -- 广告组动作矩阵
+    conflict_flag INTEGER DEFAULT 0,  -- 是否存在活动冲突
+    evidence_payload TEXT,  -- JSON结构化证据
 
     -- ==================== 原有字段 ====================
     system_action TEXT,  -- 系统建议
@@ -300,6 +328,7 @@ ALL_SCHEMAS = [
     ("search_terms", SEARCH_TERMS_SCHEMA),
     ("rules", RULES_SCHEMA),
     ("rule_versions", RULE_VERSIONS_SCHEMA),
+    ("strategy_profiles", STRATEGY_PROFILES_SCHEMA),
     ("analysis_results", ANALYSIS_RESULTS_SCHEMA),
     ("action_plans", ACTION_PLANS_SCHEMA),
     ("manual_reviews", MANUAL_REVIEWS_SCHEMA),
@@ -313,11 +342,13 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_rules_product_id ON rules(product_id);",
     "CREATE INDEX IF NOT EXISTS idx_analysis_results_search_term_id ON analysis_results(search_term_id);",
     "CREATE INDEX IF NOT EXISTS idx_manual_reviews_product_term ON manual_reviews(product_id, term);",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_reviews_unique ON manual_reviews(product_id, term, COALESCE(campaign_id, 0));",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_reviews_unique ON manual_reviews(product_id, term, COALESCE(campaign_id, 0), COALESCE(asin_identifier, ''));",
     # v2.0: 相关性人工审核索引
     "CREATE INDEX IF NOT EXISTS idx_manual_reviews_relevance ON manual_reviews(product_id, relevance);",
     "CREATE INDEX IF NOT EXISTS idx_manual_reviews_scope ON manual_reviews(product_id, scope);",
     "CREATE INDEX IF NOT EXISTS idx_manual_reviews_reviewed ON manual_reviews(product_id, reviewed);",
+    "CREATE INDEX IF NOT EXISTS idx_manual_reviews_truth_action ON manual_reviews(product_id, truth_action_type);",
+    "CREATE INDEX IF NOT EXISTS idx_strategy_profiles_name ON strategy_profiles(name);",
 ]
 
 # 默认规则配置（系统初始化时插入）

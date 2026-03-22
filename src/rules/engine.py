@@ -804,6 +804,7 @@ class RuleEngine:
 
 def analyze_search_terms(db: Database, product_id: int = None) -> list[AnalysisResult]:
     """便捷函数：分析搜索词（汇总模式，跨活动聚合）"""
+    from src.analysis.truth_replay import apply_reviewed_truth
     from src.data.aggregator import DataAggregator
 
     # 获取聚合数据
@@ -812,7 +813,7 @@ def analyze_search_terms(db: Database, product_id: int = None) -> list[AnalysisR
 
     # 规则分析
     engine = RuleEngine(db, product_id)
-    return engine.analyze(df)
+    return apply_reviewed_truth(db, product_id, engine.analyze(df))
 
 
 def analyze_search_terms_by_campaign(
@@ -830,6 +831,7 @@ def analyze_search_terms_by_campaign(
     Returns:
         按活动分析结果列表
     """
+    from src.analysis.truth_replay import apply_reviewed_truth
     from src.data.aggregator import DataAggregator
 
     # 获取按活动+关键词聚合的数据
@@ -838,7 +840,7 @@ def analyze_search_terms_by_campaign(
 
     # 规则分析
     engine = RuleEngine(db, product_id)
-    return engine.analyze_by_campaign(df)
+    return apply_reviewed_truth(db, product_id, engine.analyze_by_campaign(df))
 
 
 @dataclass
@@ -884,6 +886,7 @@ def analyze_search_terms_by_asin(
     Returns:
         按ASIN分析结果列表
     """
+    from src.analysis.truth_replay import apply_reviewed_truth
     from src.data.aggregator import DataAggregator
 
     # 获取按ASIN+关键词聚合的数据
@@ -956,4 +959,4 @@ def analyze_search_terms_by_asin(
         )
 
     logger.info(f"按ASIN分析完成，生成 {len(results)} 条结果")
-    return results
+    return apply_reviewed_truth(db, product_id, results)
