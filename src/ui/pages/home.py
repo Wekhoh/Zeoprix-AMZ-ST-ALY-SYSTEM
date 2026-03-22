@@ -162,6 +162,11 @@ def render_home():
         if pending_stats["manual_count"] > 0:
             st.success(f"{pending_stats['manual_count']} 个高转化词待投放")
 
+        if pending_stats.get("conflict_count", 0) > 0:
+            st.warning(
+                f"{pending_stats['conflict_count']} 个词存在跨ASIN分歧，需人工拍板"
+            )
+
         if pending_stats["ai_pending_count"] > 0:
             st.info(f"{pending_stats['ai_pending_count']} 个词待AI确认")
 

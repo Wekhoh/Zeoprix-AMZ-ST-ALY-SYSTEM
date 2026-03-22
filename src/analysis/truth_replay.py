@@ -445,6 +445,7 @@ def get_truth_first_pending_stats(db: Database, product_id: int) -> dict[str, in
         return None
 
     pending_counts = db.get_pending_reviews_count(product_id)
+    summary_rows = get_truth_first_summary_rows(db, product_id) or []
     return {
         "negative_count": (
             len(buckets["negative_keyword_exact"])
@@ -453,6 +454,9 @@ def get_truth_first_pending_stats(db: Database, product_id: int) -> dict[str, in
         ),
         "manual_count": len(buckets["manual_keywords"])
         + len(buckets["manual_products"]),
+        "conflict_count": sum(
+            1 for row in summary_rows if row.get("action_type") == "conflict"
+        ),
         "ai_pending_count": pending_counts["total"],
         "review_pending_count": pending_counts["total"],
     }

@@ -463,6 +463,7 @@ class TestTruthFirstViews:
         assert stats == {
             "negative_count": 2,
             "manual_count": 0,
+            "conflict_count": 1,
             "ai_pending_count": 0,
             "review_pending_count": 0,
         }
