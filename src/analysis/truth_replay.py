@@ -356,6 +356,22 @@ def get_truth_first_action_buckets(
     from src.rules.engine import analyze_search_terms_by_asin
 
     results = analyze_search_terms_by_asin(db, product_id)
+    grouped_results: dict[str, list[Any]] = {}
+    for result in results:
+        truth_data = (getattr(result, "data", {}) or {}).get("truth_replay")
+        if not truth_data:
+            continue
+        term_key = _normalize_term(getattr(result, "term", ""))
+        if not term_key:
+            continue
+        grouped_results.setdefault(term_key, []).append(result)
+
+    conflict_terms = {
+        term_key
+        for term_key, items in grouped_results.items()
+        if len({getattr(item, "action_type", "") for item in items}) > 1
+    }
+
     negative_exact_items: list[dict[str, Any]] = []
     negative_phrase_items: list[dict[str, Any]] = []
     negative_asin_items: list[dict[str, Any]] = []
@@ -365,6 +381,9 @@ def get_truth_first_action_buckets(
     for result in results:
         truth_data = (getattr(result, "data", {}) or {}).get("truth_replay")
         if not truth_data:
+            continue
+        term_key = _normalize_term(getattr(result, "term", ""))
+        if not term_key or term_key in conflict_terms:
             continue
 
         item = {

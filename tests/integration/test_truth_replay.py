@@ -452,21 +452,17 @@ class TestTruthFirstViews:
         stats = get_truth_first_pending_stats(db, product_id)
 
         assert buckets is not None
-        assert [item["term"] for item in buckets["negative_keyword_exact"]] == [
-            "travel pillow"
-        ]
+        assert buckets["negative_keyword_exact"] == []
         assert [item["term"] for item in buckets["negative_keyword_phrase"]] == [
             "flight pillow"
         ]
         assert [item["term"] for item in buckets["negative_asin"]] == ["B0COMP1234"]
-        assert [item["term"] for item in buckets["manual_keywords"]] == [
-            "travel pillow"
-        ]
+        assert buckets["manual_keywords"] == []
         assert buckets["manual_products"] == []
 
         assert stats == {
-            "negative_count": 3,
-            "manual_count": 1,
+            "negative_count": 2,
+            "manual_count": 0,
             "ai_pending_count": 0,
             "review_pending_count": 0,
         }
@@ -1047,10 +1043,7 @@ class TestTruthFirstViews:
         manual_results = _get_export_results(db, product_id, export_kind="manual")
 
         assert {(item.term, item.action_type) for item in negative_results} == {
-            ("travel pillow", "manual_exact_with_neg"),
             ("flight pillow", "negative_phrase"),
             ("B0COMP1234", "negative_exact"),
         }
-        assert len(manual_results) == 1
-        assert manual_results[0].term == "travel pillow"
-        assert manual_results[0].action_type.startswith("manual_exact")
+        assert manual_results == []
