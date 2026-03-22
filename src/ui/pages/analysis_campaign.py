@@ -12,9 +12,27 @@ from src.ui.pages.analysis import AUTO_ACTION_DISPLAY, save_campaign_review_chan
 logger = get_logger(__name__)
 
 
+def _matches_campaign_action_filter(action_type: str, filters: list[str]) -> bool:
+    if not filters:
+        return True
+    if "negative" in str(action_type):
+        return "negative" in filters
+    if "manual" in str(action_type):
+        return "manual" in filters
+    if action_type == "observe":
+        return "observe" in filters
+    return "evaluate" in filters
+
+
 def render_campaign_analysis(db, product_id: int):
     """渲染按活动分析模式页面"""
     from src.rules.engine import analyze_search_terms_by_campaign
+    from src.analysis.truth_replay import get_truth_first_campaign_rows
+
+    truth_rows = get_truth_first_campaign_rows(db, product_id)
+    if truth_rows is not None:
+        _render_truth_first_campaign_analysis(truth_rows)
+        return
 
     # 筛选面板
     with st.expander("筛选条件", expanded=True):
@@ -101,7 +119,9 @@ def render_campaign_analysis(db, product_id: int):
 
     if action_filter:
         filtered_results = [
-            r for r in filtered_results if r.get("action_type") in action_filter
+            r
+            for r in filtered_results
+            if _matches_campaign_action_filter(r.get("action_type"), action_filter)
         ]
 
     if auto_action_filter:
@@ -397,6 +417,189 @@ def render_campaign_analysis(db, product_id: int):
     with col5:
         if st.button("导出否定清单（按活动）", key="export_campaign_negatives"):
             export_campaign_reviewed_negatives(filtered_results, existing_reviews)
+
+
+def _render_truth_first_campaign_analysis(rows: list[dict]) -> None:
+    """渲染广告组级 truth-first 视图。"""
+    with st.expander("筛选条件", expanded=True):
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            action_filter = st.multiselect(
+                "动作类型",
+                options=["negative", "manual", "observe"],
+                default=[],
+                format_func=lambda x: {
+                    "negative": "建议否定",
+                    "manual": "建议手动投放",
+                    "observe": "继续观察",
+                }.get(x, x),
+                key="campaign_truth_action_filter",
+            )
+
+        with col2:
+            auto_action_filter = st.multiselect(
+                "自动处理",
+                options=["keep", "negate", "observe"],
+                default=[],
+                format_func=lambda x: AUTO_ACTION_DISPLAY.get(x, x),
+                key="campaign_truth_auto_action_filter",
+            )
+
+        with col3:
+            term_type_filter = st.multiselect(
+                "词类型",
+                options=["keyword", "asin"],
+                default=[],
+                format_func=lambda x: {
+                    "keyword": "关键词",
+                    "asin": "ASIN",
+                }.get(x, x),
+                key="campaign_truth_term_type_filter",
+            )
+
+        with col4:
+            search_term = st.text_input(
+                "搜索关键词",
+                placeholder="输入搜索...",
+                key="campaign_truth_search_term",
+            )
+
+    filtered_rows = rows
+
+    if action_filter:
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if _matches_campaign_action_filter(row.get("action_type"), action_filter)
+        ]
+
+    if auto_action_filter:
+        filtered_rows = [
+            row for row in filtered_rows if row.get("auto_action") in auto_action_filter
+        ]
+
+    if term_type_filter:
+        filtered_rows = [
+            row for row in filtered_rows if row.get("term_type") in term_type_filter
+        ]
+
+    if search_term:
+        search_lower = search_term.lower()
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if search_lower in str(row.get("term", "")).lower()
+            or search_lower in str(row.get("campaign_name", "")).lower()
+        ]
+
+    st.info("已检测到广告组 workbook truth，当前展示已切换为真相优先活动视图。")
+    st.subheader(f"按活动真相视图 ({len(filtered_rows)} 条)")
+
+    if not filtered_rows:
+        st.warning("筛选后无数据")
+        return
+
+    unique_terms = len({row["term"] for row in filtered_rows})
+    unique_campaigns = len({row["campaign_id"] for row in filtered_rows})
+    keep_count = len([row for row in filtered_rows if row.get("auto_action") == "keep"])
+    negate_count = len(
+        [row for row in filtered_rows if row.get("auto_action") == "negate"]
+    )
+    observe_count = len(
+        [row for row in filtered_rows if row.get("auto_action") == "observe"]
+    )
+
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    with col1:
+        st.metric("唯一搜索词", unique_terms)
+    with col2:
+        st.metric("涉及活动", unique_campaigns)
+    with col3:
+        st.metric("自动保留", keep_count)
+    with col4:
+        st.metric("自动否定", negate_count)
+    with col5:
+        st.metric("继续观察", observe_count)
+    with col6:
+        st.metric("已审核", f"{len(filtered_rows)}/{len(filtered_rows)}")
+
+    st.divider()
+
+    display_df = pd.DataFrame(filtered_rows)[
+        [
+            "term",
+            "campaign_name",
+            "term_type",
+            "triggered_rule",
+            "suggested_action",
+            "auto_action",
+            "clicks",
+            "orders",
+            "cvr",
+        ]
+    ].copy()
+    display_df.columns = [
+        "搜索词",
+        "广告活动",
+        "类型",
+        "触发规则",
+        "主动作",
+        "自动处理",
+        "点击",
+        "订单",
+        "CVR",
+    ]
+    display_df["自动处理"] = display_df["自动处理"].apply(
+        lambda value: AUTO_ACTION_DISPLAY.get(value, "-")
+    )
+    display_df["CVR"] = display_df["CVR"].apply(
+        lambda value: f"{value:.1%}" if pd.notna(value) and value > 0 else "-"
+    )
+    display_df["已审核"] = True
+
+    st.data_editor(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        disabled=[
+            "已审核",
+            "搜索词",
+            "广告活动",
+            "类型",
+            "触发规则",
+            "主动作",
+            "自动处理",
+            "点击",
+            "订单",
+            "CVR",
+        ],
+        column_config={
+            "已审核": st.column_config.CheckboxColumn("已审核", width="small"),
+            "搜索词": st.column_config.TextColumn("搜索词", width="medium"),
+            "广告活动": st.column_config.TextColumn("广告活动", width="large"),
+            "类型": st.column_config.TextColumn("类型", width="small"),
+            "触发规则": st.column_config.TextColumn("触发规则", width="medium"),
+            "主动作": st.column_config.TextColumn("主动作", width="medium"),
+            "自动处理": st.column_config.TextColumn("自动处理", width="small"),
+            "点击": st.column_config.NumberColumn("点击", width="small"),
+            "订单": st.column_config.NumberColumn("订单", width="small"),
+            "CVR": st.column_config.TextColumn("CVR", width="small"),
+        },
+        column_order=[
+            "已审核",
+            "搜索词",
+            "广告活动",
+            "类型",
+            "触发规则",
+            "主动作",
+            "自动处理",
+            "点击",
+            "订单",
+            "CVR",
+        ],
+        key="campaign_truth_editor",
+    )
 
 
 def export_campaign_results(results: list[dict]):

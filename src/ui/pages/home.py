@@ -7,7 +7,10 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from src.analysis.truth_replay import get_truth_first_pending_stats
+from src.analysis.truth_replay import (
+    get_truth_first_overview_distribution,
+    get_truth_first_pending_stats,
+)
 from src.config.logger import get_logger
 from src.rules.engine import analyze_search_terms
 
@@ -16,6 +19,48 @@ logger = get_logger(__name__)
 
 # 缓存时间（秒）
 CACHE_TTL = 60
+
+
+def _build_overview_chart(chart_data: dict[str, int]) -> alt.Chart:
+    """构建首页概览柱状图。"""
+    df = pd.DataFrame(
+        {
+            "分类": list(chart_data.keys()),
+            "数量": list(chart_data.values()),
+        }
+    )
+
+    return (
+        alt.Chart(df)
+        .mark_bar(
+            color="#2563EB",
+            cornerRadiusTopLeft=4,
+            cornerRadiusTopRight=4,
+        )
+        .encode(
+            x=alt.X(
+                "分类:N",
+                axis=alt.Axis(
+                    labelAngle=0,
+                    labelFontSize=12,
+                    titleFontSize=13,
+                    titleFontWeight="bold",
+                ),
+                sort=alt.EncodingSortField(field="数量", order="descending"),
+            ),
+            y=alt.Y(
+                "数量:Q",
+                axis=alt.Axis(
+                    labelFontSize=11,
+                    titleFontSize=13,
+                    titleFontWeight="bold",
+                ),
+            ),
+            tooltip=["分类", "数量"],
+        )
+        .properties(height=350)
+        .configure_view(strokeWidth=0)
+    )
 
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
@@ -32,16 +77,16 @@ def get_all_dashboard_data(_db, product_id: int = None) -> dict:
     """
     dashboard_stats = _get_dashboard_stats_impl(_db, product_id)
     pending_stats = _get_pending_stats_impl(_db, product_id)
-    rule_stats = (
-        _get_rule_stats_impl(_db, product_id)
+    overview_chart = (
+        _get_overview_chart_impl(_db, product_id)
         if dashboard_stats["term_count"] > 0
-        else {}
+        else {"x_label": "规则", "title": "数据概览", "data": {}}
     )
 
     return {
         "dashboard_stats": dashboard_stats,
         "pending_stats": pending_stats,
-        "rule_stats": rule_stats,
+        "overview_chart": overview_chart,
     }
 
 
@@ -147,60 +192,18 @@ def render_home():
 
     st.divider()
 
-    # 最近活动
-    st.subheader("数据概览")
+    overview_chart = all_data["overview_chart"]
+    st.subheader(overview_chart.get("title", "数据概览"))
 
     if stats["term_count"] > 0:
-        # 使用缓存的规则统计数据
-        rule_stats = all_data["rule_stats"]
+        chart_data = {
+            key: value
+            for key, value in overview_chart.get("data", {}).items()
+            if value > 0
+        }
 
-        if rule_stats:
-            # 使用 Altair 创建柱状图，设置X轴标签水平显示
-            df = pd.DataFrame(
-                {
-                    "规则": list(rule_stats.keys()),
-                    "数量": list(rule_stats.values()),
-                }
-            )
-
-            chart = (
-                alt.Chart(df)
-                .mark_bar(
-                    color="#2563EB",  # 品牌蓝色
-                    cornerRadiusTopLeft=4,
-                    cornerRadiusTopRight=4,
-                )
-                .encode(
-                    x=alt.X(
-                        "规则:N",
-                        axis=alt.Axis(
-                            labelAngle=0,  # 水平显示标签
-                            labelFontSize=12,
-                            titleFontSize=13,
-                            titleFontWeight="bold",
-                        ),
-                        sort=alt.EncodingSortField(
-                            field="数量", order="descending"
-                        ),  # 按数量降序排列
-                    ),
-                    y=alt.Y(
-                        "数量:Q",
-                        axis=alt.Axis(
-                            labelFontSize=11,
-                            titleFontSize=13,
-                            titleFontWeight="bold",
-                        ),
-                    ),
-                    tooltip=["规则", "数量"],
-                )
-                .properties(
-                    height=350,
-                )
-                .configure_view(
-                    strokeWidth=0,  # 移除边框
-                )
-            )
-
+        if chart_data:
+            chart = _build_overview_chart(chart_data)
             st.altair_chart(chart, width="stretch")
     else:
         st.info("暂无数据，请先上传搜索词报告")
@@ -308,9 +311,17 @@ def _get_pending_stats_impl(db, product_id: int = None) -> dict:
         }
 
 
-def _get_rule_stats_impl(db, product_id: int = None) -> dict:
-    """获取规则触发统计（使用实时分析结果）"""
+def _get_overview_chart_impl(db, product_id: int = None) -> dict:
+    """获取首页数据概览图表数据。"""
     try:
+        truth_distribution = get_truth_first_overview_distribution(db, product_id)
+        if truth_distribution is not None:
+            return {
+                "x_label": "分类",
+                "title": "数据概览（真相优先）",
+                "data": truth_distribution,
+            }
+
         # 使用规则引擎实时分析，与搜索词分析页面保持一致
         results = analyze_search_terms(db, product_id)
 
@@ -323,10 +334,14 @@ def _get_rule_stats_impl(db, product_id: int = None) -> dict:
         sorted_rules = sorted(rule_counts.items(), key=lambda x: x[1], reverse=True)[
             :10
         ]
-        return dict(sorted_rules)
+        return {
+            "x_label": "规则",
+            "title": "数据概览",
+            "data": dict(sorted_rules),
+        }
     except Exception as e:
         logger.error(f"获取规则统计失败: {e}")
-        return {}
+        return {"x_label": "规则", "title": "数据概览", "data": {}}
 
 
 # 公开API（向后兼容）
@@ -341,5 +356,5 @@ def get_pending_stats(db, product_id: int = None) -> dict:
 
 
 def get_rule_stats(db, product_id: int = None) -> dict:
-    """获取规则触发统计（公开API，用于测试）"""
-    return _get_rule_stats_impl(db, product_id)
+    """获取首页数据概览图表分布（公开API，用于测试）"""
+    return _get_overview_chart_impl(db, product_id)["data"]

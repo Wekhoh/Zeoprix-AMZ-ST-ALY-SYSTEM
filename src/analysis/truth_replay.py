@@ -439,6 +439,61 @@ def get_truth_first_pending_stats(db: Database, product_id: int) -> dict[str, in
     }
 
 
+def get_truth_first_overview_distribution(
+    db: Database,
+    product_id: int,
+) -> dict[str, int] | None:
+    """返回首页 truth-first 数据概览分布。"""
+    summary_rows = get_truth_first_summary_rows(db, product_id)
+    if summary_rows is None:
+        return None
+
+    distribution = {
+        "继续观察-关键词": 0,
+        "继续观察-ASIN": 0,
+        "手动精准-关键词": 0,
+        "手动商品定位-ASIN": 0,
+        "否定精准-关键词": 0,
+        "否定词组-关键词": 0,
+        "否定ASIN": 0,
+        "跨ASIN分歧": 0,
+    }
+
+    for row in summary_rows:
+        term_type = row.get("term_type")
+        action_type = row.get("action_type")
+
+        if row.get("has_conflict"):
+            distribution["跨ASIN分歧"] += 1
+            continue
+
+        if action_type in {ActionType.CONTINUE_OBSERVE, ActionType.OBSERVE}:
+            if term_type == "asin":
+                distribution["继续观察-ASIN"] += 1
+            else:
+                distribution["继续观察-关键词"] += 1
+            continue
+
+        if ActionType.is_manual(action_type):
+            if term_type == "asin":
+                distribution["手动商品定位-ASIN"] += 1
+            else:
+                distribution["手动精准-关键词"] += 1
+            continue
+
+        if action_type == ActionType.NEGATIVE_PHRASE:
+            distribution["否定词组-关键词"] += 1
+            continue
+
+        if ActionType.is_negative(action_type):
+            if term_type == "asin":
+                distribution["否定ASIN"] += 1
+            else:
+                distribution["否定精准-关键词"] += 1
+
+    return distribution
+
+
 def _summary_conflict_details(items: list[Any]) -> str:
     details = []
     for item in sorted(items, key=lambda row: row.asin_identifier or ""):
@@ -544,6 +599,54 @@ def get_truth_first_summary_rows(
             item["has_conflict"] is False,
             item["term_type"] != "asin",
             item["term"],
+        ),
+    )
+
+
+def get_truth_first_campaign_rows(
+    db: Database,
+    product_id: int,
+) -> list[dict[str, Any]] | None:
+    """返回广告组级 truth-first 视图，仅包含 campaign truth 行。"""
+    if not has_reviewed_truth(db, product_id):
+        return None
+
+    from src.rules.engine import analyze_search_terms_by_campaign
+
+    rows: list[dict[str, Any]] = []
+    for result in analyze_search_terms_by_campaign(db, product_id):
+        truth_data = (getattr(result, "data", {}) or {}).get("truth_replay")
+        if not truth_data or truth_data.get("review_source") != "campaign_truth":
+            continue
+
+        rows.append(
+            {
+                "term": result.term,
+                "term_type": result.term_type,
+                "campaign_id": result.campaign_id,
+                "campaign_name": result.campaign_name,
+                "triggered_rule": result.triggered_rule,
+                "suggested_action": result.suggested_action,
+                "auto_action": getattr(result, "auto_action", None),
+                "action_type": result.action_type,
+                "confidence": result.confidence,
+                "clicks": getattr(result, "clicks", 0),
+                "orders": getattr(result, "orders", 0),
+                "spend": getattr(result, "spend", 0.0),
+                "sales": getattr(result, "sales", 0.0),
+                "cvr": getattr(result, "cvr", 0.0),
+                "acos": getattr(result, "acos", 0.0),
+                "reviewed": True,
+                "truth_replay": truth_data,
+            }
+        )
+
+    return sorted(
+        rows,
+        key=lambda item: (
+            {"negate": 0, "keep": 1, "observe": 2}.get(item.get("auto_action"), 3),
+            item.get("campaign_name", ""),
+            item.get("term", ""),
         ),
     )
 
