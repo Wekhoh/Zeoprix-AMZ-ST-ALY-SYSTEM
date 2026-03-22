@@ -13,6 +13,7 @@ import os
 import sys
 import tempfile
 
+import pandas as pd
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -101,6 +102,29 @@ class TestGetManualReviewRelevance:
         assert result is not None
         assert result["relevance"] == "irrelevant"
         assert result["scope"] == "global"
+
+    def test_accepts_numpy_integer_campaign_id(self, test_db):
+        test_db.conn.execute(
+            "INSERT INTO campaigns (id, product_id, name) VALUES (1, 1, 'numpy活动')"
+        )
+        test_db.conn.commit()
+        test_db.upsert_manual_review(
+            product_id=1,
+            term="numpy_term",
+            campaign_id=1,
+            relevance="strong_core",
+            scope="local",
+        )
+
+        numpy_campaign_id = pd.Series([1], dtype="int64").iloc[0]
+        result = test_db.get_manual_review_relevance(
+            product_id=1,
+            term="numpy_term",
+            campaign_id=numpy_campaign_id,
+        )
+
+        assert result is not None
+        assert result["relevance"] == "strong_core"
 
 
 class TestUpsertManualReview:

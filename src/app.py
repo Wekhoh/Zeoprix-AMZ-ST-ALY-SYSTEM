@@ -16,6 +16,16 @@ from src.ui.styles import inject_global_styles
 
 logger = get_logger(__name__)
 
+NAV_OPTIONS = [
+    "首页",
+    "文件上传",
+    "搜索词分析",
+    "ASIN分析",
+    "操作清单",
+    "相关性审核",
+    "系统设置",
+]
+
 # 页面配置
 st.set_page_config(
     page_title="AMZ搜索词分析系统",
@@ -54,38 +64,16 @@ def render_sidebar():
         st.title("AMZ搜索词分析")
         st.divider()
 
-        # 导航菜单
-        NAV_OPTIONS = [
-            "首页",
-            "文件上传",
-            "搜索词分析",
-            "ASIN分析",
-            "操作清单",
-            "相关性审核",
-            "系统设置",
-        ]
-
         # 初始化导航状态
-        if "nav_page" not in st.session_state:
+        if st.session_state.get("nav_page") not in NAV_OPTIONS:
             st.session_state.nav_page = "首页"
 
-        # 计算当前页面在选项中的索引
-        try:
-            current_index = NAV_OPTIONS.index(st.session_state.nav_page)
-        except ValueError:
-            current_index = 0
-
-        # 使用index参数控制radio选择（而不是依赖key的session_state）
-        page = st.radio(
+        st.radio(
             "导航",
             options=NAV_OPTIONS,
-            index=current_index,
+            key="nav_page",
             label_visibility="collapsed",
         )
-
-        # 同步radio选择到session_state
-        if page != st.session_state.nav_page:
-            st.session_state.nav_page = page
 
         st.divider()
 
@@ -110,7 +98,7 @@ def render_sidebar():
         # AI助手入口 - 放在侧边栏底部，更显眼
         render_sidebar_ai_assistant()
 
-        return page
+        return st.session_state.nav_page
 
 
 def render_sidebar_ai_assistant():

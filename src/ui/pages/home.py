@@ -29,6 +29,7 @@ def _build_overview_chart(chart_data: dict[str, int]) -> alt.Chart:
             "数量": list(chart_data.values()),
         }
     )
+    df = df.sort_values("数量", ascending=False, kind="stable").reset_index(drop=True)
 
     return (
         alt.Chart(df)
@@ -46,7 +47,6 @@ def _build_overview_chart(chart_data: dict[str, int]) -> alt.Chart:
                     titleFontSize=13,
                     titleFontWeight="bold",
                 ),
-                sort=alt.EncodingSortField(field="数量", order="descending"),
             ),
             y=alt.Y(
                 "数量:Q",
@@ -61,6 +61,11 @@ def _build_overview_chart(chart_data: dict[str, int]) -> alt.Chart:
         .properties(height=350)
         .configure_view(strokeWidth=0)
     )
+
+
+def _navigate_to(page: str) -> None:
+    """切换到目标页面。"""
+    st.session_state.nav_page = page
 
 
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
@@ -168,27 +173,42 @@ def render_home():
         col_btn1, col_btn2 = st.columns(2)
 
         with col_btn1:
-            if st.button("上传新数据", width="stretch"):
-                st.session_state.nav_page = "文件上传"
-                st.rerun()
+            st.button(
+                "上传新数据",
+                width="stretch",
+                on_click=_navigate_to,
+                args=("文件上传",),
+            )
 
-            if st.button("查看操作清单", width="stretch"):
-                st.session_state.nav_page = "操作清单"
-                st.rerun()
+            st.button(
+                "查看操作清单",
+                width="stretch",
+                on_click=_navigate_to,
+                args=("操作清单",),
+            )
 
             # v2.0: 相关性审核入口
-            if st.button("相关性审核", width="stretch"):
-                st.session_state.nav_page = "相关性审核"
-                st.rerun()
+            st.button(
+                "相关性审核",
+                width="stretch",
+                on_click=_navigate_to,
+                args=("相关性审核",),
+            )
 
         with col_btn2:
-            if st.button("分析搜索词", width="stretch"):
-                st.session_state.nav_page = "搜索词分析"
-                st.rerun()
+            st.button(
+                "分析搜索词",
+                width="stretch",
+                on_click=_navigate_to,
+                args=("搜索词分析",),
+            )
 
-            if st.button("系统设置", width="stretch"):
-                st.session_state.nav_page = "系统设置"
-                st.rerun()
+            st.button(
+                "系统设置",
+                width="stretch",
+                on_click=_navigate_to,
+                args=("系统设置",),
+            )
 
     st.divider()
 

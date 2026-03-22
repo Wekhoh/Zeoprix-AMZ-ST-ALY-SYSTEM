@@ -1133,9 +1133,15 @@ class Database:
             包含relevance等字段的字典，或None（未找到）
         """
         cursor = self.conn.cursor()
+        normalized_campaign_id = None
+        if campaign_id is not None:
+            try:
+                normalized_campaign_id = int(campaign_id)
+            except (TypeError, ValueError):
+                normalized_campaign_id = campaign_id
 
         # 优先级1: 查找Local标记（特定活动）
-        if campaign_id is not None:
+        if normalized_campaign_id is not None:
             cursor.execute(
                 """
                 SELECT relevance, relevance_notes, scope,
@@ -1146,7 +1152,7 @@ class Database:
                   AND asin_identifier IS NULL
                   AND relevance IS NOT NULL
                 """,
-                (product_id, term, campaign_id),
+                (product_id, term, normalized_campaign_id),
             )
             row = cursor.fetchone()
             if row:
