@@ -253,7 +253,7 @@ def render_campaign_analysis(db, product_id: int):
     # 使用 data_editor 支持勾选
     edited_df = st.data_editor(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         disabled=[
             "搜索词",
@@ -560,7 +560,7 @@ def _render_truth_first_campaign_analysis(rows: list[dict]) -> None:
 
     st.data_editor(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         disabled=[
             "已审核",

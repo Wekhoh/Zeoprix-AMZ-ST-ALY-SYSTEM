@@ -290,7 +290,7 @@ def render_asin_analysis(db, product_id: int):
     # 显示表格
     st.dataframe(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config={
             "搜索词": st.column_config.TextColumn("搜索词", width="large"),
@@ -350,7 +350,7 @@ def render_asin_analysis(db, product_id: int):
                     )
 
                 compare_df = pd.DataFrame(compare_data)
-                st.dataframe(compare_df, use_container_width=True, hide_index=True)
+                st.dataframe(compare_df, width="stretch", hide_index=True)
         else:
             st.info("暂无跨ASIN的共同词汇")
     else:

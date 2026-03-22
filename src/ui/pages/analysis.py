@@ -444,7 +444,7 @@ def render_summary_analysis(db, product_id: int):
     # 使用 data_editor 支持勾选
     edited_df = st.data_editor(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         disabled=["搜索词", "类型", "触发规则", "建议操作", "动作类型", "置信度"],
         column_config={
@@ -1054,7 +1054,7 @@ def _render_truth_first_summary_analysis(rows: list[dict]) -> None:
 
     st.dataframe(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config={
             "搜索词": st.column_config.TextColumn("搜索词", width="large"),

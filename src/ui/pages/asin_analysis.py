@@ -177,7 +177,7 @@ def render_summary_section(analyzer: ASINAnalyzer, product_id: int, asin_ids: li
     display_df["花费($)"] = display_df["花费($)"].apply(lambda x: f"{x:,.2f}")
     display_df["销售额($)"] = display_df["销售额($)"].apply(lambda x: f"{x:,.2f}")
 
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
     # 对比洞察
     if len(asin_ids) >= 2:
@@ -263,7 +263,7 @@ def render_keyword_distribution(
                 )
             ]
         )
-        st.dataframe(dist_df, use_container_width=True, hide_index=True)
+        st.dataframe(dist_df, width="stretch", hide_index=True)
 
         st.divider()
 
@@ -343,7 +343,7 @@ def render_conflict_detection(analyzer: ASINAnalyzer, product_id: int, asin_ids:
                     if decision_data:
                         decision_df = pd.DataFrame(decision_data)
                         st.dataframe(
-                            decision_df, use_container_width=True, hide_index=True
+                            decision_df, width="stretch", hide_index=True
                         )
                 st.divider()
 
@@ -380,7 +380,7 @@ def render_top_bottom(analyzer: ASINAnalyzer, product_id: int, asin_ids: list):
                 top_df.columns = ["搜索词", "CVR", "订单", "花费($)"]
                 top_df["CVR"] = top_df["CVR"].apply(lambda x: f"{x * 100:.1f}%")
                 top_df["花费($)"] = top_df["花费($)"].apply(lambda x: f"{x:.2f}")
-                st.dataframe(top_df, use_container_width=True, hide_index=True)
+                st.dataframe(top_df, width="stretch", hide_index=True)
             else:
                 st.info("暂无高效词")
 
@@ -391,7 +391,7 @@ def render_top_bottom(analyzer: ASINAnalyzer, product_id: int, asin_ids: list):
                 bottom_df.columns = ["搜索词", "CVR", "订单", "花费($)"]
                 bottom_df["CVR"] = bottom_df["CVR"].apply(lambda x: f"{x * 100:.1f}%")
                 bottom_df["花费($)"] = bottom_df["花费($)"].apply(lambda x: f"{x:.2f}")
-                st.dataframe(bottom_df, use_container_width=True, hide_index=True)
+                st.dataframe(bottom_df, width="stretch", hide_index=True)
             else:
                 st.info("暂无低效词")
 
@@ -429,7 +429,7 @@ def render_cross_asin_analysis(analyzer: ASINAnalyzer, product_id: int):
         diff_df["最佳CVR"] = diff_df["最佳CVR"].apply(lambda x: f"{x * 100:.1f}%")
         diff_df["最差CVR"] = diff_df["最差CVR"].apply(lambda x: f"{x * 100:.1f}%")
         diff_df["差异比"] = diff_df["差异比"].apply(lambda x: f"{x * 100:.0f}%")
-        st.dataframe(diff_df, use_container_width=True, hide_index=True)
+        st.dataframe(diff_df, width="stretch", hide_index=True)
     else:
         st.info("未发现显著词效差异")
 
@@ -473,7 +473,7 @@ def render_cross_asin_analysis(analyzer: ASINAnalyzer, product_id: int):
         neg_df = neg_df[["term", "total_spend", "asin_count"]]
         neg_df.columns = ["搜索词", "总花费($)", "涉及ASIN数"]
         neg_df["总花费($)"] = neg_df["总花费($)"].apply(lambda x: f"{x:.2f}")
-        st.dataframe(neg_df, use_container_width=True, hide_index=True)
+        st.dataframe(neg_df, width="stretch", hide_index=True)
 
         payload = build_unified_negation_export_payload(unified_neg)
         if payload:

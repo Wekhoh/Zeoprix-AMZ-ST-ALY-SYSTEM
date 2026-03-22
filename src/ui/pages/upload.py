@@ -125,11 +125,11 @@ def render_upload():
                         st.write(
                             f"**{parsed_files[i]['name']}** - {parsed_files[i]['records']} 条记录"
                         )
-                        st.dataframe(df.head(5), use_container_width=True)
+                        st.dataframe(df.head(5), width="stretch")
             else:
                 # 单文件预览
                 df = parsed_files[0]["df"]
-                st.dataframe(df.head(10), use_container_width=True)
+                st.dataframe(df.head(10), width="stretch")
 
             # 汇总统计
             st.write("**汇总统计：**")
