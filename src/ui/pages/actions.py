@@ -8,10 +8,55 @@ import streamlit as st
 
 from src.analysis.truth_replay import get_truth_first_action_buckets
 from src.config.logger import get_logger
-from src.rules.engine import analyze_search_terms
+from src.rules.engine import AnalysisResult, analyze_search_terms
 from src.ui.utils import safe_error
 
 logger = get_logger(__name__)
+
+
+def _get_export_results(db, product_id: int, export_kind: str) -> list[AnalysisResult]:
+    """返回与页面 truth bucket 一致的导出结果。"""
+    truth_buckets = get_truth_first_action_buckets(db, product_id)
+    if truth_buckets is None:
+        results = analyze_search_terms(db, product_id)
+        if export_kind == "negative":
+            return [r for r in results if r.action_type and r.action_type.startswith("negative")]
+        if export_kind == "manual":
+            return [r for r in results if r.action_type and r.action_type.startswith("manual")]
+        return results
+
+    bucket_groups = {
+        "negative": (
+            "negative_keyword_exact",
+            "negative_keyword_phrase",
+            "negative_asin",
+        ),
+        "manual": ("manual_keywords", "manual_products"),
+    }
+    selected_keys = bucket_groups.get(export_kind, ())
+    export_results: list[AnalysisResult] = []
+
+    for bucket_key in selected_keys:
+        for item in truth_buckets.get(bucket_key, []):
+            export_results.append(
+                AnalysisResult(
+                    term=item["term"],
+                    term_type=item["term_type"],
+                    triggered_rule=item.get("triggered_rule", "人工已审核回放"),
+                    suggested_action=item.get("suggested_action", "观察"),
+                    action_type=item.get("action_type", "observe"),
+                    confidence=item.get("confidence", 1.0),
+                    need_ai_judgment=False,
+                    data={
+                        "total_spend": item.get("spend", 0),
+                        "total_clicks": item.get("clicks", 0),
+                        "total_orders": item.get("orders", 0),
+                        "total_sales": item.get("sales", 0),
+                    },
+                )
+            )
+
+    return export_results
 
 
 def render_actions():
@@ -423,8 +468,7 @@ def export_negative_excel(db, product_id: int):
     try:
         from src.export.exporter import ReportExporter
 
-        # 使用实时分析结果（与搜索词分析页面保持一致）
-        results = analyze_search_terms(db, product_id)
+        results = _get_export_results(db, product_id, export_kind="negative")
 
         if not results:
             st.warning("没有可导出的数据")
@@ -454,8 +498,7 @@ def export_negative_csv(db, product_id: int):
     try:
         from src.export.exporter import ReportExporter
 
-        # 使用实时分析结果（与搜索词分析页面保持一致）
-        results = analyze_search_terms(db, product_id)
+        results = _get_export_results(db, product_id, export_kind="negative")
 
         if not results:
             st.warning("没有可导出的数据")
@@ -485,8 +528,7 @@ def export_manual_excel(db, product_id: int):
     try:
         from src.export.exporter import ReportExporter
 
-        # 使用实时分析结果（与搜索词分析页面保持一致）
-        results = analyze_search_terms(db, product_id)
+        results = _get_export_results(db, product_id, export_kind="manual")
 
         if not results:
             st.warning("没有可导出的数据")
