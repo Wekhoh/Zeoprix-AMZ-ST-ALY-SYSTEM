@@ -719,46 +719,46 @@ def load_aggregate_truth_rows(workbook_path: str | Path) -> list[dict[str, Any]]
     if not path.exists():
         raise FileNotFoundError(f"汇总 truth workbook 不存在: {path}")
 
-    workbook = pd.ExcelFile(path)
     rows: list[dict[str, Any]] = []
-    relevant_sheets = workbook.sheet_names[:2]
+    with pd.ExcelFile(path) as workbook:
+        relevant_sheets = workbook.sheet_names[:2]
 
-    for sheet_name in relevant_sheets:
-        df = pd.read_excel(path, sheet_name=sheet_name)
-        asin_identifier = sheet_name.split("汇")[0].strip()
+        for sheet_name in relevant_sheets:
+            df = workbook.parse(sheet_name)
+            asin_identifier = sheet_name.split("汇")[0].strip()
 
-        for _, row in df.iterrows():
-            row_dict = {
-                key: _first_row_value(row, aliases, AGGREGATE_ROW_FALLBACK_INDEX[key])
-                for key, aliases in AGGREGATE_ROW_ALIASES.items()
-            }
-            term = _normalize_term(row_dict["term"])
-            if not term:
-                continue
-
-            term_type = _infer_term_type(row_dict["term_type"], term)
-            truth_action_type = _aggregate_row_to_action_type(row_dict)
-            rows.append(
-                {
-                    "asin_identifier": asin_identifier,
-                    "term": term,
-                    "term_type": term_type,
-                    "relevance": _normalize_text(row_dict["relevance"]) or None,
-                    "manual_action": _normalize_text(row_dict["manual_action"]) or None,
-                    "auto_action": _normalize_text(row_dict["auto_action"]) or None,
-                    "negate_keyword": _normalize_text(row_dict["negate_keyword"]) or None,
-                    "negate_asin": _normalize_text(row_dict["negate_asin"]) or None,
-                    "rule_trigger": _normalize_text(row_dict["rule_trigger"]) or None,
-                    "action_matrix": _normalize_text(row_dict["action_matrix"]) or None,
-                    "campaign_summary": _normalize_text(row_dict["campaign_summary"]) or None,
-                    "campaign_conflict": _normalize_text(row_dict["campaign_conflict"]) or None,
-                    "decision_source": _normalize_text(row_dict["decision_source"]) or None,
-                    "conflict_flag": bool(_normalize_text(row_dict["conflict"])),
-                    "original_notes": _normalize_text(row_dict["original_notes"]) or None,
-                    "truth_action_type": truth_action_type,
-                    "review_source": "aggregate_truth",
+            for _, row in df.iterrows():
+                row_dict = {
+                    key: _first_row_value(row, aliases, AGGREGATE_ROW_FALLBACK_INDEX[key])
+                    for key, aliases in AGGREGATE_ROW_ALIASES.items()
                 }
-            )
+                term = _normalize_term(row_dict["term"])
+                if not term:
+                    continue
+
+                term_type = _infer_term_type(row_dict["term_type"], term)
+                truth_action_type = _aggregate_row_to_action_type(row_dict)
+                rows.append(
+                    {
+                        "asin_identifier": asin_identifier,
+                        "term": term,
+                        "term_type": term_type,
+                        "relevance": _normalize_text(row_dict["relevance"]) or None,
+                        "manual_action": _normalize_text(row_dict["manual_action"]) or None,
+                        "auto_action": _normalize_text(row_dict["auto_action"]) or None,
+                        "negate_keyword": _normalize_text(row_dict["negate_keyword"]) or None,
+                        "negate_asin": _normalize_text(row_dict["negate_asin"]) or None,
+                        "rule_trigger": _normalize_text(row_dict["rule_trigger"]) or None,
+                        "action_matrix": _normalize_text(row_dict["action_matrix"]) or None,
+                        "campaign_summary": _normalize_text(row_dict["campaign_summary"]) or None,
+                        "campaign_conflict": _normalize_text(row_dict["campaign_conflict"]) or None,
+                        "decision_source": _normalize_text(row_dict["decision_source"]) or None,
+                        "conflict_flag": bool(_normalize_text(row_dict["conflict"])),
+                        "original_notes": _normalize_text(row_dict["original_notes"]) or None,
+                        "truth_action_type": truth_action_type,
+                        "review_source": "aggregate_truth",
+                    }
+                )
     return rows
 
 
@@ -880,3 +880,4 @@ def seed_truth_workbooks(
     if aggregate_workbook_path:
         summary.update(import_aggregate_truth(db, product_id, aggregate_workbook_path))
     return summary
+

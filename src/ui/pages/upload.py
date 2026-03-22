@@ -3,12 +3,72 @@
 支持上传和解析CSV/Excel文件
 """
 
+import tempfile
+from pathlib import Path
+
 import streamlit as st
 
+from src.analysis.truth_replay import seed_truth_workbooks
 from src.config.logger import get_logger
 from src.data.parser import FileParser
 
 logger = get_logger(__name__)
+
+
+def get_upload_product_default_index(products, current_product_id: int | None) -> int:
+    """根据当前产品优先选中上传页的产品下拉框。"""
+    if not current_product_id:
+        return 0
+
+    for index, product in enumerate(products, start=1):
+        if product.get("id") == current_product_id:
+            return index
+    return 0
+
+
+def _persist_uploaded_file(uploaded_file, target_dir: Path) -> Path:
+    """将 Streamlit 上传文件持久化到临时目录，供现有导入逻辑复用。"""
+    suffix = Path(uploaded_file.name).suffix or ".xlsx"
+    file_name = Path(uploaded_file.name).name or f"uploaded{suffix}"
+    target_path = target_dir / file_name
+
+    if hasattr(uploaded_file, "getvalue"):
+        file_bytes = uploaded_file.getvalue()
+    else:
+        current_pos = uploaded_file.tell() if hasattr(uploaded_file, "tell") else None
+        file_bytes = uploaded_file.read()
+        if current_pos is not None and hasattr(uploaded_file, "seek"):
+            uploaded_file.seek(current_pos)
+
+    target_path.write_bytes(file_bytes)
+    return target_path
+
+
+def import_truth_workbooks_from_uploads(
+    db,
+    product_id: int,
+    campaign_upload=None,
+    aggregate_upload=None,
+) -> dict[str, int]:
+    """将 UI 上传的人工判定表落盘后导入 truth replay。"""
+    with tempfile.TemporaryDirectory(prefix="amz-truth-upload-") as temp_dir:
+        temp_path = Path(temp_dir)
+        campaign_path = (
+            _persist_uploaded_file(campaign_upload, temp_path)
+            if campaign_upload is not None
+            else None
+        )
+        aggregate_path = (
+            _persist_uploaded_file(aggregate_upload, temp_path)
+            if aggregate_upload is not None
+            else None
+        )
+        return seed_truth_workbooks(
+            db=db,
+            product_id=product_id,
+            campaign_workbook_path=campaign_path,
+            aggregate_workbook_path=aggregate_path,
+        )
 
 
 def render_upload():
@@ -26,7 +86,7 @@ def render_upload():
     products = db.get_all_products()
     product_options = ["创建新产品"] + [p["name"] for p in products]
 
-    selected_option = st.selectbox("选择产品", product_options)
+    selected_option = st.selectbox("选择产品", product_options, index=get_upload_product_default_index(products, st.session_state.get("current_product_id")))
 
     if selected_option == "创建新产品":
         col1, col2 = st.columns(2)
@@ -54,8 +114,59 @@ def render_upload():
 
     st.divider()
 
+    current_product_id = st.session_state.get("current_product_id")
+    st.subheader("2. 导入人工判定表（可选）")
+
+    if not current_product_id:
+        st.info("请先选择或创建产品，再导入广告组人工判定表和最终汇总结论表。")
+    else:
+        st.caption(
+            "如果这批数据已经在 Excel 里人工判定完成，可以直接导入两份表，系统会跳过重复审核并回放你的最终结论。"
+        )
+        campaign_truth_upload = st.file_uploader(
+            "广告组人工判定表",
+            type=["xlsx", "xls"],
+            key="campaign_truth_upload",
+            help="例如：广告组级别的否词和搜索词分析.xlsx",
+        )
+        aggregate_truth_upload = st.file_uploader(
+            "最终汇总结论表",
+            type=["xlsx", "xls"],
+            key="aggregate_truth_upload",
+            help="例如：ASIN层面汇总分析_v7.xlsx",
+        )
+
+        if st.button("导入人工判定表", key="import_truth_workbooks"):
+            if campaign_truth_upload is None and aggregate_truth_upload is None:
+                st.error("请至少上传一份人工判定表")
+            else:
+                with st.spinner("正在导入人工判定表..."):
+                    summary = import_truth_workbooks_from_uploads(
+                        db=db,
+                        product_id=current_product_id,
+                        campaign_upload=campaign_truth_upload,
+                        aggregate_upload=aggregate_truth_upload,
+                    )
+
+                imported_parts = []
+                if summary.get("campaign_rows", 0):
+                    imported_parts.append(
+                        f"广告组人工判定 {summary['campaign_rows']} 条"
+                    )
+                if summary.get("aggregate_rows", 0):
+                    imported_parts.append(
+                        f"最终汇总结论 {summary['aggregate_rows']} 条"
+                    )
+                if imported_parts:
+                    st.success("导入完成：" + "，".join(imported_parts))
+                    st.info("现在可以前往首页、搜索词分析和操作清单查看 truth-first 结果。")
+                else:
+                    st.warning("没有导入到任何有效人工判定数据，请检查表格内容。")
+
+    st.divider()
+
     # 文件上传（支持批量）
-    st.subheader("2. 上传搜索词报告")
+    st.subheader("3. 上传搜索词报告")
 
     uploaded_files = st.file_uploader(
         "拖拽或点击上传文件（支持批量上传）",
@@ -107,7 +218,7 @@ def render_upload():
             )
 
             # 显示预览
-            st.subheader("3. 数据预览")
+            st.subheader("4. 数据预览")
 
             # 使用tabs显示每个文件的预览
             if len(parsed_files) > 1:
@@ -164,7 +275,7 @@ def render_upload():
             st.divider()
 
             # 导入确认
-            st.subheader("4. 确认导入")
+            st.subheader("5. 确认导入")
 
             st.write(f"将创建 **{len(parsed_files)}** 个广告活动（每个文件一个）：")
             for f in parsed_files:

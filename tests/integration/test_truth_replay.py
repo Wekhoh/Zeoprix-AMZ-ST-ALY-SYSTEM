@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 import pandas as pd
 
 from src.analysis.asin_analyzer import ASINAnalyzer
@@ -51,6 +52,93 @@ def _write_aggregate_truth_workbook(path, sheets: dict[str, list[dict]]) -> None
 
 
 class TestTruthReplay:
+    def test_upload_page_truth_import_helper_supports_uploaded_workbooks(
+        self, db, product_id, campaign_id, tmp_path
+    ):
+        from src.ui.pages.upload import import_truth_workbooks_from_uploads
+
+        db.save_search_terms(_make_search_term_rows("travel pillow"), campaign_id)
+
+        campaign_workbook = tmp_path / "campaign_truth.xlsx"
+        _write_campaign_truth_workbook(
+            campaign_workbook,
+            [
+                {
+                    "ASIN": "BLK",
+                    "campaign_name": "BLK-Auto-Broad",
+                    "keyword": "travel pillow",
+                    "plan": "手动精准，自动先不否",
+                }
+            ],
+        )
+
+        aggregate_workbook = tmp_path / "aggregate_truth.xlsx"
+        _write_aggregate_truth_workbook(
+            aggregate_workbook,
+            {
+                "BLK汇总": [
+                    {
+                        "term_type": "关键词",
+                        "relevance": "强相关核心词",
+                        "keyword": "travel pillow",
+                        "manual_action": "手动精准",
+                        "auto_action": "先不否",
+                        "negate_keyword": None,
+                        "negate_asin": None,
+                        "rule_trigger": "用户标记(先不否)",
+                        "action_matrix": "[blk]手动精准+先不否",
+                        "campaign_summary": "[blk]18clk/$28",
+                        "campaign_conflict": None,
+                        "decision_source": "用户标记",
+                        "conflict": None,
+                        "original_notes": "BLK 保留并拉手动精准",
+                    }
+                ]
+            },
+        )
+
+        class UploadedStub:
+            def __init__(self, path):
+                self.name = path.name
+                self._bytes = path.read_bytes()
+
+            def getvalue(self):
+                return self._bytes
+
+        result = import_truth_workbooks_from_uploads(
+            db=db,
+            product_id=product_id,
+            campaign_upload=UploadedStub(campaign_workbook),
+            aggregate_upload=UploadedStub(aggregate_workbook),
+        )
+
+        assert result["campaign_rows"] == 1
+        assert result["aggregate_rows"] == 1
+
+        review_count = db.execute(
+            """
+            SELECT COUNT(*)
+            FROM manual_reviews
+            WHERE product_id = ?
+              AND reviewed = 1
+              AND truth_action_type IS NOT NULL
+            """,
+            (product_id,),
+        ).fetchone()[0]
+        assert review_count == 2
+
+    def test_upload_page_prefers_current_product_in_selector(self):
+        from src.ui.pages.upload import get_upload_product_default_index
+
+        products = [
+            {"id": 11, "name": "产品A"},
+            {"id": 22, "name": "产品B"},
+        ]
+
+        assert get_upload_product_default_index(products, None) == 0
+        assert get_upload_product_default_index(products, 22) == 2
+        assert get_upload_product_default_index(products, 99) == 0
+
     def test_imported_aggregate_truth_overrides_term_analysis(
         self, db, product_id, campaign_id, tmp_path
     ):
@@ -1048,3 +1136,4 @@ class TestTruthFirstViews:
             ("B0COMP1234", "negative_exact"),
         }
         assert manual_results == []
+
