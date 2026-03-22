@@ -13,6 +13,95 @@ from src.ui.utils import safe_error
 logger = get_logger(__name__)
 
 
+def build_reviewed_export_payload(
+    results: list[dict], existing_reviews: dict, result_type: str
+) -> dict | None:
+    """为已审核结果导出构建直接下载载荷。"""
+    import datetime
+
+    reviewed_results = [
+        r
+        for r in results
+        if existing_reviews.get((r.get("term"), None), {}).get("reviewed", 0) == 1
+    ]
+
+    if not reviewed_results:
+        return None
+
+    if result_type == "negative":
+        filtered = [
+            r
+            for r in reviewed_results
+            if "negative" in str(r.get("action_type", ""))
+            or "否定" in str(r.get("suggested_action", ""))
+        ]
+        if not filtered:
+            return None
+        export_df = pd.DataFrame(
+            [
+                {
+                    "搜索词": r["term"],
+                    "类型": r.get("term_type", "keyword"),
+                    "触发规则": r.get("triggered_rule", ""),
+                    "建议操作": r.get("suggested_action", ""),
+                    "动作类型": r.get("action_type", ""),
+                }
+                for r in filtered
+            ]
+        )
+        filename = (
+            f"negative_reviewed_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+    elif result_type == "manual":
+        filtered = [
+            r
+            for r in reviewed_results
+            if "manual" in str(r.get("action_type", ""))
+            or "手动" in str(r.get("suggested_action", ""))
+        ]
+        if not filtered:
+            return None
+        export_df = pd.DataFrame(
+            [
+                {
+                    "搜索词": r["term"],
+                    "类型": r.get("term_type", "keyword"),
+                    "触发规则": r.get("triggered_rule", ""),
+                    "建议操作": r.get("suggested_action", ""),
+                    "动作类型": r.get("action_type", ""),
+                }
+                for r in filtered
+            ]
+        )
+        filename = (
+            f"manual_reviewed_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+    else:
+        export_df = pd.DataFrame(
+            [
+                {
+                    "搜索词": r["term"],
+                    "类型": r.get("term_type", "keyword"),
+                    "触发规则": r.get("triggered_rule", ""),
+                    "建议操作": r.get("suggested_action", ""),
+                    "动作类型": r.get("action_type", ""),
+                    "置信度": f"{r.get('confidence', 1.0):.2%}",
+                }
+                for r in reviewed_results
+            ]
+        )
+        filename = (
+            f"all_reviewed_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+
+    return {
+        "data": export_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+        "file_name": filename,
+        "mime": "text/csv",
+        "count": len(export_df),
+    }
+
+
 def save_review_changes(
     db,
     product_id: int,
@@ -468,19 +557,54 @@ def render_summary_analysis(db, product_id: int):
     st.caption("导出（仅导出已审核项）")
     col4, col5, col6 = st.columns(3)
 
+    negative_payload = build_reviewed_export_payload(
+        results=results, existing_reviews=existing_reviews, result_type="negative"
+    )
+    manual_payload = build_reviewed_export_payload(
+        results=results, existing_reviews=existing_reviews, result_type="manual"
+    )
+    all_payload = build_reviewed_export_payload(
+        results=results, existing_reviews=existing_reviews, result_type="all"
+    )
+
     with col4:
-        if st.button("导出否词表", key="export_negative"):
-            export_reviewed_results(
-                db, product_id, results, existing_reviews, "negative"
+        if negative_payload:
+            st.download_button(
+                "导出否词表",
+                data=negative_payload["data"],
+                file_name=negative_payload["file_name"],
+                mime=negative_payload["mime"],
+                key="export_negative",
+                width="stretch",
             )
+        else:
+            st.button("导出否词表", key="export_negative", disabled=True, width="stretch")
 
     with col5:
-        if st.button("导出手动词表", key="export_manual"):
-            export_reviewed_results(db, product_id, results, existing_reviews, "manual")
+        if manual_payload:
+            st.download_button(
+                "导出手动词表",
+                data=manual_payload["data"],
+                file_name=manual_payload["file_name"],
+                mime=manual_payload["mime"],
+                key="export_manual",
+                width="stretch",
+            )
+        else:
+            st.button("导出手动词表", key="export_manual", disabled=True, width="stretch")
 
     with col6:
-        if st.button("导出全部结果", key="export_all"):
-            export_reviewed_results(db, product_id, results, existing_reviews, "all")
+        if all_payload:
+            st.download_button(
+                "导出全部结果",
+                data=all_payload["data"],
+                file_name=all_payload["file_name"],
+                mime=all_payload["mime"],
+                key="export_all",
+                width="stretch",
+            )
+        else:
+            st.button("导出全部结果", key="export_all", disabled=True, width="stretch")
 
     # 详情面板
     st.divider()
@@ -677,99 +801,19 @@ def export_reviewed_results(
         existing_reviews: 已有审核记录
         result_type: 导出类型 (negative/manual/all)
     """
-    import datetime
-
-    # 筛选已审核的项目
-    reviewed_results = [
-        r
-        for r in results
-        if existing_reviews.get((r.get("term"), None), {}).get("reviewed", 0) == 1
-    ]
-
-    if not reviewed_results:
+    payload = build_reviewed_export_payload(
+        results=results, existing_reviews=existing_reviews, result_type=result_type
+    )
+    if not payload:
         st.warning("没有已审核的项目可导出。请先在表格中勾选需要导出的项目。")
         return
-
-    # 根据类型进一步筛选
-    if result_type == "negative":
-        filtered = [
-            r
-            for r in reviewed_results
-            if "negative" in str(r.get("action_type", ""))
-            or "否定" in str(r.get("suggested_action", ""))
-        ]
-        if not filtered:
-            st.warning("没有已审核的否词项目")
-            return
-        export_df = pd.DataFrame(
-            [
-                {
-                    "搜索词": r["term"],
-                    "类型": r.get("term_type", "keyword"),
-                    "触发规则": r.get("triggered_rule", ""),
-                    "建议操作": r.get("suggested_action", ""),
-                    "动作类型": r.get("action_type", ""),
-                }
-                for r in filtered
-            ]
-        )
-        filename = (
-            f"negative_reviewed_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        )
-
-    elif result_type == "manual":
-        filtered = [
-            r
-            for r in reviewed_results
-            if "manual" in str(r.get("action_type", ""))
-            or "手动" in str(r.get("suggested_action", ""))
-        ]
-        if not filtered:
-            st.warning("没有已审核的手动投放项目")
-            return
-        export_df = pd.DataFrame(
-            [
-                {
-                    "搜索词": r["term"],
-                    "类型": r.get("term_type", "keyword"),
-                    "触发规则": r.get("triggered_rule", ""),
-                    "建议操作": r.get("suggested_action", ""),
-                    "动作类型": r.get("action_type", ""),
-                }
-                for r in filtered
-            ]
-        )
-        filename = (
-            f"manual_reviewed_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        )
-
-    else:  # all
-        export_df = pd.DataFrame(
-            [
-                {
-                    "搜索词": r["term"],
-                    "类型": r.get("term_type", "keyword"),
-                    "触发规则": r.get("triggered_rule", ""),
-                    "建议操作": r.get("suggested_action", ""),
-                    "动作类型": r.get("action_type", ""),
-                    "置信度": f"{r.get('confidence', 1.0):.2%}",
-                }
-                for r in reviewed_results
-            ]
-        )
-        filename = (
-            f"all_reviewed_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        )
-
-    csv_data = export_df.to_csv(index=False, encoding="utf-8-sig")
-
     st.download_button(
-        label=f"下载CSV ({len(export_df)}条)",
-        data=csv_data,
-        file_name=filename,
-        mime="text/csv",
+        label=f"下载CSV ({payload['count']}条)",
+        data=payload["data"],
+        file_name=payload["file_name"],
+        mime=payload["mime"],
     )
-    st.success(f"准备导出 {len(export_df)} 条已审核记录")
+    st.success(f"准备导出 {payload['count']} 条已审核记录")
 
 
 def export_results(db, product_id: int, result_type: str):

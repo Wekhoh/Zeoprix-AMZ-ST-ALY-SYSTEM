@@ -362,6 +362,106 @@ class TestExportIntegration:
         parsed = pd.read_csv(BytesIO(payload["data"]))
         assert list(parsed["搜索词"]) == ["bad pillow"]
 
+    def test_reviewed_results_build_direct_download_payload(self):
+        """汇总分析页已审核导出应直接生成下载载荷。"""
+        from src.ui.pages.analysis import build_reviewed_export_payload
+
+        results = [
+            {
+                "term": "pillows",
+                "term_type": "keyword",
+                "triggered_rule": "测试规则",
+                "suggested_action": "自动直接否定精准",
+                "action_type": ActionType.NEGATIVE_EXACT,
+            },
+            {
+                "term": "travel pillow for airplane",
+                "term_type": "keyword",
+                "triggered_rule": "测试规则",
+                "suggested_action": "去拉手动精准，先不否",
+                "action_type": ActionType.MANUAL_EXACT_NO_NEG,
+            },
+        ]
+        existing_reviews = {
+            ("pillows", None): {"reviewed": 1},
+            ("travel pillow for airplane", None): {"reviewed": 1},
+        }
+
+        payload = build_reviewed_export_payload(
+            results=results, existing_reviews=existing_reviews, result_type="negative"
+        )
+
+        assert payload is not None
+        assert payload["file_name"].endswith(".csv")
+        parsed = pd.read_csv(BytesIO(payload["data"]))
+        assert list(parsed["搜索词"]) == ["pillows"]
+
+    def test_settings_data_exports_build_direct_download_payloads(self):
+        """设置页导出也应直接生成下载载荷。"""
+        from src.ui.pages.settings_data import (
+            build_full_backup_export_payload,
+            build_rule_config_export_payload,
+        )
+
+        class FakeCursor:
+            def __init__(self, rows=None, row=None):
+                self._rows = rows or []
+                self._row = row or {}
+
+            def fetchall(self):
+                return self._rows
+
+            def fetchone(self):
+                return self._row
+
+        class FakeDb:
+            def get_product(self, product_id):
+                return {
+                    "name": "桌面验收产品",
+                    "asin": "BLK",
+                    "category": "travel",
+                    "config": {"keyword_libraries": {"generic_keywords": ["pillow"]}},
+                }
+
+            def execute(self, query, params):
+                if "FROM campaigns" in query:
+                    assert "campaign_type" not in query
+                    return FakeCursor(
+                        rows=[
+                            {
+                                "id": 1,
+                                "name": "BLK-campaign",
+                                "match_type": "close-match",
+                                "bid_strategy": "dynamic-up-down",
+                            },
+                            {
+                                "id": 2,
+                                "name": "DBL-campaign",
+                                "match_type": "close-match",
+                                "bid_strategy": "dynamic-up-down",
+                            },
+                        ]
+                    )
+                if "FROM search_terms st" in query:
+                    return FakeCursor(row={"count": 461})
+                if "FROM analysis_results ar" in query:
+                    return FakeCursor(row={"count": 316})
+                raise AssertionError(f"Unexpected query: {query}")
+
+        fake_db = FakeDb()
+
+        rule_payload = build_rule_config_export_payload(fake_db, 1)
+        assert rule_payload is not None
+        assert rule_payload["file_name"].endswith(".json")
+        rule_data = pd.read_json(BytesIO(rule_payload["data"]), typ="series")
+        assert rule_data["export_type"] == "rule_config"
+
+        backup_payload = build_full_backup_export_payload(fake_db, 1)
+        assert backup_payload is not None
+        assert backup_payload["file_name"].endswith(".json")
+        backup_data = pd.read_json(BytesIO(backup_payload["data"]), typ="series")
+        assert backup_data["export_type"] == "full_backup"
+
     def test_export_empty_results_returns_none(self):
         """测试空结果导出返回None"""
         from src.export.exporter import ReportExporter

@@ -13,6 +13,84 @@ from src.ui.utils import safe_error
 logger = get_logger(__name__)
 
 
+def build_rule_config_export_payload(db, product_id: int) -> dict | None:
+    """构建规则配置的直接下载载荷。"""
+    product = db.get_product(product_id)
+    if not product:
+        return None
+
+    export_data = {
+        "export_type": "rule_config",
+        "product_name": product.get("name", ""),
+        "config": product.get("config", {}),
+    }
+    return {
+        "data": json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8"),
+        "file_name": f"rules_{product.get('name', 'config')}.json",
+        "mime": "application/json",
+    }
+
+
+def build_full_backup_export_payload(db, product_id: int) -> dict | None:
+    """构建完整数据备份的直接下载载荷。"""
+    import datetime
+
+    product = db.get_product(product_id)
+    if not product:
+        return None
+
+    backup_data = {
+        "export_type": "full_backup",
+        "export_time": datetime.datetime.now().isoformat(),
+        "product": {
+            "name": product.get("name", ""),
+            "asin": product.get("asin", ""),
+            "category": product.get("category", ""),
+            "config": product.get("config", {}),
+        },
+        "campaigns": [],
+        "search_terms_count": 0,
+        "analysis_results_count": 0,
+    }
+
+    cursor = db.execute(
+        "SELECT id, name, match_type, bid_strategy FROM campaigns WHERE product_id = ?",
+        (product_id,),
+    )
+    backup_data["campaigns"] = [dict(c) for c in cursor.fetchall()]
+
+    cursor = db.execute(
+        """
+        SELECT COUNT(*) as count FROM search_terms st
+        JOIN campaigns c ON st.campaign_id = c.id
+        WHERE c.product_id = ?
+        """,
+        (product_id,),
+    )
+    backup_data["search_terms_count"] = cursor.fetchone()["count"]
+
+    cursor = db.execute(
+        """
+        SELECT COUNT(*) as count FROM analysis_results ar
+        JOIN search_terms st ON ar.search_term_id = st.id
+        JOIN campaigns c ON st.campaign_id = c.id
+        WHERE c.product_id = ?
+        """,
+        (product_id,),
+    )
+    backup_data["analysis_results_count"] = cursor.fetchone()["count"]
+
+    return {
+        "data": json.dumps(backup_data, ensure_ascii=False, indent=2).encode("utf-8"),
+        "file_name": f"backup_{product.get('name', 'data')}_{datetime.datetime.now().strftime('%Y%m%d')}.json",
+        "mime": "application/json",
+        "summary": {
+            "search_terms_count": backup_data["search_terms_count"],
+            "analysis_results_count": backup_data["analysis_results_count"],
+        },
+    }
+
+
 def render_keyword_library_settings(db, product_id: int):
     """渲染关键词库配置"""
     st.write("### 关键词库配置")
@@ -347,31 +425,40 @@ def render_data_management(db, product_id: int):
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("导出规则配置", width="stretch"):
-            try:
-                product = db.get_product(product_id)
-                config = product.get("config", {}) if product else {}
-                export_data = {
-                    "export_type": "rule_config",
-                    "product_name": product.get("name", ""),
-                    "config": config,
-                }
-                json_str = json.dumps(export_data, ensure_ascii=False, indent=2)
+        try:
+            rule_payload = build_rule_config_export_payload(db, product_id)
+            if rule_payload:
                 st.download_button(
-                    "下载规则配置JSON",
-                    data=json_str,
-                    file_name=f"rules_{product.get('name', 'config')}.json",
-                    mime="application/json",
+                    "导出规则配置",
+                    data=rule_payload["data"],
+                    file_name=rule_payload["file_name"],
+                    mime=rule_payload["mime"],
+                    width="stretch",
                 )
-            except Exception as e:
-                safe_error("规则导出", e)
+            else:
+                st.button("导出规则配置", disabled=True, width="stretch")
+        except Exception as e:
+            safe_error("规则导出", e)
 
     with col2:
-        if st.button("导出完整数据备份", width="stretch"):
-            try:
-                export_full_backup(db, product_id)
-            except Exception as e:
-                safe_error("数据备份", e)
+        try:
+            backup_payload = build_full_backup_export_payload(db, product_id)
+            if backup_payload:
+                st.download_button(
+                    "导出完整数据备份",
+                    data=backup_payload["data"],
+                    file_name=backup_payload["file_name"],
+                    mime=backup_payload["mime"],
+                    width="stretch",
+                )
+                st.caption(
+                    f"备份内容：{backup_payload['summary']['search_terms_count']} 条搜索词，"
+                    f"{backup_payload['summary']['analysis_results_count']} 条分析结果"
+                )
+            else:
+                st.button("导出完整数据备份", disabled=True, width="stretch")
+        except Exception as e:
+            safe_error("数据备份", e)
 
     # 规则导入
     uploaded_config = st.file_uploader(
@@ -597,67 +684,18 @@ def render_config_history(db, product_id: int):
 
 def export_full_backup(db, product_id: int):
     """导出产品完整数据备份"""
-    import datetime
-
-    product = db.get_product(product_id)
-    if not product:
+    payload = build_full_backup_export_payload(db, product_id)
+    if not payload:
         st.error("产品不存在")
         return
 
-    backup_data = {
-        "export_type": "full_backup",
-        "export_time": datetime.datetime.now().isoformat(),
-        "product": {
-            "name": product.get("name", ""),
-            "asin": product.get("asin", ""),
-            "category": product.get("category", ""),
-            "config": product.get("config", {}),
-        },
-        "campaigns": [],
-        "search_terms_count": 0,
-        "analysis_results_count": 0,
-    }
-
-    # 获取广告活动
-    cursor = db.execute(
-        "SELECT id, name, campaign_type FROM campaigns WHERE product_id = ?",
-        (product_id,),
-    )
-    campaigns = cursor.fetchall()
-    backup_data["campaigns"] = [dict(c) for c in campaigns]
-
-    # 获取搜索词统计
-    cursor = db.execute(
-        """
-        SELECT COUNT(*) as count FROM search_terms st
-        JOIN campaigns c ON st.campaign_id = c.id
-        WHERE c.product_id = ?
-        """,
-        (product_id,),
-    )
-    backup_data["search_terms_count"] = cursor.fetchone()["count"]
-
-    # 获取分析结果统计
-    cursor = db.execute(
-        """
-        SELECT COUNT(*) as count FROM analysis_results ar
-        JOIN search_terms st ON ar.search_term_id = st.id
-        JOIN campaigns c ON st.campaign_id = c.id
-        WHERE c.product_id = ?
-        """,
-        (product_id,),
-    )
-    backup_data["analysis_results_count"] = cursor.fetchone()["count"]
-
-    # 生成JSON
-    json_str = json.dumps(backup_data, ensure_ascii=False, indent=2)
-
     st.download_button(
         "下载完整备份JSON",
-        data=json_str,
-        file_name=f"backup_{product.get('name', 'data')}_{datetime.datetime.now().strftime('%Y%m%d')}.json",
-        mime="application/json",
+        data=payload["data"],
+        file_name=payload["file_name"],
+        mime=payload["mime"],
     )
     st.success(
-        f"备份已准备就绪：{backup_data['search_terms_count']} 条搜索词，{backup_data['analysis_results_count']} 条分析结果"
+        f"备份已准备就绪：{payload['summary']['search_terms_count']} 条搜索词，"
+        f"{payload['summary']['analysis_results_count']} 条分析结果"
     )
