@@ -3,8 +3,8 @@
 展示关键指标和快速入口
 """
 
-import altair as alt
-import pandas as pd
+from html import escape
+
 import streamlit as st
 
 from src.analysis.truth_replay import (
@@ -21,47 +21,52 @@ logger = get_logger(__name__)
 CACHE_TTL = 60
 
 
-def _build_overview_chart(chart_data: dict[str, int]) -> alt.Chart:
-    """构建首页概览柱状图。"""
-    df = pd.DataFrame(
-        {
-            "分类": list(chart_data.keys()),
-            "数量": list(chart_data.values()),
-        }
-    )
-    df = df.sort_values("数量", ascending=False, kind="stable").reset_index(drop=True)
+def _build_overview_chart_rows(chart_data: dict[str, int]) -> list[dict[str, float | int | str]]:
+    """将首页概览图数据整理为稳定排序的渲染行。"""
+    sorted_items = sorted(chart_data.items(), key=lambda item: item[1], reverse=True)
+    max_value = max((value for _, value in sorted_items), default=1)
 
-    return (
-        alt.Chart(df)
-        .mark_bar(
-            color="#2563EB",
-            cornerRadiusTopLeft=4,
-            cornerRadiusTopRight=4,
+    rows: list[dict[str, float | int | str]] = []
+    for label, value in sorted_items:
+        ratio = (value / max_value * 100) if max_value else 0
+        rows.append(
+            {
+                "label": label,
+                "value": value,
+                "ratio": ratio,
+            }
         )
-        .encode(
-            x=alt.X(
-                "分类:N",
-                axis=alt.Axis(
-                    labelAngle=0,
-                    labelFontSize=12,
-                    titleFontSize=13,
-                    titleFontWeight="bold",
-                ),
-            ),
-            y=alt.Y(
-                "数量:Q",
-                axis=alt.Axis(
-                    labelFontSize=11,
-                    titleFontSize=13,
-                    titleFontWeight="bold",
-                ),
-            ),
-            tooltip=["分类", "数量"],
-        )
-        .properties(height=350)
-        .configure_view(strokeWidth=0)
+    return rows
+
+
+
+def _render_overview_chart(chart_data: dict[str, int]) -> None:
+    """使用轻量 HTML 渲染概览分布，避免 Vega/Altair 控制台 warning。"""
+    rows = _build_overview_chart_rows(chart_data)
+    if not rows:
+        return
+
+    chart_rows = "".join(
+        f"""
+        <div style="display:flex;align-items:center;gap:0.85rem;margin:0 0 0.95rem 0;">
+            <div style="flex:0 0 180px;font-size:0.94rem;font-weight:600;color:#1E293B;line-height:1.35;">{escape(str(row['label']))}</div>
+            <div style="flex:1;min-width:180px;background:#E2E8F0;border-radius:999px;height:14px;overflow:hidden;">
+                <div style="height:14px;border-radius:999px;background:linear-gradient(90deg,#2563EB 0%,#60A5FA 100%);width:{row['ratio']:.2f}%;"></div>
+            </div>
+            <div style="flex:0 0 54px;text-align:right;font-size:0.93rem;font-weight:700;color:#2563EB;">{row['value']}</div>
+        </div>
+        """
+        for row in rows
     )
 
+    st.markdown(
+        f"""
+        <div style="padding:1.1rem 1.1rem 0.35rem 1.1rem;border:1px solid rgba(37,99,235,0.08);border-radius:18px;background:linear-gradient(180deg,#FFFFFF 0%,#F8FBFF 100%);box-shadow:0 10px 30px rgba(15,23,42,0.05);">
+            {chart_rows}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def _navigate_to(page: str) -> None:
     """切换到目标页面。"""
@@ -223,8 +228,7 @@ def render_home():
         }
 
         if chart_data:
-            chart = _build_overview_chart(chart_data)
-            st.altair_chart(chart, width="stretch")
+            _render_overview_chart(chart_data)
     else:
         st.info("暂无数据，请先上传搜索词报告")
 

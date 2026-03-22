@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
-from src.ui.pages.home import _build_overview_chart
+from src.ui.pages.home import _build_overview_chart_rows
 
 
 APP_PATH = Path(__file__).resolve().parents[2] / "src" / "app.py"
@@ -97,22 +97,19 @@ def test_home_quick_action_button_navigates_after_single_click(
     assert app.title[0].value == "操作清单"
 
 
-def test_overview_chart_sorts_data_in_dataframe_without_altair_sort_field():
-    """首页概览图表应先排序数据，避免前端排序警告。"""
-    chart = _build_overview_chart(
+def test_overview_chart_rows_are_sorted_for_custom_rendering():
+    """��ҳ���ݸ���Ӧ���������������Ⱦ����״ͼ���С"""
+    rows = _build_overview_chart_rows(
         {
-            "继续观察-关键词": 154,
-            "否定精准-关键词": 24,
-            "手动精准-关键词": 9,
+            "�����۲�-�ؼ���": 154,
+            "�񶨾�׼-�ؼ���": 24,
+            "�ֶ���׼-�ؼ���": 9,
         }
     )
 
-    chart_spec = chart.to_dict()
-    chart_values = chart_spec["datasets"][chart_spec["data"]["name"]]
-
-    assert [row["分类"] for row in chart_values] == [
-        "继续观察-关键词",
-        "否定精准-关键词",
-        "手动精准-关键词",
+    assert [row["label"] for row in rows] == [
+        "�����۲�-�ؼ���",
+        "�񶨾�׼-�ؼ���",
+        "�ֶ���׼-�ؼ���",
     ]
-    assert "sort" not in chart_spec["encoding"]["x"]
+    assert [row["value"] for row in rows] == [154, 24, 9]

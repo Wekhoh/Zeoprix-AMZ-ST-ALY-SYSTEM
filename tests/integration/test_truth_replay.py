@@ -475,7 +475,7 @@ class TestTruthFirstViews:
         self, db, product_id, tmp_path
     ):
         from src.analysis.truth_replay import seed_truth_workbooks
-        from src.ui.pages.home import _build_overview_chart, get_rule_stats
+        from src.ui.pages.home import _build_overview_chart_rows, get_rule_stats
 
         blk_campaign_id = db.get_or_create_campaign(
             product_id=product_id,
@@ -598,11 +598,11 @@ class TestTruthFirstViews:
             "跨ASIN分歧": 1,
         }
 
-        chart_spec = _build_overview_chart(
+        chart_rows = _build_overview_chart_rows(
             {key: value for key, value in rule_stats.items() if value > 0}
-        ).to_dict()
-        assert chart_spec["encoding"]["x"]["field"] == "分类"
-        assert chart_spec["encoding"]["tooltip"][0]["field"] == "分类"
+        )
+        assert [row["value"] for row in chart_rows] == [1, 1, 1]
+        assert {row["label"] for row in chart_rows} == {key for key, value in rule_stats.items() if value > 0}
 
     def test_truth_first_campaign_rows_only_include_campaign_truth(
         self, db, product_id, tmp_path
