@@ -6,9 +6,14 @@
 import tempfile
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
-from src.analysis.truth_replay import seed_truth_workbooks
+from src.analysis.truth_replay import (
+    inspect_aggregate_truth_workbook,
+    inspect_campaign_truth_workbook,
+    seed_truth_workbooks,
+)
 from src.config.logger import get_logger
 from src.data.parser import FileParser
 
@@ -69,6 +74,38 @@ def import_truth_workbooks_from_uploads(
             campaign_workbook_path=campaign_path,
             aggregate_workbook_path=aggregate_path,
         )
+
+
+def inspect_truth_workbooks_from_uploads(
+    campaign_upload=None,
+    aggregate_upload=None,
+) -> dict[str, dict]:
+    """对 UI 上传的人工判定表做导入前预检。"""
+    with tempfile.TemporaryDirectory(prefix="amz-truth-inspect-") as temp_dir:
+        temp_path = Path(temp_dir)
+        summary: dict[str, dict] = {}
+        if campaign_upload is not None:
+            campaign_path = _persist_uploaded_file(campaign_upload, temp_path)
+            summary["campaign"] = inspect_campaign_truth_workbook(campaign_path)
+        if aggregate_upload is not None:
+            aggregate_path = _persist_uploaded_file(aggregate_upload, temp_path)
+            summary["aggregate"] = inspect_aggregate_truth_workbook(aggregate_path)
+        return summary
+
+
+def _render_truth_mapping_table(title: str, recognized_fields: dict[str, str]) -> None:
+    if not recognized_fields:
+        st.caption(f"{title}：当前没有识别到字段映射")
+        return
+
+    mapping_df = pd.DataFrame(
+        [
+            {"系统字段": field, "识别到的列": column}
+            for field, column in recognized_fields.items()
+        ]
+    )
+    st.caption(title)
+    st.dataframe(mapping_df, width="stretch", hide_index=True)
 
 
 def render_upload():
@@ -135,6 +172,49 @@ def render_upload():
             key="aggregate_truth_upload",
             help="例如：ASIN层面汇总分析_v7.xlsx",
         )
+
+        campaign_count = db.execute(
+            "SELECT COUNT(*) AS count FROM campaigns WHERE product_id = ?",
+            (current_product_id,),
+        ).fetchone()["count"]
+        if campaign_truth_upload is not None and campaign_count == 0:
+            st.warning("当前产品还没有原始报表导入后的广告活动。若要导入广告组人工判定表，请先导入原始报表，否则广告组名称无法匹配。")
+
+        if campaign_truth_upload is not None or aggregate_truth_upload is not None:
+            inspection = inspect_truth_workbooks_from_uploads(
+                campaign_upload=campaign_truth_upload,
+                aggregate_upload=aggregate_truth_upload,
+            )
+            with st.expander("查看人工判定表预检结果", expanded=True):
+                if campaign_summary := inspection.get("campaign"):
+                    if campaign_summary.get("ready"):
+                        st.success(f"广告组人工判定表可识别：有效数据 {campaign_summary['data_rows']} 行")
+                    else:
+                        st.error("广告组人工判定表缺少关键字段，当前不能可靠导入")
+                    if campaign_summary.get("missing_required"):
+                        st.caption("缺少关键字段：" + "、".join(campaign_summary["missing_required"]))
+                    _render_truth_mapping_table("广告组人工判定表字段映射", campaign_summary.get("recognized_fields", {}))
+
+                if aggregate_summary := inspection.get("aggregate"):
+                    if aggregate_summary.get("ready"):
+                        st.success("最终汇总结论表可识别：前两个 sheet 均通过预检")
+                    else:
+                        st.warning("最终汇总结论表存在 sheet 字段缺失或动作信号不足，请先确认格式")
+                    sheet_df = pd.DataFrame(
+                        [
+                            {
+                                "sheet": sheet["sheet_name"],
+                                "ASIN": sheet["asin_identifier"],
+                                "行数": sheet["row_count"],
+                                "缺少关键字段": "、".join(sheet["missing_required"]) or "无",
+                                "动作信号": "、".join(sheet["action_fields"]) or "无",
+                                "状态": "可导入" if sheet["ready"] else "需检查",
+                            }
+                            for sheet in aggregate_summary.get("analyzed_sheets", [])
+                        ]
+                    )
+                    st.caption("最终汇总结论表 sheet 预检")
+                    st.dataframe(sheet_df, width="stretch", hide_index=True)
 
         if st.button("导入人工判定表", key="import_truth_workbooks"):
             if campaign_truth_upload is None and aggregate_truth_upload is None:

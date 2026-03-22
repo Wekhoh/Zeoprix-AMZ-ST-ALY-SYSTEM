@@ -52,6 +52,64 @@ def _write_aggregate_truth_workbook(path, sheets: dict[str, list[dict]]) -> None
 
 
 class TestTruthReplay:
+    def test_inspect_campaign_truth_workbook_reports_alias_hits_and_required_fields(self, tmp_path):
+        from src.analysis.truth_replay import inspect_campaign_truth_workbook
+
+        workbook = tmp_path / "campaign_inspect.xlsx"
+        _write_campaign_truth_workbook(
+            workbook,
+            [
+                {
+                    "asin": "BLK",
+                    "campaign": "BLK-Auto-Broad",
+                    "term": "travel pillow",
+                    "action_plan": "手动精准，自动先不否",
+                }
+            ],
+        )
+
+        summary = inspect_campaign_truth_workbook(workbook)
+
+        assert summary["ready"] is True
+        assert summary["data_rows"] == 1
+        assert summary["missing_required"] == []
+        assert summary["recognized_fields"]["campaign_name"] == "campaign"
+        assert summary["recognized_fields"]["term"] == "term"
+        assert summary["recognized_fields"]["plan"] == "action_plan"
+
+    def test_inspect_aggregate_truth_workbook_reports_sheet_status(self, tmp_path):
+        from src.analysis.truth_replay import inspect_aggregate_truth_workbook
+
+        workbook = tmp_path / "aggregate_inspect.xlsx"
+        _write_aggregate_truth_workbook(
+            workbook,
+            {
+                "BLK汇总": [
+                    {
+                        "Keyword": "travel pillow",
+                        "manual_action": "手动精准",
+                        "auto_action": "先不否",
+                    }
+                ],
+                "DBL汇总": [
+                    {
+                        "Keyword": "neck pillow",
+                        "negate_keyword": "Neg Exact",
+                    }
+                ],
+            },
+        )
+
+        summary = inspect_aggregate_truth_workbook(workbook)
+
+        assert summary["ready"] is True
+        assert summary["sheet_names"][:2] == ["BLK汇总", "DBL汇总"]
+        assert len(summary["analyzed_sheets"]) == 2
+        assert summary["analyzed_sheets"][0]["asin_identifier"] == "BLK"
+        assert summary["analyzed_sheets"][0]["recognized_fields"]["term"] == "Keyword"
+        assert summary["analyzed_sheets"][0]["has_action_signal"] is True
+        assert summary["analyzed_sheets"][1]["ready"] is True
+
     def test_upload_page_truth_import_helper_supports_uploaded_workbooks(
         self, db, product_id, campaign_id, tmp_path
     ):

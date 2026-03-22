@@ -60,6 +60,17 @@ AGGREGATE_ROW_FALLBACK_INDEX = {
     "original_notes": 21,
 }
 
+CAMPAIGN_REQUIRED_FIELDS = ("campaign_name", "term", "plan")
+AGGREGATE_REQUIRED_FIELDS = ("term",)
+AGGREGATE_ACTION_HINT_FIELDS = (
+    "manual_action",
+    "auto_action",
+    "negate_keyword",
+    "negate_asin",
+    "action_matrix",
+    "original_notes",
+)
+
 
 def _normalize_text(value: Any) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -78,6 +89,87 @@ def _first_row_value(row: pd.Series, aliases: tuple[str, ...], fallback_index: i
     if len(row.index) > fallback_index:
         return row.iloc[fallback_index]
     return None
+
+
+def _normalize_column_name(value: Any) -> str:
+    return _normalize_text(value)
+
+
+def _detect_alias_mapping(columns: list[str], alias_map: dict[str, tuple[str, ...]]) -> dict[str, str]:
+    normalized_columns = {_normalize_column_name(column): str(column) for column in columns}
+    mapping: dict[str, str] = {}
+    for field_name, aliases in alias_map.items():
+        for alias in aliases:
+            matched = normalized_columns.get(_normalize_column_name(alias))
+            if matched:
+                mapping[field_name] = matched
+                break
+    return mapping
+
+
+def inspect_campaign_truth_workbook(workbook_path: str | Path) -> dict[str, Any]:
+    path = Path(workbook_path).expanduser().resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"广告组 truth workbook 不存在: {path}")
+
+    df = pd.read_excel(path)
+    columns = [str(column) for column in df.columns]
+    recognized_fields = _detect_alias_mapping(columns, CAMPAIGN_SHEET_ALIASES)
+    missing_required = [field for field in CAMPAIGN_REQUIRED_FIELDS if field not in recognized_fields]
+
+    data_rows = 0
+    if not df.empty and not missing_required:
+        for _, row in df.iterrows():
+            campaign_name = _normalize_text(_first_row_value(row, CAMPAIGN_SHEET_ALIASES["campaign_name"], 1))
+            term = _normalize_term(_first_row_value(row, CAMPAIGN_SHEET_ALIASES["term"], 2))
+            if campaign_name and term:
+                data_rows += 1
+
+    return {
+        "workbook_name": path.name,
+        "columns": columns,
+        "recognized_fields": recognized_fields,
+        "missing_required": missing_required,
+        "data_rows": data_rows,
+        "ready": not missing_required,
+    }
+
+
+def inspect_aggregate_truth_workbook(workbook_path: str | Path) -> dict[str, Any]:
+    path = Path(workbook_path).expanduser().resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"汇总 truth workbook 不存在: {path}")
+
+    analyzed_sheets: list[dict[str, Any]] = []
+    with pd.ExcelFile(path) as workbook:
+        sheet_names = workbook.sheet_names
+        relevant_sheets = sheet_names[:2]
+        for sheet_name in relevant_sheets:
+            df = workbook.parse(sheet_name)
+            columns = [str(column) for column in df.columns]
+            recognized_fields = _detect_alias_mapping(columns, AGGREGATE_ROW_ALIASES)
+            missing_required = [field for field in AGGREGATE_REQUIRED_FIELDS if field not in recognized_fields]
+            action_fields = [field for field in AGGREGATE_ACTION_HINT_FIELDS if field in recognized_fields]
+            analyzed_sheets.append(
+                {
+                    "sheet_name": sheet_name,
+                    "asin_identifier": sheet_name.split("汇")[0].strip(),
+                    "columns": columns,
+                    "recognized_fields": recognized_fields,
+                    "missing_required": missing_required,
+                    "has_action_signal": bool(action_fields),
+                    "action_fields": action_fields,
+                    "row_count": len(df),
+                    "ready": not missing_required and bool(action_fields),
+                }
+            )
+
+    return {
+        "workbook_name": path.name,
+        "sheet_names": sheet_names,
+        "analyzed_sheets": analyzed_sheets,
+        "ready": bool(analyzed_sheets) and all(sheet["ready"] for sheet in analyzed_sheets),
+    }
 
 
 def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
