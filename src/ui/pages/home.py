@@ -7,6 +7,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from src.analysis.truth_replay import get_truth_first_pending_stats
 from src.config.logger import get_logger
 from src.rules.engine import analyze_search_terms
 
@@ -268,6 +269,10 @@ def _get_dashboard_stats_impl(db, product_id: int = None) -> dict:
 def _get_pending_stats_impl(db, product_id: int = None) -> dict:
     """获取待处理项统计（使用实时分析结果）"""
     try:
+        truth_stats = get_truth_first_pending_stats(db, product_id)
+        if truth_stats is not None:
+            return truth_stats
+
         # 使用规则引擎实时分析，与搜索词分析页面保持一致
         results = analyze_search_terms(db, product_id)
 

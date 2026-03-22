@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.analysis.asin_analyzer import ASINAnalyzer
 from src.rules.engine import (
     analyze_search_terms_by_asin,
     analyze_search_terms_by_campaign,
@@ -308,3 +309,412 @@ class TestStrategyProfiles:
             (target_product_id,),
         ).fetchone()[0]
         assert version_count == 1
+
+
+class TestTruthFirstViews:
+    def test_truth_first_action_buckets_and_pending_stats(
+        self, db, product_id, tmp_path
+    ):
+        from src.analysis.truth_replay import (
+            get_truth_first_action_buckets,
+            get_truth_first_pending_stats,
+            seed_truth_workbooks,
+        )
+
+        blk_campaign_id = db.get_or_create_campaign(
+            product_id=product_id,
+            name="BLK-test-campaign",
+            match_type="auto",
+        )
+        dbl_campaign_id = db.get_or_create_campaign(
+            product_id=product_id,
+            name="DBL-test-campaign",
+            match_type="auto",
+        )
+
+        db.save_search_terms(_make_search_term_rows("travel pillow"), blk_campaign_id)
+        db.save_search_terms(_make_search_term_rows("travel pillow"), dbl_campaign_id)
+        db.save_search_terms(
+            _make_search_term_rows("flight pillow", clicks=9, spend=19.0),
+            blk_campaign_id,
+        )
+        db.save_search_terms(
+            _make_search_term_rows(
+                "B0COMP1234", term_type="asin", clicks=14, spend=32.0
+            ),
+            blk_campaign_id,
+        )
+
+        db.upsert_manual_review(
+            product_id=product_id,
+            term="travel pillow",
+            term_type="keyword",
+            relevance="pending",
+            reviewed=False,
+        )
+        db.upsert_manual_review(
+            product_id=product_id,
+            term="flight pillow",
+            term_type="keyword",
+            relevance="pending",
+            reviewed=False,
+        )
+        db.upsert_manual_review(
+            product_id=product_id,
+            term="B0COMP1234",
+            term_type="asin",
+            relevance="pending",
+            reviewed=False,
+        )
+
+        aggregate_workbook = tmp_path / "aggregate_truth.xlsx"
+        _write_aggregate_truth_workbook(
+            aggregate_workbook,
+            {
+                "BLK汇总": [
+                    {
+                        "term_type": "关键词",
+                        "relevance": "强相关核心词",
+                        "keyword": "travel pillow",
+                        "manual_action": "手动精准",
+                        "auto_action": "先不否",
+                        "negate_keyword": None,
+                        "negate_asin": None,
+                        "rule_trigger": "用户标记(先不否)",
+                        "action_matrix": "[blk]手动精准+先不否",
+                        "campaign_summary": "[blk]12clk/$28",
+                        "campaign_conflict": None,
+                        "decision_source": "用户标记",
+                        "conflict": None,
+                        "original_notes": "BLK 保留并拉手动精准",
+                    },
+                    {
+                        "term_type": "关键词",
+                        "relevance": "不相关",
+                        "keyword": "flight pillow",
+                        "manual_action": None,
+                        "auto_action": "否定词组",
+                        "negate_keyword": None,
+                        "negate_asin": None,
+                        "rule_trigger": "用户标记(直接否词组)",
+                        "action_matrix": "[blk]Neg Phrase",
+                        "campaign_summary": "[blk]9clk/$19",
+                        "campaign_conflict": None,
+                        "decision_source": "用户标记",
+                        "conflict": None,
+                        "original_notes": "flight pillow 直接否定词组",
+                    },
+                    {
+                        "term_type": "ASIN",
+                        "relevance": "不可竞争",
+                        "keyword": "B0COMP1234",
+                        "manual_action": None,
+                        "auto_action": "直接否",
+                        "negate_keyword": None,
+                        "negate_asin": "Neg Product",
+                        "rule_trigger": "用户标记(直接否ASIN)",
+                        "action_matrix": "[blk]Neg Product",
+                        "campaign_summary": "[blk]14clk/$32",
+                        "campaign_conflict": None,
+                        "decision_source": "用户标记",
+                        "conflict": None,
+                        "original_notes": "竞品不可竞争，直接否定",
+                    },
+                ],
+                "DBL汇总": [
+                    {
+                        "term_type": "关键词",
+                        "relevance": "强相关核心词",
+                        "keyword": "travel pillow",
+                        "manual_action": "手动精准",
+                        "auto_action": "直接否",
+                        "negate_keyword": "Neg Exact",
+                        "negate_asin": None,
+                        "rule_trigger": "用户标记(直接否)",
+                        "action_matrix": "[dbl]手动精准+Neg Exact",
+                        "campaign_summary": "[dbl]12clk/$28",
+                        "campaign_conflict": None,
+                        "decision_source": "用户标记",
+                        "conflict": None,
+                        "original_notes": "DBL 直接否自动，手动精准单独测",
+                    }
+                ],
+            },
+        )
+
+        seed_truth_workbooks(
+            db=db,
+            product_id=product_id,
+            aggregate_workbook_path=aggregate_workbook,
+        )
+
+        buckets = get_truth_first_action_buckets(db, product_id)
+        stats = get_truth_first_pending_stats(db, product_id)
+
+        assert buckets is not None
+        assert [item["term"] for item in buckets["negative_keyword_exact"]] == [
+            "travel pillow"
+        ]
+        assert [item["term"] for item in buckets["negative_keyword_phrase"]] == [
+            "flight pillow"
+        ]
+        assert [item["term"] for item in buckets["negative_asin"]] == ["B0COMP1234"]
+        assert [item["term"] for item in buckets["manual_keywords"]] == [
+            "travel pillow"
+        ]
+        assert buckets["manual_products"] == []
+
+        assert stats == {
+            "negative_count": 3,
+            "manual_count": 1,
+            "ai_pending_count": 0,
+            "review_pending_count": 0,
+        }
+
+    def test_truth_first_summary_rows_fold_cross_asin_conflicts(
+        self, db, product_id, tmp_path
+    ):
+        from src.analysis.truth_replay import (
+            get_truth_first_summary_rows,
+            seed_truth_workbooks,
+        )
+
+        blk_campaign_id = db.get_or_create_campaign(
+            product_id=product_id,
+            name="BLK-summary-campaign",
+            match_type="auto",
+        )
+        dbl_campaign_id = db.get_or_create_campaign(
+            product_id=product_id,
+            name="DBL-summary-campaign",
+            match_type="auto",
+        )
+
+        db.save_search_terms(_make_search_term_rows("travel pillow"), blk_campaign_id)
+        db.save_search_terms(_make_search_term_rows("travel pillow"), dbl_campaign_id)
+        db.save_search_terms(
+            _make_search_term_rows("flight pillow", clicks=9, spend=19.0),
+            blk_campaign_id,
+        )
+        db.save_search_terms(
+            _make_search_term_rows(
+                "B0COMP1234", term_type="asin", clicks=14, spend=32.0
+            ),
+            blk_campaign_id,
+        )
+
+        aggregate_workbook = tmp_path / "summary_truth.xlsx"
+        _write_aggregate_truth_workbook(
+            aggregate_workbook,
+            {
+                "BLK汇总": [
+                    {
+                        "term_type": "关键词",
+                        "relevance": "强相关核心词",
+                        "keyword": "travel pillow",
+                        "manual_action": "手动精准",
+                        "auto_action": "先不否",
+                        "negate_keyword": None,
+                        "negate_asin": None,
+                        "rule_trigger": "用户标记(先不否)",
+                        "action_matrix": "[blk]手动精准+先不否",
+                        "campaign_summary": "[blk]18clk/$28",
+                        "campaign_conflict": None,
+                        "decision_source": "用户标记",
+                        "conflict": None,
+                        "original_notes": "BLK 保留并拉手动精准",
+                    },
+                    {
+                        "term_type": "关键词",
+                        "relevance": "不相关",
+                        "keyword": "flight pillow",
+                        "manual_action": None,
+                        "auto_action": "否定词组",
+                        "negate_keyword": None,
+                        "negate_asin": None,
+                        "rule_trigger": "用户标记(词组否定)",
+                        "action_matrix": "[blk]Neg Phrase",
+                        "campaign_summary": "[blk]9clk/$19",
+                        "campaign_conflict": None,
+                        "decision_source": "用户标记",
+                        "conflict": None,
+                        "original_notes": "明显不相关",
+                    },
+                    {
+                        "term_type": "ASIN",
+                        "relevance": "不可竞争",
+                        "keyword": "B0COMP1234",
+                        "manual_action": None,
+                        "auto_action": "直接否",
+                        "negate_keyword": None,
+                        "negate_asin": "Neg Product",
+                        "rule_trigger": "用户标记(ASIN否定)",
+                        "action_matrix": "[blk]Neg Product",
+                        "campaign_summary": "[blk]14clk/$32",
+                        "campaign_conflict": None,
+                        "decision_source": "用户标记",
+                        "conflict": None,
+                        "original_notes": "竞品不可竞争",
+                    },
+                ],
+                "DBL汇总": [
+                    {
+                        "term_type": "关键词",
+                        "relevance": "强相关核心词",
+                        "keyword": "travel pillow",
+                        "manual_action": "手动精准",
+                        "auto_action": "直接否",
+                        "negate_keyword": "Neg Exact",
+                        "negate_asin": None,
+                        "rule_trigger": "用户标记(直接否)",
+                        "action_matrix": "[dbl]手动精准+Neg Exact",
+                        "campaign_summary": "[dbl]18clk/$28",
+                        "campaign_conflict": None,
+                        "decision_source": "用户标记",
+                        "conflict": None,
+                        "original_notes": "DBL 手动精准但自动直接否",
+                    }
+                ],
+            },
+        )
+
+        seed_truth_workbooks(
+            db=db,
+            product_id=product_id,
+            aggregate_workbook_path=aggregate_workbook,
+        )
+
+        summary_rows = get_truth_first_summary_rows(db, product_id)
+        assert summary_rows is not None
+        assert len(summary_rows) == 3
+
+        rows_by_term = {row["term"]: row for row in summary_rows}
+
+        travel_pillow = rows_by_term["travel pillow"]
+        assert travel_pillow["action_type"] == "conflict"
+        assert travel_pillow["suggested_action"] == "跨ASIN分歧"
+        assert travel_pillow["asin_identifiers"] == ["BLK", "DBL"]
+        assert "BLK: 手动精准" in travel_pillow["action_detail"]
+        assert "DBL: 手动精准" in travel_pillow["action_detail"]
+
+        flight_pillow = rows_by_term["flight pillow"]
+        assert flight_pillow["action_type"] == "negative_phrase"
+        assert flight_pillow["suggested_action"] == "否定词组"
+
+        competitor_asin = rows_by_term["B0COMP1234"]
+        assert competitor_asin["term_type"] == "asin"
+        assert competitor_asin["action_type"] == "negative_exact"
+
+    def test_asin_analyzer_uses_truth_for_distribution_and_conflicts(
+        self, db, product_id, tmp_path
+    ):
+        from src.analysis.truth_replay import seed_truth_workbooks
+
+        blk_keep_campaign_id = db.get_or_create_campaign(
+            product_id=product_id,
+            name="BLK-keep-campaign",
+            match_type="auto",
+        )
+        blk_neg_campaign_id = db.get_or_create_campaign(
+            product_id=product_id,
+            name="BLK-neg-campaign",
+            match_type="auto",
+        )
+        dbl_campaign_id = db.get_or_create_campaign(
+            product_id=product_id,
+            name="DBL-neg-campaign",
+            match_type="auto",
+        )
+
+        db.save_search_terms(
+            _make_search_term_rows("travel pillow", orders=1, clicks=14, spend=22.0),
+            blk_keep_campaign_id,
+        )
+        db.save_search_terms(
+            _make_search_term_rows("travel pillow", clicks=16, spend=35.0),
+            blk_neg_campaign_id,
+        )
+        db.save_search_terms(
+            _make_search_term_rows("flight pillow", clicks=9, spend=19.0),
+            dbl_campaign_id,
+        )
+
+        campaign_workbook = tmp_path / "asin_campaign_truth.xlsx"
+        _write_campaign_truth_workbook(
+            campaign_workbook,
+            [
+                {
+                    "ASIN": "BLK",
+                    "campaign_name": "BLK-keep-campaign",
+                    "keyword": "travel pillow",
+                    "plan": "手动精准，自动先不否",
+                },
+                {
+                    "ASIN": "BLK",
+                    "campaign_name": "BLK-neg-campaign",
+                    "keyword": "travel pillow",
+                    "plan": "自动直接否定精准",
+                },
+            ],
+        )
+
+        aggregate_workbook = tmp_path / "asin_aggregate_truth.xlsx"
+        _write_aggregate_truth_workbook(
+            aggregate_workbook,
+            {
+                "BLK汇总": [
+                    {
+                        "term_type": "关键词",
+                        "relevance": "强相关核心词",
+                        "keyword": "travel pillow",
+                        "manual_action": "手动精准",
+                        "auto_action": "先不否",
+                        "negate_keyword": None,
+                        "negate_asin": None,
+                        "rule_trigger": "用户标记(先不否)",
+                        "action_matrix": "[blk]手动精准+先不否",
+                        "campaign_summary": "[blk]14clk/$22 | [blk-neg]16clk/$35",
+                        "campaign_conflict": "存在活动分歧",
+                        "decision_source": "用户标记",
+                        "conflict": "BLK 两个活动动作不同",
+                        "original_notes": "BLK 存在 keep/neg 冲突",
+                    }
+                ],
+                "DBL汇总": [
+                    {
+                        "term_type": "关键词",
+                        "relevance": "不相关",
+                        "keyword": "flight pillow",
+                        "manual_action": None,
+                        "auto_action": "否定词组",
+                        "negate_keyword": None,
+                        "negate_asin": None,
+                        "rule_trigger": "用户标记(词组否定)",
+                        "action_matrix": "[dbl]Neg Phrase",
+                        "campaign_summary": "[dbl]9clk/$19",
+                        "campaign_conflict": None,
+                        "decision_source": "用户标记",
+                        "conflict": None,
+                        "original_notes": "明显不相关",
+                    }
+                ],
+            },
+        )
+
+        seed_truth_workbooks(
+            db=db,
+            product_id=product_id,
+            campaign_workbook_path=campaign_workbook,
+            aggregate_workbook_path=aggregate_workbook,
+        )
+
+        analyzer = ASINAnalyzer(db)
+
+        distribution = analyzer.get_keyword_distribution(product_id)
+        assert distribution["BLK"]["手动精准"] == 1
+        assert distribution["DBL"]["否定词组"] == 1
+
+        conflicts = analyzer.detect_conflicts(product_id, "BLK")
+        assert not conflicts.empty
+        assert conflicts.iloc[0]["term"] == "travel pillow"
+        assert conflicts.iloc[0]["severity"] == "严重"

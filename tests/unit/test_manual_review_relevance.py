@@ -163,6 +163,22 @@ class TestUpsertManualReview:
         assert row["reviewed"] == 1
 
 
+class TestProductConfigSeed:
+    """测试 create_product 的默认配置注入。"""
+
+    def test_create_product_seeds_default_config_when_missing(self, test_db):
+        product_id = test_db.create_product(name="默认配置产品", asin="B0SEED1234")
+
+        product = test_db.get_product(product_id)
+        config = product["config"]
+
+        assert config["core_keywords"]
+        assert "travel neck pillow for car" in config["core_keywords"]
+        assert "microbead" in config["keyword_libraries"]["weak_category_keywords"]
+        assert "B0SEED1234" in config["own_asins"]
+        assert config["thresholds"]["min_clicks_for_analysis"] == 20
+
+
 class TestPendingReviews:
     """测试待审核相关方法"""
 
@@ -201,6 +217,48 @@ class TestPendingReviews:
         count = test_db.get_pending_reviews_count(product_id=1)
         assert count["total"] == 0
         assert count["asins"] == 0
+
+    def test_reviewed_truth_keyword_is_not_counted_as_pending(self, test_db):
+        test_db.upsert_manual_review(
+            product_id=1,
+            term="truth_keyword",
+            term_type="keyword",
+            relevance="pending",
+            reviewed=True,
+            review_source="aggregate_truth",
+            truth_action_type="negative_exact",
+        )
+
+        count = test_db.get_pending_reviews_count(product_id=1)
+        pending = test_db.get_pending_reviews_list(product_id=1)
+
+        assert count["total"] == 0
+        assert pending == []
+
+    def test_upload_pending_row_is_reconciled_when_truth_exists(self, test_db):
+        test_db.upsert_manual_review(
+            product_id=1,
+            term="travel pillow",
+            term_type="keyword",
+            relevance="pending",
+            reviewed=False,
+        )
+        test_db.upsert_manual_review(
+            product_id=1,
+            term="travel pillow",
+            term_type="keyword",
+            asin_identifier="BLK",
+            relevance="strong_core",
+            reviewed=True,
+            review_source="aggregate_truth",
+            truth_action_type="manual_exact_no_neg",
+        )
+
+        count = test_db.get_pending_reviews_count(product_id=1)
+        pending = test_db.get_pending_reviews_list(product_id=1)
+
+        assert count["total"] == 0
+        assert pending == []
 
     def test_list_pending_reviews(self, test_db):
         for i in range(5):

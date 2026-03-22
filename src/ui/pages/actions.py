@@ -6,6 +6,7 @@
 import pandas as pd
 import streamlit as st
 
+from src.analysis.truth_replay import get_truth_first_action_buckets
 from src.config.logger import get_logger
 from src.rules.engine import analyze_search_terms
 from src.ui.utils import safe_error
@@ -51,52 +52,57 @@ def render_negative_actions(db, product_id: int):
     """渲染否词操作清单"""
     st.write("### 待否定关键词")
 
-    # 使用实时分析结果（与搜索词分析页面保持一致）
-    analysis_results = analyze_search_terms(db, product_id)
-    if not analysis_results:
+    truth_buckets = get_truth_first_action_buckets(db, product_id)
+    if truth_buckets is not None:
+        exact_negatives = truth_buckets["negative_keyword_exact"]
+        phrase_negatives = truth_buckets["negative_keyword_phrase"]
+        product_negatives = truth_buckets["negative_asin"]
+    else:
+        # 使用实时分析结果（与搜索词分析页面保持一致）
+        analysis_results = analyze_search_terms(db, product_id)
+        if not analysis_results:
+            st.info("暂无待否定的关键词")
+            return
+
+        # 转换为dict格式以兼容现有代码
+        negative_items = []
+        for r in analysis_results:
+            if r.action_type and r.action_type.startswith("negative"):
+                negative_items.append(
+                    {
+                        "term": r.term,
+                        "term_type": r.term_type,
+                        "triggered_rule": r.triggered_rule,
+                        "suggested_action": r.suggested_action,
+                        "action_type": r.action_type,
+                        "confidence": r.confidence,
+                        "spend": r.data.get("total_spend", r.data.get("spend", 0)),
+                        "clicks": r.data.get("total_clicks", r.data.get("clicks", 0)),
+                        "orders": r.data.get("total_orders", r.data.get("orders", 0)),
+                        "sales": r.data.get("total_sales", r.data.get("sales", 0)),
+                    }
+                )
+
+        if not negative_items:
+            st.info("暂无待否定的关键词")
+            return
+
+        exact_negatives = []
+        phrase_negatives = []
+        product_negatives = []
+        for item in negative_items:
+            if item.get("term_type") == "asin":
+                product_negatives.append(item)
+            elif "精准" in item.get("suggested_action", "") or "精确" in item.get(
+                "suggested_action", ""
+            ):
+                exact_negatives.append(item)
+            else:
+                phrase_negatives.append(item)
+
+    if not exact_negatives and not phrase_negatives and not product_negatives:
         st.info("暂无待否定的关键词")
         return
-
-    # 转换为dict格式以兼容现有代码
-    # 注意: aggregate_by_term 返回的字段是 total_spend, total_clicks 等
-    negative_items = []
-    for r in analysis_results:
-        # action_type 可能是 negative_exact, negative_phrase 等
-        if r.action_type and r.action_type.startswith("negative"):
-            negative_items.append(
-                {
-                    "term": r.term,
-                    "term_type": r.term_type,
-                    "triggered_rule": r.triggered_rule,
-                    "suggested_action": r.suggested_action,
-                    "action_type": r.action_type,
-                    "confidence": r.confidence,
-                    "spend": r.data.get("total_spend", r.data.get("spend", 0)),
-                    "clicks": r.data.get("total_clicks", r.data.get("clicks", 0)),
-                    "orders": r.data.get("total_orders", r.data.get("orders", 0)),
-                    "sales": r.data.get("total_sales", r.data.get("sales", 0)),
-                }
-            )
-
-    if not negative_items:
-        st.info("暂无待否定的关键词")
-        return
-
-    # 按否定类型分组 - 区分关键词和ASIN
-    exact_negatives = []  # 关键词精确否定
-    phrase_negatives = []  # 关键词短语否定
-    product_negatives = []  # ASIN商品否定
-
-    for item in negative_items:
-        # 首先按term_type区分ASIN和关键词
-        if item.get("term_type") == "asin":
-            product_negatives.append(item)
-        elif "精准" in item.get("suggested_action", "") or "精确" in item.get(
-            "suggested_action", ""
-        ):
-            exact_negatives.append(item)
-        else:
-            phrase_negatives.append(item)
 
     # 关键词精确否定
     if exact_negatives:
@@ -192,37 +198,37 @@ def render_manual_actions(db, product_id: int):
     """渲染手动投放操作清单"""
     st.write("### 推荐手动投放")
 
-    # 使用实时分析结果（与搜索词分析页面保持一致）
-    analysis_results = analyze_search_terms(db, product_id)
-    if not analysis_results:
-        st.info("暂无推荐手动投放的关键词")
-        return
+    truth_buckets = get_truth_first_action_buckets(db, product_id)
+    if truth_buckets is not None:
+        manual_keywords = truth_buckets["manual_keywords"]
+        manual_products = truth_buckets["manual_products"]
+    else:
+        analysis_results = analyze_search_terms(db, product_id)
+        if not analysis_results:
+            st.info("暂无推荐手动投放的关键词")
+            return
 
-    # 转换为dict格式以兼容现有代码 - 区分关键词和ASIN
-    # 注意: aggregate_by_term 返回的字段是 total_spend, total_clicks 等
-    manual_keywords = []  # 关键词手动投放
-    manual_products = []  # ASIN商品定位
+        manual_keywords = []
+        manual_products = []
 
-    for r in analysis_results:
-        # action_type 可能是 manual_exact, manual_product 等
-        if r.action_type and r.action_type.startswith("manual"):
-            item = {
-                "term": r.term,
-                "term_type": r.term_type,
-                "triggered_rule": r.triggered_rule,
-                "suggested_action": r.suggested_action,
-                "action_type": r.action_type,
-                "confidence": r.confidence,
-                "spend": r.data.get("total_spend", r.data.get("spend", 0)),
-                "clicks": r.data.get("total_clicks", r.data.get("clicks", 0)),
-                "orders": r.data.get("total_orders", r.data.get("orders", 0)),
-                "sales": r.data.get("total_sales", r.data.get("sales", 0)),
-            }
-            # 按term_type区分
-            if r.term_type == "asin":
-                manual_products.append(item)
-            else:
-                manual_keywords.append(item)
+        for r in analysis_results:
+            if r.action_type and r.action_type.startswith("manual"):
+                item = {
+                    "term": r.term,
+                    "term_type": r.term_type,
+                    "triggered_rule": r.triggered_rule,
+                    "suggested_action": r.suggested_action,
+                    "action_type": r.action_type,
+                    "confidence": r.confidence,
+                    "spend": r.data.get("total_spend", r.data.get("spend", 0)),
+                    "clicks": r.data.get("total_clicks", r.data.get("clicks", 0)),
+                    "orders": r.data.get("total_orders", r.data.get("orders", 0)),
+                    "sales": r.data.get("total_sales", r.data.get("sales", 0)),
+                }
+                if r.term_type == "asin":
+                    manual_products.append(item)
+                else:
+                    manual_keywords.append(item)
 
     if not manual_keywords and not manual_products:
         st.info("暂无推荐手动投放的关键词")

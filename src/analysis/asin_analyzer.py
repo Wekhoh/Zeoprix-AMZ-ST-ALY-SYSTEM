@@ -8,8 +8,10 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from src.analysis.truth_replay import action_type_to_label, has_reviewed_truth
 from src.config.logger import get_logger
 from src.data.db import Database
+from src.data.models import ActionType
 
 logger = get_logger(__name__)
 
@@ -271,6 +273,24 @@ class ASINAnalyzer:
         Returns:
             dict，key为asin_id，value为操作类型计数
         """
+        if has_reviewed_truth(self.db, product_id):
+            from src.rules.engine import analyze_search_terms_by_asin
+
+            distribution: dict[str, dict[str, int]] = {}
+            for result in analyze_search_terms_by_asin(self.db, product_id):
+                truth_data = (getattr(result, "data", {}) or {}).get("truth_replay")
+                if not truth_data:
+                    continue
+                current_asin = getattr(result, "asin_identifier", None) or "UNKNOWN"
+                if asin_id and current_asin != asin_id:
+                    continue
+                label = action_type_to_label(result.action_type)
+                distribution.setdefault(current_asin, {})
+                distribution[current_asin][label] = (
+                    distribution[current_asin].get(label, 0) + 1
+                )
+            return distribution
+
         df = self.get_raw_data(product_id)
 
         if df.empty:
@@ -335,6 +355,90 @@ class ASINAnalyzer:
         Returns:
             DataFrame包含冲突的关键词及各广告组的决策
         """
+        if has_reviewed_truth(self.db, product_id):
+            from src.rules.engine import analyze_search_terms_by_campaign
+
+            rows = []
+            for result in analyze_search_terms_by_campaign(self.db, product_id):
+                truth_data = (getattr(result, "data", {}) or {}).get("truth_replay")
+                if not truth_data:
+                    continue
+                current_asin = self.extract_asin_identifier(result.campaign_name)
+                if asin_id and current_asin != asin_id:
+                    continue
+                rows.append(
+                    {
+                        "asin_id": current_asin,
+                        "term": result.term,
+                        "campaign_name": result.campaign_name,
+                        "action_type": result.action_type,
+                        "decision": action_type_to_label(result.action_type),
+                        "decision_reason": result.suggested_action,
+                        "clicks": int(result.clicks or 0),
+                        "orders": int(result.orders or 0),
+                        "spend": float(result.spend or 0),
+                        "cvr": float(result.cvr or 0),
+                    }
+                )
+
+            if not rows:
+                return pd.DataFrame()
+
+            def get_action_category(action_type: str) -> str:
+                if ActionType.is_negative(action_type):
+                    return "否定类"
+                if ActionType.is_manual(action_type):
+                    return "保留类"
+                return "观察类"
+
+            conflicts = []
+            truth_df = pd.DataFrame(rows)
+            for (aid, term), group in truth_df.groupby(["asin_id", "term"]):
+                categories = {
+                    get_action_category(action_type)
+                    for action_type in group["action_type"].tolist()
+                }
+                if len(categories) <= 1:
+                    continue
+
+                if "否定类" in categories and "保留类" in categories:
+                    severity = "严重"
+                elif "否定类" in categories and "观察类" in categories:
+                    severity = "中等"
+                else:
+                    severity = "轻微"
+
+                campaign_decisions = {}
+                for _, row in group.iterrows():
+                    campaign_decisions[row["campaign_name"]] = {
+                        "action": row["decision"],
+                        "reason": row["decision_reason"],
+                        "clicks": row["clicks"],
+                        "orders": row["orders"],
+                        "spend": row["spend"],
+                        "cvr": row["cvr"],
+                    }
+
+                conflicts.append(
+                    {
+                        "asin_id": aid,
+                        "term": term,
+                        "campaign_decisions": campaign_decisions,
+                        "severity": severity,
+                        "campaign_count": len(group),
+                    }
+                )
+
+            if not conflicts:
+                return pd.DataFrame()
+
+            return pd.DataFrame(conflicts).sort_values(
+                ["severity", "asin_id", "term"],
+                key=lambda x: x.map({"严重": 0, "中等": 1, "轻微": 2})
+                if x.name == "severity"
+                else x,
+            )
+
         df = self.get_raw_data(product_id)
 
         if df.empty:

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import argparse
-import copy
-import json
 import sys
 from pathlib import Path
 
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
+from src.config.product_defaults import (  # noqa: E402
+    DEFAULT_PRODUCT_CONFIG_TEMPLATE_PATH,
+    load_default_product_config,
+    merge_product_config,
+)
 from src.config.settings import Settings  # noqa: E402
 from src.data.aggregator import DataAggregator  # noqa: E402
 from src.data.db import Database  # noqa: E402
@@ -19,9 +22,7 @@ from src.data.parser import FileParser  # noqa: E402
 from src.rules.engine import RuleEngine  # noqa: E402
 
 DEFAULT_INPUT_DIR = Path(r"C:\Users\jackl\OneDrive\桌面\否词TODO")
-DEFAULT_CONFIG_TEMPLATE_PATH = (
-    project_root / "data" / "fixtures" / "acceptance_product_config.json"
-)
+DEFAULT_CONFIG_TEMPLATE_PATH = DEFAULT_PRODUCT_CONFIG_TEMPLATE_PATH
 DEFAULT_CSV_FILENAMES = [
     "BLK-TP01-LOT01-SP自动紧密固定-1.88bid.csv",
     "DBL-TP01-LOT01-SP自动紧密动低-1.94bid.csv",
@@ -120,41 +121,7 @@ def get_or_create_product(db: Database, product_name: str, product_asin: str) ->
 
 def load_config_template(template_path: str | Path) -> dict:
     """加载验收环境的产品配置模板。"""
-    path = Path(template_path).expanduser().resolve()
-    if not path.exists():
-        raise FileNotFoundError(f"配置模板不存在: {path}")
-
-    with path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-
-    if not isinstance(data, dict):
-        raise ValueError(f"配置模板必须是 JSON object: {path}")
-
-    return data
-
-
-def _merge_config_value(existing, template):
-    """深度合并配置：保留现有标量，列表 union，字典递归补缺。"""
-    if isinstance(existing, dict) and isinstance(template, dict):
-        merged = copy.deepcopy(existing)
-        for key, value in template.items():
-            if key in merged:
-                merged[key] = _merge_config_value(merged[key], value)
-            else:
-                merged[key] = copy.deepcopy(value)
-        return merged
-
-    if isinstance(existing, list) and isinstance(template, list):
-        merged: list = []
-        for item in existing + template:
-            if item not in merged:
-                merged.append(item)
-        return merged
-
-    if existing in (None, ""):
-        return copy.deepcopy(template)
-
-    return copy.deepcopy(existing)
+    return load_default_product_config(template_path)
 
 
 def ensure_product_config(
@@ -169,7 +136,7 @@ def ensure_product_config(
         raise ValueError(f"产品不存在: {product_id}")
 
     existing_config = product.get("config", {}) or {}
-    merged_config = _merge_config_value(existing_config, template_config)
+    merged_config = merge_product_config(existing_config, template_config)
 
     own_asins = merged_config.get("own_asins", [])
     if not isinstance(own_asins, list):

@@ -296,9 +296,261 @@ def apply_reviewed_truth(
     return overridden
 
 
+def has_reviewed_truth(db: Database, product_id: int) -> bool:
+    """判断产品是否已导入 reviewed truth。"""
+    if not product_id:
+        return False
+    cursor = db.execute(
+        """
+        SELECT 1
+        FROM manual_reviews
+        WHERE product_id = ?
+          AND reviewed = 1
+          AND truth_action_type IS NOT NULL
+        LIMIT 1
+        """,
+        (product_id,),
+    )
+    return cursor.fetchone() is not None
+
+
+def _truth_item_priority(item: dict[str, Any]) -> tuple[float, float, float, float]:
+    return (
+        float(item.get("orders", 0) or 0),
+        float(item.get("sales", 0) or 0),
+        float(item.get("clicks", 0) or 0),
+        float(item.get("spend", 0) or 0),
+    )
+
+
+def _dedupe_truth_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: dict[str, dict[str, Any]] = {}
+    for item in items:
+        key = _normalize_term(item.get("term"))
+        if not key:
+            continue
+        current = deduped.get(key)
+        if current is None or _truth_item_priority(item) > _truth_item_priority(current):
+            deduped[key] = item
+
+    return sorted(
+        deduped.values(),
+        key=lambda item: (
+            -float(item.get("orders", 0) or 0),
+            -float(item.get("sales", 0) or 0),
+            -float(item.get("clicks", 0) or 0),
+            -float(item.get("spend", 0) or 0),
+            item.get("term", ""),
+        ),
+    )
+
+
+def get_truth_first_action_buckets(
+    db: Database,
+    product_id: int,
+) -> dict[str, list[dict[str, Any]]] | None:
+    """基于 reviewed truth 生成 truth-first 操作清单分桶。"""
+    if not has_reviewed_truth(db, product_id):
+        return None
+
+    from src.rules.engine import analyze_search_terms_by_asin
+
+    results = analyze_search_terms_by_asin(db, product_id)
+    negative_exact_items: list[dict[str, Any]] = []
+    negative_phrase_items: list[dict[str, Any]] = []
+    negative_asin_items: list[dict[str, Any]] = []
+    manual_keyword_items: list[dict[str, Any]] = []
+    manual_product_items: list[dict[str, Any]] = []
+
+    for result in results:
+        truth_data = (getattr(result, "data", {}) or {}).get("truth_replay")
+        if not truth_data:
+            continue
+
+        item = {
+            "term": result.term,
+            "term_type": result.term_type,
+            "asin_identifier": getattr(result, "asin_identifier", None),
+            "triggered_rule": result.triggered_rule,
+            "suggested_action": result.suggested_action,
+            "action_type": result.action_type,
+            "auto_action": getattr(result, "auto_action", None)
+            or truth_data.get("auto_action"),
+            "confidence": result.confidence,
+            "spend": result.data.get("total_spend", result.data.get("spend", 0)),
+            "clicks": result.data.get("total_clicks", result.data.get("clicks", 0)),
+            "orders": result.data.get("total_orders", result.data.get("orders", 0)),
+            "sales": result.data.get("total_sales", result.data.get("sales", 0)),
+            "truth_replay": truth_data,
+        }
+        negate_keyword = _normalize_text(truth_data.get("negate_keyword"))
+        negate_asin = _normalize_text(truth_data.get("negate_asin"))
+
+        is_asin_term = result.term_type == "asin" or is_valid_asin(
+            _normalize_text(result.term).upper()
+        )
+
+        if is_asin_term:
+            if ActionType.is_manual(result.action_type):
+                manual_product_items.append(item)
+            if negate_asin or ActionType.is_negative(result.action_type):
+                negative_asin_items.append(item)
+            continue
+
+        if ActionType.is_manual(result.action_type):
+            manual_keyword_items.append(item)
+
+        if "Neg Exact" in negate_keyword or result.action_type == ActionType.MANUAL_EXACT_WITH_NEG:
+            negative_exact_items.append(item)
+        elif (
+            result.action_type == ActionType.NEGATIVE_PHRASE
+            or "词组" in result.suggested_action
+        ):
+            negative_phrase_items.append(item)
+        elif ActionType.is_negative(result.action_type):
+            negative_exact_items.append(item)
+
+    return {
+        "negative_keyword_exact": _dedupe_truth_items(negative_exact_items),
+        "negative_keyword_phrase": _dedupe_truth_items(negative_phrase_items),
+        "negative_asin": _dedupe_truth_items(negative_asin_items),
+        "manual_keywords": _dedupe_truth_items(manual_keyword_items),
+        "manual_products": _dedupe_truth_items(manual_product_items),
+    }
+
+
+def get_truth_first_pending_stats(db: Database, product_id: int) -> dict[str, int] | None:
+    """返回 truth-first 首页待处理统计。"""
+    buckets = get_truth_first_action_buckets(db, product_id)
+    if buckets is None:
+        return None
+
+    pending_counts = db.get_pending_reviews_count(product_id)
+    return {
+        "negative_count": (
+            len(buckets["negative_keyword_exact"])
+            + len(buckets["negative_keyword_phrase"])
+            + len(buckets["negative_asin"])
+        ),
+        "manual_count": len(buckets["manual_keywords"])
+        + len(buckets["manual_products"]),
+        "ai_pending_count": pending_counts["total"],
+        "review_pending_count": pending_counts["total"],
+    }
+
+
+def _summary_conflict_details(items: list[Any]) -> str:
+    details = []
+    for item in sorted(items, key=lambda row: row.asin_identifier or ""):
+        label = action_type_to_label(item.action_type)
+        asin_identifier = _normalize_text(getattr(item, "asin_identifier", "")) or "未知ASIN"
+        details.append(f"{asin_identifier}: {label}")
+    return " | ".join(details)
+
+
+def _truth_summary_priority(item: Any) -> tuple[int, float, float, float]:
+    action_type = getattr(item, "action_type", "")
+    if ActionType.is_negative(action_type):
+        priority = 3
+    elif ActionType.is_manual(action_type):
+        priority = 2
+    else:
+        priority = 1
+
+    data = getattr(item, "data", {}) or {}
+    return (
+        priority,
+        float(data.get("total_orders", data.get("orders", 0)) or 0),
+        float(data.get("total_clicks", data.get("clicks", 0)) or 0),
+        float(data.get("total_spend", data.get("spend", 0)) or 0),
+    )
+
+
+def get_truth_first_summary_rows(
+    db: Database,
+    product_id: int,
+) -> list[dict[str, Any]] | None:
+    """生成 truth-first 汇总模式视图（跨 ASIN 折叠到唯一 term）。"""
+    if not has_reviewed_truth(db, product_id):
+        return None
+
+    from src.rules.engine import analyze_search_terms_by_asin
+
+    grouped: dict[str, list[Any]] = {}
+    for result in analyze_search_terms_by_asin(db, product_id):
+        truth_data = (getattr(result, "data", {}) or {}).get("truth_replay")
+        if not truth_data:
+            continue
+        term_key = _normalize_term(getattr(result, "term", ""))
+        if not term_key:
+            continue
+        grouped.setdefault(term_key, []).append(result)
+
+    summary_rows: list[dict[str, Any]] = []
+    for items in grouped.values():
+        primary = max(items, key=_truth_summary_priority)
+        asin_identifiers = sorted(
+            {
+                _normalize_text(getattr(item, "asin_identifier", ""))
+                for item in items
+                if _normalize_text(getattr(item, "asin_identifier", ""))
+            }
+        )
+        action_types = {getattr(item, "action_type", "") for item in items}
+        has_conflict = len(action_types) > 1
+        total_clicks = sum(float(getattr(item, "clicks", 0) or 0) for item in items)
+        total_orders = sum(float(getattr(item, "orders", 0) or 0) for item in items)
+        total_spend = sum(float(getattr(item, "spend", 0) or 0) for item in items)
+        total_sales = sum(float(getattr(item, "sales", 0) or 0) for item in items)
+        cvr = total_orders / total_clicks if total_clicks > 0 else 0.0
+        acos = total_spend / total_sales if total_sales > 0 else 0.0
+
+        if has_conflict:
+            action_type = "conflict"
+            suggested_action = "跨ASIN分歧"
+            triggered_rule = "人工已审核回放（跨ASIN分歧）"
+            action_detail = _summary_conflict_details(items)
+        else:
+            action_type = primary.action_type
+            suggested_action = primary.suggested_action
+            triggered_rule = primary.triggered_rule
+            action_detail = action_type_to_label(primary.action_type)
+
+        summary_rows.append(
+            {
+                "term": primary.term,
+                "term_type": primary.term_type,
+                "asin_identifiers": asin_identifiers,
+                "asin_count": len(asin_identifiers),
+                "triggered_rule": triggered_rule,
+                "suggested_action": suggested_action,
+                "action_type": action_type,
+                "action_detail": action_detail,
+                "confidence": 1.0,
+                "reviewed": True,
+                "has_conflict": has_conflict,
+                "clicks": int(total_clicks),
+                "orders": int(total_orders),
+                "spend": total_spend,
+                "sales": total_sales,
+                "cvr": cvr,
+                "acos": acos,
+            }
+        )
+
+    return sorted(
+        summary_rows,
+        key=lambda item: (
+            item["has_conflict"] is False,
+            item["term_type"] != "asin",
+            item["term"],
+        ),
+    )
+
+
 def _infer_term_type(value: Any, fallback_term: str) -> str:
     text = _normalize_text(value)
-    if "ASIN" in text.upper() or is_valid_asin(fallback_term):
+    if "ASIN" in text.upper() or is_valid_asin(_normalize_text(fallback_term).upper()):
         return "asin"
     return "keyword"
 

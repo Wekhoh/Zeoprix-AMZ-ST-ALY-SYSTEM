@@ -165,7 +165,13 @@ def render_analysis():
 
 def render_summary_analysis(db, product_id: int):
     """渲染汇总模式分析页面（使用实时计算避免数据重复）"""
+    from src.analysis.truth_replay import get_truth_first_summary_rows
     from src.rules.engine import analyze_search_terms
+
+    truth_rows = get_truth_first_summary_rows(db, product_id)
+    if truth_rows is not None:
+        _render_truth_first_summary_analysis(truth_rows)
+        return
 
     # 筛选面板
     with st.expander("筛选条件", expanded=True):
@@ -864,6 +870,160 @@ def export_results(db, product_id: int, result_type: str):
 
     except Exception as e:
         safe_error("导出", e)
+
+
+def _render_truth_first_summary_analysis(rows: list[dict]) -> None:
+    """渲染 truth-first 汇总模式（按唯一搜索词折叠后的最终视图）。"""
+    with st.expander("筛选条件", expanded=True):
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            action_filter = st.multiselect(
+                "动作类型",
+                options=["negative", "manual", "observe", "conflict"],
+                default=[],
+                format_func=lambda x: {
+                    "negative": "建议否定",
+                    "manual": "建议手动投放",
+                    "observe": "继续观察",
+                    "conflict": "跨ASIN分歧",
+                }.get(x, x),
+                key="summary_truth_action_filter",
+            )
+
+        with col2:
+            term_type_filter = st.multiselect(
+                "词类型",
+                options=["keyword", "asin"],
+                default=[],
+                format_func=lambda x: {"keyword": "关键词", "asin": "ASIN"}.get(x, x),
+                key="summary_truth_term_type_filter",
+            )
+
+        with col3:
+            search_term = st.text_input(
+                "搜索关键词",
+                placeholder="输入搜索...",
+                key="summary_truth_search_term",
+            )
+
+    filtered_rows = rows
+
+    if action_filter:
+
+        def _matches_action(row: dict) -> bool:
+            action_type = row.get("action_type")
+            if action_type == "conflict":
+                return "conflict" in action_filter
+            if "negative" in str(action_type):
+                return "negative" in action_filter
+            if "manual" in str(action_type):
+                return "manual" in action_filter
+            return "observe" in action_filter
+
+        filtered_rows = [row for row in filtered_rows if _matches_action(row)]
+
+    if term_type_filter:
+        filtered_rows = [
+            row for row in filtered_rows if row.get("term_type") in term_type_filter
+        ]
+
+    if search_term:
+        search_lower = search_term.lower()
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if search_lower in str(row.get("term", "")).lower()
+            or search_lower in " ".join(row.get("asin_identifiers", [])).lower()
+        ]
+
+    st.info("已检测到 workbook truth，当前展示已切换为真相优先汇总视图。")
+    st.subheader(f"汇总真相视图 ({len(filtered_rows)} 条)")
+
+    if not filtered_rows:
+        st.warning("筛选后无数据")
+        return
+
+    negative_count = sum(
+        1
+        for row in filtered_rows
+        if row.get("action_type") != "conflict"
+        and "negative" in str(row.get("action_type", ""))
+    )
+    manual_count = sum(
+        1
+        for row in filtered_rows
+        if row.get("action_type") != "conflict"
+        and "manual" in str(row.get("action_type", ""))
+    )
+    observe_count = sum(
+        1
+        for row in filtered_rows
+        if row.get("action_type") in {"continue_observe", "observe"}
+    )
+    conflict_count = sum(1 for row in filtered_rows if row.get("has_conflict"))
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        st.metric("建议否定", negative_count)
+    with col2:
+        st.metric("建议手动投放", manual_count)
+    with col3:
+        st.metric("继续观察", observe_count)
+    with col4:
+        st.metric("跨ASIN分歧", conflict_count)
+    with col5:
+        st.metric("已审核", f"{len(filtered_rows)}/{len(filtered_rows)}")
+
+    st.divider()
+
+    display_df = pd.DataFrame(filtered_rows)[
+        [
+            "term",
+            "term_type",
+            "asin_identifiers",
+            "triggered_rule",
+            "suggested_action",
+            "action_detail",
+            "clicks",
+            "orders",
+            "cvr",
+        ]
+    ].copy()
+    display_df.columns = [
+        "搜索词",
+        "类型",
+        "涉及ASIN",
+        "触发规则",
+        "主动作",
+        "动作明细",
+        "点击",
+        "订单",
+        "CVR",
+    ]
+    display_df["涉及ASIN"] = display_df["涉及ASIN"].apply(
+        lambda items: ", ".join(items) if isinstance(items, list) and items else "-"
+    )
+    display_df["CVR"] = display_df["CVR"].apply(
+        lambda value: f"{value:.1%}" if pd.notna(value) and value > 0 else "-"
+    )
+
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "搜索词": st.column_config.TextColumn("搜索词", width="large"),
+            "类型": st.column_config.TextColumn("类型", width="small"),
+            "涉及ASIN": st.column_config.TextColumn("涉及ASIN", width="small"),
+            "触发规则": st.column_config.TextColumn("触发规则", width="medium"),
+            "主动作": st.column_config.TextColumn("主动作", width="medium"),
+            "动作明细": st.column_config.TextColumn("动作明细", width="large"),
+            "点击": st.column_config.NumberColumn("点击", width="small"),
+            "订单": st.column_config.NumberColumn("订单", width="small"),
+            "CVR": st.column_config.TextColumn("CVR", width="small"),
+        },
+    )
 
 
 def _render_ai_insights(results: list, product_name: str = ""):

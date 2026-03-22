@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.config.logger import get_logger
+from src.config.product_defaults import build_seeded_product_config
 from src.data.models import ALL_SCHEMAS, DEFAULT_RULES, INDEXES
 from src.rules.asin_rules import is_valid_asin
 
@@ -246,13 +247,18 @@ class Database:
         Returns:
             产品ID
         """
+        normalized_config = (
+            build_seeded_product_config(existing_config={}, product_asin=asin)
+            if config is None
+            else config
+        )
         cursor = self.conn.cursor()
         cursor.execute(
             """
             INSERT INTO products (name, asin, category, config)
             VALUES (?, ?, ?, ?)
             """,
-            (name, asin, category, json.dumps(config or {})),
+            (name, asin, category, json.dumps(normalized_config, ensure_ascii=False)),
         )
         self.conn.commit()
         return cursor.lastrowid
@@ -1381,18 +1387,31 @@ class Database:
         """
         cursor = self.conn.cursor()
 
-        # 统计无相关性标记的搜索词（需要人工审核）
         cursor.execute(
             """
             SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN term_type = 'keyword' THEN 1 ELSE 0 END) as keywords,
                 SUM(CASE WHEN term_type = 'asin' THEN 1 ELSE 0 END) as asins
-            FROM manual_reviews
-            WHERE product_id = ?
+            FROM manual_reviews mr
+            WHERE mr.product_id = ?
+              AND mr.reviewed = 0
               AND (
-                    (term_type = 'keyword' AND (relevance IS NULL OR relevance = 'pending'))
-                    OR (term_type = 'asin' AND competition_level IS NULL)
+                    (mr.term_type = 'keyword' AND (mr.relevance IS NULL OR mr.relevance = 'pending'))
+                    OR (mr.term_type = 'asin' AND mr.competition_level IS NULL)
+                  )
+              AND NOT (
+                    COALESCE(mr.review_source, '') = ''
+                    AND mr.campaign_id IS NULL
+                    AND COALESCE(mr.asin_identifier, '') = ''
+                    AND EXISTS (
+                        SELECT 1
+                        FROM manual_reviews resolved
+                        WHERE resolved.product_id = mr.product_id
+                          AND LOWER(resolved.term) = LOWER(mr.term)
+                          AND resolved.term_type = mr.term_type
+                          AND resolved.reviewed = 1
+                    )
                   )
             """,
             (product_id,),
@@ -1431,9 +1450,23 @@ class Database:
             FROM manual_reviews mr
             LEFT JOIN campaigns c ON mr.campaign_id = c.id
             WHERE mr.product_id = ?
+              AND mr.reviewed = 0
               AND (
                     (mr.term_type = 'keyword' AND (mr.relevance IS NULL OR mr.relevance = 'pending'))
                     OR (mr.term_type = 'asin' AND mr.competition_level IS NULL)
+                  )
+              AND NOT (
+                    COALESCE(mr.review_source, '') = ''
+                    AND mr.campaign_id IS NULL
+                    AND COALESCE(mr.asin_identifier, '') = ''
+                    AND EXISTS (
+                        SELECT 1
+                        FROM manual_reviews resolved
+                        WHERE resolved.product_id = mr.product_id
+                          AND LOWER(resolved.term) = LOWER(mr.term)
+                          AND resolved.term_type = mr.term_type
+                          AND resolved.reviewed = 1
+                    )
                   )
         """
         params = [product_id]
