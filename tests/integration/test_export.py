@@ -318,6 +318,50 @@ class TestExportIntegration:
         parsed = pd.read_csv(BytesIO(file_bytes))
         assert list(parsed["Keyword"]) == ["pillows"]
 
+    def test_analysis_asin_page_builds_direct_download_payload(self):
+        """按ASIN分析页面应直接生成下载载荷，而不是二段式下载。"""
+        from src.ui.pages.analysis_asin import build_asin_export_payload
+
+        results = [
+            {
+                "term": "travel pillow",
+                "asin_identifier": "BLK",
+                "term_type": "keyword",
+                "triggered_rule": "测试规则",
+                "suggested_action": "手动精准",
+                "auto_action": "keep",
+                "clicks": 12,
+                "orders": 2,
+                "cvr": 2 / 12,
+                "spend": 24.5,
+            }
+        ]
+
+        payload = build_asin_export_payload(results, export_kind="results")
+        assert payload is not None
+        assert payload["file_name"].endswith(".csv")
+        parsed = pd.read_csv(BytesIO(payload["data"]))
+        assert list(parsed["搜索词"]) == ["travel pillow"]
+
+    def test_unified_negation_builds_direct_download_payload(self):
+        """统一否词建议应支持直接生成下载载荷。"""
+        from src.ui.pages.asin_analysis import build_unified_negation_export_payload
+
+        unified_neg = [
+            {
+                "term": "bad pillow",
+                "total_spend": 45.6,
+                "asin_count": 2,
+                "asins": ["BLK", "DBL"],
+            }
+        ]
+
+        payload = build_unified_negation_export_payload(unified_neg)
+        assert payload is not None
+        assert payload["file_name"].endswith(".csv")
+        parsed = pd.read_csv(BytesIO(payload["data"]))
+        assert list(parsed["搜索词"]) == ["bad pillow"]
+
     def test_export_empty_results_returns_none(self):
         """测试空结果导出返回None"""
         from src.export.exporter import ReportExporter

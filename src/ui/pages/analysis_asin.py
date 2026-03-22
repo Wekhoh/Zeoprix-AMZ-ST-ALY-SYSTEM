@@ -12,6 +12,69 @@ from src.ui.pages.analysis import AUTO_ACTION_DISPLAY
 logger = get_logger(__name__)
 
 
+def build_asin_export_payload(results: list[dict], export_kind: str):
+    """构建按ASIN分析页面的直接下载载荷。"""
+    import datetime
+
+    if not results:
+        return None
+
+    if export_kind == "results":
+        export_df = pd.DataFrame(
+            [
+                {
+                    "搜索词": r["term"],
+                    "ASIN": r["asin_identifier"],
+                    "类型": r["term_type"],
+                    "触发规则": r["triggered_rule"],
+                    "主动作": r["suggested_action"],
+                    "自动处理": AUTO_ACTION_DISPLAY.get(r.get("auto_action"), "-"),
+                    "点击": r["clicks"],
+                    "订单": r["orders"],
+                    "CVR": f"{r['cvr']:.1%}" if r["cvr"] > 0 else "-",
+                    "花费": f"${r['spend']:.2f}",
+                }
+                for r in results
+            ]
+        )
+        filename = (
+            f"asin_analysis_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+    elif export_kind == "negatives":
+        negatives = [
+            r
+            for r in results
+            if r.get("auto_action") == "negate"
+            or "否定" in str(r.get("suggested_action", ""))
+        ]
+        if not negatives:
+            return None
+        export_df = pd.DataFrame(
+            [
+                {
+                    "ASIN": r["asin_identifier"],
+                    "搜索词": r["term"],
+                    "类型": r["term_type"],
+                    "触发规则": r["triggered_rule"],
+                    "否定来源": "自动否定"
+                    if r.get("auto_action") == "negate"
+                    else "规则否定",
+                    "点击": r["clicks"],
+                    "订单": r["orders"],
+                }
+                for r in negatives
+            ]
+        ).sort_values(["ASIN", "搜索词"])
+        filename = (
+            f"asin_negatives_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+    else:
+        raise ValueError(f"不支持的导出类型: {export_kind}")
+
+    csv_data = export_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+    return {"data": csv_data, "file_name": filename, "mime": "text/csv"}
+
+
 def render_asin_analysis(db, product_id: int):
     """渲染按ASIN分析模式页面（ASIN级别聚合，如BLK、DBL）"""
     from src.rules.engine import analyze_search_terms_by_asin
@@ -299,98 +362,31 @@ def render_asin_analysis(db, product_id: int):
     st.subheader("导出")
 
     col1, col2 = st.columns(2)
+    results_payload = build_asin_export_payload(filtered_results, export_kind="results")
+    negatives_payload = build_asin_export_payload(
+        filtered_results, export_kind="negatives"
+    )
 
     with col1:
-        if st.button("导出按ASIN分析结果", key="export_asin_results"):
-            export_asin_results(filtered_results)
+        if results_payload:
+            st.download_button(
+                label="导出按ASIN分析结果",
+                data=results_payload["data"],
+                file_name=results_payload["file_name"],
+                mime=results_payload["mime"],
+                key="download_asin_results",
+            )
+        else:
+            st.button("导出按ASIN分析结果", disabled=True, width="stretch")
 
     with col2:
-        if st.button("导出否定清单（按ASIN）", key="export_asin_negatives"):
-            export_asin_negatives(filtered_results)
-
-
-def export_asin_results(results: list[dict]):
-    """导出按ASIN分析结果"""
-    import datetime
-
-    if not results:
-        st.warning("没有可导出的数据")
-        return
-
-    export_df = pd.DataFrame(
-        [
-            {
-                "搜索词": r["term"],
-                "ASIN": r["asin_identifier"],
-                "类型": r["term_type"],
-                "触发规则": r["triggered_rule"],
-                "主动作": r["suggested_action"],
-                "自动处理": AUTO_ACTION_DISPLAY.get(r.get("auto_action"), "-"),
-                "点击": r["clicks"],
-                "订单": r["orders"],
-                "CVR": f"{r['cvr']:.1%}" if r["cvr"] > 0 else "-",
-                "花费": f"${r['spend']:.2f}",
-            }
-            for r in results
-        ]
-    )
-
-    csv_data = export_df.to_csv(index=False, encoding="utf-8-sig")
-    filename = f"asin_analysis_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
-    st.download_button(
-        label="下载CSV",
-        data=csv_data,
-        file_name=filename,
-        mime="text/csv",
-    )
-    st.success(f"准备导出 {len(results)} 条记录")
-
-
-def export_asin_negatives(results: list[dict]):
-    """导出否定清单（按ASIN分组）"""
-    import datetime
-
-    # 筛选需要否定的词
-    negatives = [
-        r
-        for r in results
-        if r.get("auto_action") == "negate"
-        or "否定" in str(r.get("suggested_action", ""))
-    ]
-
-    if not negatives:
-        st.warning("没有可导出的否词数据")
-        return
-
-    # 按ASIN分组
-    export_df = pd.DataFrame(
-        [
-            {
-                "ASIN": r["asin_identifier"],
-                "搜索词": r["term"],
-                "类型": r["term_type"],
-                "触发规则": r["triggered_rule"],
-                "否定来源": "自动否定"
-                if r.get("auto_action") == "negate"
-                else "规则否定",
-                "点击": r["clicks"],
-                "订单": r["orders"],
-            }
-            for r in negatives
-        ]
-    )
-
-    # 按ASIN排序
-    export_df = export_df.sort_values(["ASIN", "搜索词"])
-
-    csv_data = export_df.to_csv(index=False, encoding="utf-8-sig")
-    filename = f"asin_negatives_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
-    st.download_button(
-        label="下载否词清单CSV",
-        data=csv_data,
-        file_name=filename,
-        mime="text/csv",
-    )
-    st.success(f"准备导出 {len(negatives)} 条否词记录")
+        if negatives_payload:
+            st.download_button(
+                label="导出否定清单（按ASIN）",
+                data=negatives_payload["data"],
+                file_name=negatives_payload["file_name"],
+                mime=negatives_payload["mime"],
+                key="download_asin_negatives",
+            )
+        else:
+            st.button("导出否定清单（按ASIN）", disabled=True, width="stretch")

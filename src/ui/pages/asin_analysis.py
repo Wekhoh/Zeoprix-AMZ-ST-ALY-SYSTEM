@@ -12,6 +12,32 @@ from src.config.logger import get_logger
 logger = get_logger(__name__)
 
 
+def build_unified_negation_export_payload(unified_neg: list):
+    """构建统一否词建议的直接下载载荷。"""
+    import datetime
+
+    if not unified_neg:
+        return None
+
+    export_df = pd.DataFrame(
+        [
+            {
+                "搜索词": item["term"],
+                "总花费($)": f"{item['total_spend']:.2f}",
+                "涉及ASIN数": item["asin_count"],
+                "涉及ASIN": ", ".join(item.get("asins", [])),
+            }
+            for item in unified_neg
+        ]
+    )
+
+    csv_data = export_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+    filename = (
+        f"unified_negation_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    )
+    return {"data": csv_data, "file_name": filename, "mime": "text/csv"}
+
+
 def _render_metric_card(label: str, value: str):
     """渲染单个指标卡片，标签更醒目"""
     st.markdown(
@@ -449,42 +475,16 @@ def render_cross_asin_analysis(analyzer: ASINAnalyzer, product_id: int):
         neg_df["总花费($)"] = neg_df["总花费($)"].apply(lambda x: f"{x:.2f}")
         st.dataframe(neg_df, use_container_width=True, hide_index=True)
 
-        # 导出按钮
-        if st.button("导出统一否词清单", key="export_unified_neg"):
-            export_unified_negation(unified_neg)
+        payload = build_unified_negation_export_payload(unified_neg)
+        if payload:
+            st.download_button(
+                label="导出统一否词清单",
+                data=payload["data"],
+                file_name=payload["file_name"],
+                mime=payload["mime"],
+                key="download_unified_neg",
+            )
+        else:
+            st.button("导出统一否词清单", disabled=True, width="stretch")
     else:
         st.success("未发现需要统一否定的词")
-
-
-def export_unified_negation(unified_neg: list):
-    """导出统一否词清单"""
-    import datetime
-
-    if not unified_neg:
-        st.warning("没有可导出的数据")
-        return
-
-    export_df = pd.DataFrame(
-        [
-            {
-                "搜索词": item["term"],
-                "总花费($)": f"{item['total_spend']:.2f}",
-                "涉及ASIN数": item["asin_count"],
-                "涉及ASIN": ", ".join(item.get("asins", [])),
-            }
-            for item in unified_neg
-        ]
-    )
-
-    csv_data = export_df.to_csv(index=False, encoding="utf-8-sig")
-    filename = (
-        f"unified_negation_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    )
-
-    st.download_button(
-        label=f"下载CSV ({len(export_df)}条)",
-        data=csv_data,
-        file_name=filename,
-        mime="text/csv",
-    )
-    st.success(f"准备导出 {len(unified_neg)} 条统一否词")
