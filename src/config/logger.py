@@ -56,6 +56,7 @@ def setup_logging() -> None:
         format=log_format,
         datefmt=date_format,
         handlers=handlers,
+        force=True,
     )
 
     # 降低第三方库的日志级别

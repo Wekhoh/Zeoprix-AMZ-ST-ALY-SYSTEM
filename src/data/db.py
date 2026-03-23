@@ -5,6 +5,7 @@
 
 import json
 import sqlite3
+import weakref
 from pathlib import Path
 
 import pandas as pd
@@ -30,19 +31,35 @@ class Database:
         self.db_path = db_path
         self._ensure_dir()
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30.0)
+        self._conn_finalizer = weakref.finalize(self, sqlite3.Connection.close, self.conn)
         # 启用外键约束
         self.conn.execute("PRAGMA foreign_keys = ON")
         # 返回字典形式的行
         self.conn.row_factory = sqlite3.Row
+
+    def __enter__(self):
+        """支持 with Database(...) as db 用法。"""
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        """离开上下文时自动关闭连接。"""
+        self.close()
 
     def _ensure_dir(self) -> None:
         """确保数据库目录存在"""
         db_dir = Path(self.db_path).parent
         db_dir.mkdir(parents=True, exist_ok=True)
 
+    def _get_connection(self) -> sqlite3.Connection:
+        """获取当前连接；已关闭时抛出清晰错误。"""
+        if self.conn is None:
+            raise RuntimeError("数据库连接已关闭")
+        return self.conn
+
     def init_schema(self) -> None:
         """初始化数据库表结构"""
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         try:
             # 创建所有表
             for _table_name, schema in ALL_SCHEMAS:
@@ -56,9 +73,9 @@ class Database:
             for index_sql in INDEXES:
                 cursor.execute(index_sql)
 
-            self.conn.commit()
+            conn.commit()
         except sqlite3.Error as e:
-            self.conn.rollback()
+            conn.rollback()
             raise RuntimeError(f"初始化数据库失败: {e}") from e
 
     def _migrate_schema(self, cursor: sqlite3.Cursor) -> None:
@@ -211,24 +228,29 @@ class Database:
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """执行SQL语句"""
-        return self.conn.execute(sql, params)
+        return self._get_connection().execute(sql, params)
 
     def executemany(self, sql: str, params_list: list) -> sqlite3.Cursor:
         """批量执行SQL语句"""
-        return self.conn.executemany(sql, params_list)
+        return self._get_connection().executemany(sql, params_list)
 
     def commit(self) -> None:
         """提交事务"""
-        self.conn.commit()
+        self._get_connection().commit()
 
     def rollback(self) -> None:
         """回滚事务"""
-        self.conn.rollback()
+        self._get_connection().rollback()
 
     def close(self) -> None:
         """关闭数据库连接"""
-        if self.conn:
-            self.conn.close()
+        conn = getattr(self, "conn", None)
+        finalizer = getattr(self, "_conn_finalizer", None)
+        if conn is not None:
+            conn.close()
+            self.conn = None
+        if finalizer is not None and finalizer.alive:
+            finalizer.detach()
 
     # ==================== 产品操作 ====================
 

@@ -6,6 +6,10 @@ Sprint 1 单元测试
 import os
 import sys
 import tempfile
+import gc
+import importlib
+import warnings
+import weakref
 from pathlib import Path
 
 import pytest
@@ -66,6 +70,49 @@ class TestDatabaseSchema:
             db.close()
         finally:
             os.unlink(db_path)
+
+    def test_database_instance_does_not_leak_sqlite_connection_on_gc(self):
+        """数据库实例即使忘记手动 close，也不应在 GC 时泄漏 sqlite 连接警告。"""
+        from src.data.db import Database
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            db = Database(db_path)
+            db.init_schema()
+            db_ref = weakref.ref(db)
+            del db
+            gc.collect()
+
+            assert db_ref() is None
+
+            if os.path.exists(db_path):
+                os.unlink(db_path)
+                db_path = None
+        finally:
+            if db_path and os.path.exists(db_path):
+                os.unlink(db_path)
+
+
+class TestLoggingConfiguration:
+    """T01B: 日志配置资源回收测试"""
+
+    def test_reloading_logger_module_does_not_leak_file_handles(self):
+        """重复加载日志模块时，不应留下未关闭的日志文件句柄。"""
+        import src.config.logger as logger_mod
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ResourceWarning)
+            importlib.reload(logger_mod)
+            gc.collect()
+
+        resource_warnings = [
+            warning
+            for warning in caught
+            if issubclass(warning.category, ResourceWarning)
+        ]
+        assert resource_warnings == []
 
 
 class TestDatabaseOperations:
