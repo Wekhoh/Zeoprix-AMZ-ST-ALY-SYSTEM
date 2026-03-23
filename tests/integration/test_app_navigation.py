@@ -34,6 +34,21 @@ def _get_sidebar_nav_radio(app: AppTest):
     )
 
 
+def test_sidebar_product_selector_prefers_current_product_id():
+    """侧边栏产品选择器应优先定位到当前产品，而不是固定回到第一个。"""
+    from src.app import _get_product_selectbox_index
+
+    products = [
+        {"id": 101, "name": "第一个产品"},
+        {"id": 202, "name": "第二个产品"},
+        {"id": 303, "name": "第三个产品"},
+    ]
+
+    assert _get_product_selectbox_index(products, 202) == 1
+    assert _get_product_selectbox_index(products, 999) == 0
+    assert _get_product_selectbox_index([], 202) is None
+
+
 def _seed_minimal_search_term(db, campaign_id: int) -> None:
     df = pd.DataFrame(
         [

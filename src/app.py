@@ -58,6 +58,21 @@ def init_session_state():
         st.session_state.chat_messages = []
 
 
+def _get_product_selectbox_index(
+    products: list[dict], current_product_id: int | None
+) -> int | None:
+    """根据当前产品ID返回侧边栏产品选择器应使用的索引。"""
+    if not products:
+        return None
+
+    if current_product_id is not None:
+        for index, product in enumerate(products):
+            if product.get("id") == current_product_id:
+                return index
+
+    return 0
+
+
 def render_sidebar():
     """渲染侧边栏"""
     with st.sidebar:
@@ -86,7 +101,9 @@ def render_sidebar():
             selected_product = st.selectbox(
                 "当前产品",
                 options=list(product_options.keys()),
-                index=0 if products else None,
+                index=_get_product_selectbox_index(
+                    products, st.session_state.get("current_product_id")
+                ),
             )
             if selected_product:
                 st.session_state.current_product_id = product_options[selected_product]

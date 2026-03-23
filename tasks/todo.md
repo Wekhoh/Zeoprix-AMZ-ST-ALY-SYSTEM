@@ -23,10 +23,12 @@
   - 对齐首页/汇总/按活动/操作清单/导出到 truth-first 口径
   - 提升侧边栏层级，避免主内容遮挡点击
   - 首页 `待处理项` 与操作清单改为排除跨ASIN分歧项，避免把冲突词错误导出成可执行否词/手动动作
+  - 修复侧边栏“当前产品”选择器始终回到第一个产品的状态错位，当前产品现在会正确高亮和保留
 - Evidence:
   - DEBUG=true pytest -q => 224 passed, 2 warnings
   - analyze_mismatches.py => campaign 107/107, aggregate 398/398
   - 浏览器实测：首页待处理项已收敛到 37/11；操作清单仅保留可执行项（24 精确否定 / 8 词组否定 / 5 ASIN否定 / 9 手动精准 / 2 商品定位）
+  - 本轮新增回归：`tests/integration/test_app_navigation.py` 覆盖当前产品选择器索引逻辑；`DEBUG=true pytest -q` => 229 passed, 2 warnings
 - Risks / follow-ups:
   - ASIN分析 Top/Bottom / 跨ASIN智能仍是洞察视角而非最终动作真相
   - 仍有 sidebar theme warning 待继续判断是否可通过上游兼容方案消除
