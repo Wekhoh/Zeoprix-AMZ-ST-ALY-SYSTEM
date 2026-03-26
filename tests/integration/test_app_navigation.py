@@ -13,6 +13,10 @@ from src.ui.pages.actions import _build_actions_workbench_meta
 from src.ui.pages.home import _build_dashboard_metric_cards, _build_overview_chart_rows
 from src.ui.pages.review import _build_review_dashboard_state, _build_review_empty_state
 from src.ui.pages.settings import _build_settings_shell_meta
+from src.ui.pages.settings_data import (
+    _build_data_management_summary,
+    _build_keyword_library_summary,
+)
 from src.ui.pages.settings_rules import (
     _build_rule_section_meta,
     _build_rule_settings_summary,
@@ -405,6 +409,46 @@ def test_rule_section_meta_maps_long_form_into_control_console_sections():
     ]
     assert sections[1]["description"].startswith("先把“多少点击才值得认真判断”定住")
     assert sections[-1]["description"].startswith("这里只处理竞品 ASIN 的硬门槛")
+
+
+def test_keyword_library_summary_surfaces_counts_and_own_variants():
+    """关键词库页应先展示词库沉淀规模，而不是直接把用户扔进多段文本框。"""
+    summary = _build_keyword_library_summary(
+        {
+            "keyword_libraries": {
+                "irrelevant_keywords": ["massage", "brace"],
+                "weak_category_keywords": ["blanket"],
+                "generic_keywords": ["pillow", "neck", "home"],
+                "car_keywords": ["car"],
+            },
+            "own_variants": ["B0AAA", "B0BBB"],
+        }
+    )
+
+    assert summary == {
+        "title": "关键词库配置",
+        "description": "把搜索词识别里最稳定的人工经验沉淀成词库：先分相关性，再补自家变体，减少每次都从头判断。",
+        "chips": [
+            "词库总词数 7",
+            "不相关词 2",
+            "弱相关词 1",
+            "自家变体 2",
+        ],
+    }
+
+
+def test_data_management_summary_surfaces_scale_before_actions():
+    """数据管理页应先告知数据规模，再引导用户做重算、导出或危险操作。"""
+    summary = _build_data_management_summary(461, 316, 6)
+    assert summary == {
+        "title": "数据管理",
+        "description": "这里处理的是重跑、清空、导入导出和备份。先看数据规模，再决定是重算、导出还是危险操作。",
+        "chips": [
+            "搜索词 461",
+            "分析结果 316",
+            "广告活动 6",
+        ],
+    }
 
 
 def test_overview_chart_rows_are_sorted_for_custom_rendering():
