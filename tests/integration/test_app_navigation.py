@@ -13,7 +13,10 @@ from src.ui.pages.actions import _build_actions_workbench_meta
 from src.ui.pages.home import _build_dashboard_metric_cards, _build_overview_chart_rows
 from src.ui.pages.review import _build_review_dashboard_state, _build_review_empty_state
 from src.ui.pages.settings import _build_settings_shell_meta
-from src.ui.pages.settings_rules import _build_rule_settings_summary
+from src.ui.pages.settings_rules import (
+    _build_rule_section_meta,
+    _build_rule_settings_summary,
+)
 from src.ui.pages.upload import _build_truth_import_guidance
 
 
@@ -386,6 +389,22 @@ def test_rule_settings_summary_surfaces_stage_and_thresholds():
             "好转化率 10%",
         ],
     }
+
+
+def test_rule_section_meta_maps_long_form_into_control_console_sections():
+    """规则配置页应把长表单拆成有说明的控制台分区。"""
+    sections = _build_rule_section_meta()
+
+    assert [section["title"] for section in sections] == [
+        "产品阶段",
+        "样本量阈值",
+        "转化率阈值 (CVR)",
+        "否词规则",
+        "手动投放规则",
+        "竞品ASIN规则",
+    ]
+    assert sections[1]["description"].startswith("先把“多少点击才值得认真判断”定住")
+    assert sections[-1]["description"].startswith("这里只处理竞品 ASIN 的硬门槛")
 
 
 def test_overview_chart_rows_are_sorted_for_custom_rendering():
