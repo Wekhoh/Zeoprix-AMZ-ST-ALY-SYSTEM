@@ -68,6 +68,31 @@ def _render_overview_chart(chart_data: dict[str, int]) -> None:
         unsafe_allow_html=True,
     )
 
+def _build_pending_notices(pending_stats: dict[str, int]) -> list[tuple[str, str]]:
+    """将首页待处理项整理为稳定、可测试的提示列表。"""
+    notices: list[tuple[str, str]] = []
+
+    if pending_stats.get("negative_count", 0) > 0:
+        notices.append(("warning", f"{pending_stats['negative_count']} 个词需要否定"))
+
+    if pending_stats.get("manual_count", 0) > 0:
+        notices.append(("success", f"{pending_stats['manual_count']} 个高转化词待投放"))
+
+    if pending_stats.get("conflict_count", 0) > 0:
+        notices.append(("warning", f"{pending_stats['conflict_count']} 个词存在跨ASIN分歧，需人工拍板"))
+
+    if pending_stats.get("ai_pending_count", 0) > 0:
+        notices.append(("info", f"{pending_stats['ai_pending_count']} 个词待AI确认"))
+
+    if pending_stats.get("review_pending_count", 0) > 0:
+        notices.append(("info", f"{pending_stats['review_pending_count']} 个词待审核相关性"))
+
+    if not notices:
+        notices.append(("success", "暂无待处理项"))
+
+    return notices
+
+
 def _navigate_to(page: str) -> None:
     """切换到目标页面。"""
     st.session_state.nav_page = page
@@ -156,26 +181,8 @@ def render_home():
 
         pending_stats = all_data["pending_stats"]
 
-        if pending_stats["negative_count"] > 0:
-            st.warning(f"{pending_stats['negative_count']} 个词需要否定")
-
-        if pending_stats["manual_count"] > 0:
-            st.success(f"{pending_stats['manual_count']} 个高转化词待投放")
-
-        if pending_stats.get("conflict_count", 0) > 0:
-            st.warning(
-                f"{pending_stats['conflict_count']} 个词存在跨ASIN分歧，需人工拍板"
-            )
-
-        if pending_stats["ai_pending_count"] > 0:
-            st.info(f"{pending_stats['ai_pending_count']} 个词待AI确认")
-
-        # v2.0: 显示待审核相关性的词
-        if pending_stats.get("review_pending_count", 0) > 0:
-            st.info(f"{pending_stats['review_pending_count']} 个词待审核相关性")
-
-        if sum(pending_stats.values()) == 0:
-            st.success("暂无待处理项")
+        for level, message in _build_pending_notices(pending_stats):
+            getattr(st, level)(message)
 
     with col_right:
         st.subheader("快速操作")

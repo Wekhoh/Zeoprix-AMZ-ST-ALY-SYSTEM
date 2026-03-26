@@ -112,6 +112,44 @@ def test_home_quick_action_button_navigates_after_single_click(
     assert app.title[0].value == "操作清单"
 
 
+def test_pending_notices_are_rendered_in_truth_first_priority_order():
+    """首页待处理项应按 truth-first 优先级输出固定顺序和文案。"""
+    from src.ui.pages.home import _build_pending_notices
+
+    notices = _build_pending_notices(
+        {
+            "negative_count": 37,
+            "manual_count": 11,
+            "conflict_count": 18,
+            "ai_pending_count": 0,
+            "review_pending_count": 0,
+        }
+    )
+
+    assert notices == [
+        ("warning", "37 个词需要否定"),
+        ("success", "11 个高转化词待投放"),
+        ("warning", "18 个词存在跨ASIN分歧，需人工拍板"),
+    ]
+
+
+def test_pending_notices_fall_back_to_empty_state_when_all_counts_are_zero():
+    """当没有待处理项时，首页应只显示统一的空状态提示。"""
+    from src.ui.pages.home import _build_pending_notices
+
+    notices = _build_pending_notices(
+        {
+            "negative_count": 0,
+            "manual_count": 0,
+            "conflict_count": 0,
+            "ai_pending_count": 0,
+            "review_pending_count": 0,
+        }
+    )
+
+    assert notices == [("success", "暂无待处理项")]
+
+
 def test_overview_chart_rows_are_sorted_for_custom_rendering():
     """��ҳ���ݸ���Ӧ���������������Ⱦ����״ͼ���С"""
     rows = _build_overview_chart_rows(
