@@ -36,6 +36,8 @@ class TestDatabaseSchema:
             # 检查7个表是否都存在
             expected_tables = [
                 "products",
+                "users",
+                "workspace_memberships",
                 "campaigns",
                 "search_terms",
                 "rules",
@@ -238,6 +240,70 @@ class TestDatabaseOperations:
         rule_names = [r["name"] for r in rules]
         assert "高花费零转化" in rule_names
         assert "高转化词" in rule_names
+
+    def test_create_user_and_workspace_membership(self, db):
+        """测试创建用户并绑定到产品工作区角色。"""
+        product_id = db.create_product(name="协作工作区", asin="B0TEAM00001")
+
+        user_id = db.create_user(
+            email="owner@example.com",
+            display_name="Owner",
+        )
+        membership_id = db.add_workspace_member(
+            product_id=product_id,
+            user_id=user_id,
+            role="admin",
+        )
+
+        assert membership_id > 0
+
+        user = db.get_user(user_id)
+        assert user is not None
+        assert user["email"] == "owner@example.com"
+        assert user["display_name"] == "Owner"
+
+        members = db.get_workspace_members(product_id)
+        assert len(members) == 1
+        assert members[0]["user_id"] == user_id
+        assert members[0]["role"] == "admin"
+        assert members[0]["display_name"] == "Owner"
+
+        role = db.get_workspace_role(product_id=product_id, user_id=user_id)
+        assert role == "admin"
+
+    def test_add_workspace_member_upserts_role_changes(self, db):
+        """测试重复绑定成员时会更新角色而不是重复插入。"""
+        product_id = db.create_product(name="协作工作区")
+        user_id = db.create_user(email="editor@example.com", display_name="Editor")
+
+        first_membership_id = db.add_workspace_member(
+            product_id=product_id,
+            user_id=user_id,
+            role="editor",
+        )
+        second_membership_id = db.add_workspace_member(
+            product_id=product_id,
+            user_id=user_id,
+            role="viewer",
+        )
+
+        assert second_membership_id == first_membership_id
+
+        members = db.get_workspace_members(product_id)
+        assert len(members) == 1
+        assert members[0]["role"] == "viewer"
+
+    def test_workspace_role_rejects_invalid_role_values(self, db):
+        """测试工作区角色只允许 admin/editor/viewer。"""
+        product_id = db.create_product(name="协作工作区")
+        user_id = db.create_user(email="bad-role@example.com")
+
+        with pytest.raises(ValueError, match="不支持的工作区角色"):
+            db.add_workspace_member(
+                product_id=product_id,
+                user_id=user_id,
+                role="owner",
+            )
 
 
 class TestSettings:

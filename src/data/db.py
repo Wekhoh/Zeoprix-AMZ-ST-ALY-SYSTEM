@@ -21,6 +21,8 @@ logger = get_logger(__name__)
 class Database:
     """数据库操作类"""
 
+    VALID_WORKSPACE_ROLES = {"admin", "editor", "viewer"}
+
     def __init__(self, db_path: str):
         """
         初始化数据库连接
@@ -197,6 +199,23 @@ class Database:
             WHERE reviewed = 1 AND relevance IS NULL
         """)
 
+        cursor.execute("PRAGMA table_info(users)")
+        user_columns = {row[1] for row in cursor.fetchall()}
+        if user_columns and "updated_at" not in user_columns:
+            cursor.execute(
+                "ALTER TABLE users ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+            )
+
+        cursor.execute("PRAGMA table_info(workspace_memberships)")
+        membership_columns = {row[1] for row in cursor.fetchall()}
+        if membership_columns and "updated_at" not in membership_columns:
+            cursor.execute(
+                """
+                ALTER TABLE workspace_memberships
+                ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                """
+            )
+
     def init_default_rules(self) -> None:
         """插入默认规则配置"""
         cursor = self.conn.cursor()
@@ -253,6 +272,116 @@ class Database:
             finalizer.detach()
 
     # ==================== 产品操作 ====================
+
+    def create_user(
+        self,
+        email: str,
+        display_name: str | None = None,
+        status: str = "active",
+    ) -> int:
+        """创建用户。"""
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            raise ValueError("email 不能为空")
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO users (email, display_name, status)
+            VALUES (?, ?, ?)
+            """,
+            (normalized_email, display_name, status),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_user(self, user_id: int = None, email: str = None) -> dict | None:
+        """按 ID 或邮箱获取用户。"""
+        if user_id is None and email is None:
+            raise ValueError("user_id 或 email 至少需要一个")
+
+        if user_id is not None:
+            cursor = self.conn.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        else:
+            cursor = self.conn.execute(
+                "SELECT * FROM users WHERE email = ?",
+                (email.strip().lower(),),
+            )
+
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def add_workspace_member(self, product_id: int, user_id: int, role: str) -> int:
+        """为产品工作区绑定成员角色；重复绑定时更新角色。"""
+        normalized_role = role.strip().lower()
+        if normalized_role not in self.VALID_WORKSPACE_ROLES:
+            raise ValueError(
+                f"不支持的工作区角色: {role}，仅支持 {sorted(self.VALID_WORKSPACE_ROLES)}"
+            )
+
+        self.conn.execute(
+            """
+            INSERT INTO workspace_memberships (product_id, user_id, role)
+            VALUES (?, ?, ?)
+            ON CONFLICT(product_id, user_id) DO UPDATE SET
+                role = excluded.role,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (product_id, user_id, normalized_role),
+        )
+        self.conn.commit()
+
+        cursor = self.conn.execute(
+            """
+            SELECT id FROM workspace_memberships
+            WHERE product_id = ? AND user_id = ?
+            """,
+            (product_id, user_id),
+        )
+        row = cursor.fetchone()
+        return row["id"]
+
+    def get_workspace_members(self, product_id: int) -> list[dict]:
+        """获取产品工作区成员列表。"""
+        cursor = self.conn.execute(
+            """
+            SELECT
+                wm.id,
+                wm.product_id,
+                wm.user_id,
+                wm.role,
+                wm.created_at,
+                wm.updated_at,
+                u.email,
+                u.display_name,
+                u.status
+            FROM workspace_memberships wm
+            JOIN users u ON u.id = wm.user_id
+            WHERE wm.product_id = ?
+            ORDER BY
+                CASE wm.role
+                    WHEN 'admin' THEN 1
+                    WHEN 'editor' THEN 2
+                    ELSE 3
+                END,
+                COALESCE(u.display_name, u.email) COLLATE NOCASE
+            """,
+            (product_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_workspace_role(self, product_id: int, user_id: int) -> str | None:
+        """获取用户在产品工作区中的角色。"""
+        cursor = self.conn.execute(
+            """
+            SELECT role
+            FROM workspace_memberships
+            WHERE product_id = ? AND user_id = ?
+            """,
+            (product_id, user_id),
+        )
+        row = cursor.fetchone()
+        return row["role"] if row else None
 
     def create_product(
         self, name: str, asin: str = None, category: str = None, config: dict = None
@@ -1046,6 +1175,8 @@ class Database:
         # 白名单验证防止SQL注入
         VALID_TABLES = {
             "products",
+            "users",
+            "workspace_memberships",
             "campaigns",
             "search_terms",
             "rules",

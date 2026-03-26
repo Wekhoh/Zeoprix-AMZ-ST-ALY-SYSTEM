@@ -156,6 +156,33 @@ CREATE TABLE IF NOT EXISTS products (
 );
 """
 
+# 用户表（多人协作骨架）
+USERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    display_name TEXT,
+    status TEXT DEFAULT 'active',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# 产品工作区成员关系表（当前以 products 作为工作区）
+WORKSPACE_MEMBERSHIPS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS workspace_memberships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(product_id, user_id),
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+"""
+
 # 广告活动表
 CAMPAIGNS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS campaigns (
@@ -324,6 +351,8 @@ CREATE TABLE IF NOT EXISTS manual_reviews (
 # 所有表Schema的有序列表（按依赖顺序）
 ALL_SCHEMAS = [
     ("products", PRODUCTS_SCHEMA),
+    ("users", USERS_SCHEMA),
+    ("workspace_memberships", WORKSPACE_MEMBERSHIPS_SCHEMA),
     ("campaigns", CAMPAIGNS_SCHEMA),
     ("search_terms", SEARCH_TERMS_SCHEMA),
     ("rules", RULES_SCHEMA),
@@ -336,6 +365,9 @@ ALL_SCHEMAS = [
 
 # 创建索引以提升查询性能
 INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);",
+    "CREATE INDEX IF NOT EXISTS idx_workspace_memberships_product_id ON workspace_memberships(product_id);",
+    "CREATE INDEX IF NOT EXISTS idx_workspace_memberships_user_id ON workspace_memberships(user_id);",
     "CREATE INDEX IF NOT EXISTS idx_campaigns_product_id ON campaigns(product_id);",
     "CREATE INDEX IF NOT EXISTS idx_search_terms_campaign_id ON search_terms(campaign_id);",
     "CREATE INDEX IF NOT EXISTS idx_search_terms_term ON search_terms(term);",
