@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
+from src.ui.pages.analysis import _build_truth_summary_metrics, _get_analysis_mode_meta
 from src.ui.pages.home import _build_dashboard_metric_cards, _build_overview_chart_rows
 from src.ui.pages.upload import _build_truth_import_guidance
 
@@ -212,6 +213,37 @@ def test_truth_import_guidance_matches_upload_sequence_rules():
         "success",
         "当前产品已具备导入条件：先看预检结果，再一键导入人工判定表。",
     )
+
+
+def test_analysis_mode_meta_matches_workbench_copy():
+    """搜索词分析页三种模式应有稳定的人话说明。"""
+    assert _get_analysis_mode_meta("汇总模式") == {
+        "title": "汇总结论视角",
+        "description": "把最终动作、跨 ASIN 分歧与执行优先级放在最前面，适合先看结论再处理。",
+    }
+    assert _get_analysis_mode_meta("按活动模式")["title"] == "广告组级动作视角"
+    assert _get_analysis_mode_meta("按ASIN模式")["title"] == "ASIN / 变体差异视角"
+
+
+def test_truth_summary_metrics_keep_conflicts_out_of_action_counts():
+    """truth-first 汇总指标中，跨ASIN分歧不应混入可执行动作计数。"""
+    metrics = _build_truth_summary_metrics(
+        [
+            {"action_type": "negative_exact", "has_conflict": False},
+            {"action_type": "negative_phrase", "has_conflict": False},
+            {"action_type": "manual_keyword", "has_conflict": False},
+            {"action_type": "observe", "has_conflict": False},
+            {"action_type": "conflict", "has_conflict": True},
+        ]
+    )
+
+    assert metrics == {
+        "negative_count": 2,
+        "manual_count": 1,
+        "observe_count": 1,
+        "conflict_count": 1,
+        "reviewed_label": "5/5",
+    }
 
 
 def test_overview_chart_rows_are_sorted_for_custom_rendering():

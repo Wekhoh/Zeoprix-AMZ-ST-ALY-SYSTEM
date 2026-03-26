@@ -4,6 +4,8 @@
 支持汇总模式和按活动分析模式
 """
 
+from html import escape
+
 import pandas as pd
 import streamlit as st
 
@@ -11,6 +13,170 @@ from src.config.logger import get_logger
 from src.ui.utils import safe_error
 
 logger = get_logger(__name__)
+
+ANALYSIS_PAGE_CSS = """
+<style>
+.analysis-hero {
+    padding: 1.2rem 1.35rem;
+    border-radius: 22px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    background: linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(248,250,252,0.92) 100%);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.05);
+    margin-bottom: 1rem;
+}
+.analysis-hero__eyebrow {
+    display: inline-flex;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.08);
+    color: #2563EB;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.analysis-hero h1 {
+    margin: 0.8rem 0 0.3rem 0 !important;
+}
+.analysis-hero p {
+    margin: 0;
+    color: #64748B;
+    font-size: 0.96rem;
+    line-height: 1.6;
+}
+.analysis-hero__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin-top: 1rem;
+}
+.analysis-hero__chip {
+    padding: 0.56rem 0.82rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(255,255,255,0.9);
+    color: #334155;
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+.analysis-mode-shell {
+    padding: 0.95rem 1.05rem 0.2rem 1.05rem;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    background: rgba(255,255,255,0.88);
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+    margin-bottom: 1rem;
+}
+.analysis-mode-shell small {
+    display: block;
+    color: #94A3B8;
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.35rem;
+}
+.analysis-mode-shell strong {
+    display: block;
+    color: #0F172A;
+    font-size: 1rem;
+    margin-bottom: 0.2rem;
+}
+.analysis-mode-shell span {
+    color: #64748B;
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+.analysis-filter-shell {
+    padding: 0.95rem 1rem 0.35rem 1rem;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    background: rgba(255,255,255,0.9);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+    margin-bottom: 1rem;
+}
+.analysis-filter-shell strong {
+    display: block;
+    color: #0F172A;
+    margin-bottom: 0.25rem;
+}
+.analysis-filter-shell span {
+    color: #64748B;
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+.analysis-truth-banner {
+    padding: 0.88rem 1rem;
+    border-radius: 18px;
+    border: 1px solid rgba(37, 99, 235, 0.12);
+    background: linear-gradient(180deg, rgba(239,246,255,0.92) 0%, rgba(219,234,254,0.95) 100%);
+    color: #1D4ED8;
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 0.9rem;
+}
+.analysis-table-caption {
+    color: #64748B;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin-bottom: 0.6rem;
+}
+</style>
+"""
+
+
+def _get_analysis_mode_meta(mode: str) -> dict[str, str]:
+    """为分析模式切换提供稳定的说明文案。"""
+    return {
+        "汇总模式": {
+            "title": "汇总结论视角",
+            "description": "把最终动作、跨 ASIN 分歧与执行优先级放在最前面，适合先看结论再处理。",
+        },
+        "按活动模式": {
+            "title": "广告组级动作视角",
+            "description": "保留广告组差异，适合核对同一搜索词在不同活动下为什么会出现不同动作。",
+        },
+        "按ASIN模式": {
+            "title": "ASIN / 变体差异视角",
+            "description": "按 ASIN 标识聚合，适合对比 BLK、DBL 等变体在搜索词上的差异与分歧。",
+        },
+    }.get(
+        mode,
+        {
+            "title": "分析视角",
+            "description": "按当前模式查看搜索词的结论、触发规则与执行优先级。",
+        },
+    )
+
+
+def _build_truth_summary_metrics(rows: list[dict]) -> dict[str, int | str]:
+    """统一 truth-first 汇总模式的顶部指标计算逻辑。"""
+    negative_count = sum(
+        1
+        for row in rows
+        if row.get("action_type") != "conflict"
+        and "negative" in str(row.get("action_type", ""))
+    )
+    manual_count = sum(
+        1
+        for row in rows
+        if row.get("action_type") != "conflict"
+        and "manual" in str(row.get("action_type", ""))
+    )
+    observe_count = sum(
+        1
+        for row in rows
+        if row.get("action_type") in {"continue_observe", "observe"}
+    )
+    conflict_count = sum(1 for row in rows if row.get("has_conflict"))
+    total_count = len(rows)
+
+    return {
+        "negative_count": negative_count,
+        "manual_count": manual_count,
+        "observe_count": observe_count,
+        "conflict_count": conflict_count,
+        "reviewed_label": f"{total_count}/{total_count}",
+    }
 
 
 def build_reviewed_export_payload(
@@ -216,7 +382,7 @@ AUTO_ACTION_DISPLAY = {
 
 def render_analysis():
     """渲染搜索词分析页面"""
-    st.title("搜索词分析")
+    st.markdown(ANALYSIS_PAGE_CSS, unsafe_allow_html=True)
 
     db = st.session_state.get("db")
     product_id = st.session_state.get("current_product_id")
@@ -229,11 +395,42 @@ def render_analysis():
         st.warning("请先选择产品")
         return
 
-    # 分析模式选择（放在页面顶部）
+    current_mode = st.session_state.get("analysis_mode_selector", "汇总模式")
+    mode_meta = _get_analysis_mode_meta(current_mode)
+
+    st.markdown(
+        f"""
+        <div class="analysis-hero">
+            <span class="analysis-hero__eyebrow">分析工作台</span>
+            <h1>搜索词分析</h1>
+            <p>把结论、筛选和明细放在同一块工作面板里，先锁定当前视角，再下钻到具体词和动作。</p>
+            <div class="analysis-hero__chips">
+                <span class="analysis-hero__chip">{escape(mode_meta['title'])}</span>
+                <span class="analysis-hero__chip">真相优先结果优先展示</span>
+                <span class="analysis-hero__chip">支持按活动 / 按 ASIN 继续下钻</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f"""
+        <div class="analysis-mode-shell">
+            <small>当前工作视角</small>
+            <strong>{escape(mode_meta['title'])}</strong>
+            <span>{escape(mode_meta['description'])}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     analysis_mode = st.radio(
         "分析模式",
         options=["汇总模式", "按活动模式", "按ASIN模式"],
         horizontal=True,
+        key="analysis_mode_selector",
+        label_visibility="collapsed",
         help="汇总模式：跨活动聚合分析；按活动模式：保留活动维度；按ASIN模式：按ASIN标识聚合（如BLK、DBL）",
     )
 
@@ -918,38 +1115,47 @@ def export_results(db, product_id: int, result_type: str):
 
 def _render_truth_first_summary_analysis(rows: list[dict]) -> None:
     """渲染 truth-first 汇总模式（按唯一搜索词折叠后的最终视图）。"""
-    with st.expander("筛选条件", expanded=True):
-        col1, col2, col3 = st.columns(3)
+    st.markdown(
+        """
+        <div class="analysis-filter-shell">
+            <strong>筛选与定位</strong>
+            <span>先按动作类型和词类型收窄范围，再用搜索直接定位具体词或 ASIN，减少在长表里来回拉滚动条。</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        with col1:
-            action_filter = st.multiselect(
-                "动作类型",
-                options=["negative", "manual", "observe", "conflict"],
-                default=[],
-                format_func=lambda x: {
-                    "negative": "建议否定",
-                    "manual": "建议手动投放",
-                    "observe": "继续观察",
-                    "conflict": "跨ASIN分歧",
-                }.get(x, x),
-                key="summary_truth_action_filter",
-            )
+    col1, col2, col3 = st.columns(3)
 
-        with col2:
-            term_type_filter = st.multiselect(
-                "词类型",
-                options=["keyword", "asin"],
-                default=[],
-                format_func=lambda x: {"keyword": "关键词", "asin": "ASIN"}.get(x, x),
-                key="summary_truth_term_type_filter",
-            )
+    with col1:
+        action_filter = st.multiselect(
+            "动作类型",
+            options=["negative", "manual", "observe", "conflict"],
+            default=[],
+            format_func=lambda x: {
+                "negative": "建议否定",
+                "manual": "建议手动投放",
+                "observe": "继续观察",
+                "conflict": "跨ASIN分歧",
+            }.get(x, x),
+            key="summary_truth_action_filter",
+        )
 
-        with col3:
-            search_term = st.text_input(
-                "搜索关键词",
-                placeholder="输入搜索...",
-                key="summary_truth_search_term",
-            )
+    with col2:
+        term_type_filter = st.multiselect(
+            "词类型",
+            options=["keyword", "asin"],
+            default=[],
+            format_func=lambda x: {"keyword": "关键词", "asin": "ASIN"}.get(x, x),
+            key="summary_truth_term_type_filter",
+        )
+
+    with col3:
+        search_term = st.text_input(
+            "搜索关键词",
+            placeholder="输入搜索...",
+            key="summary_truth_search_term",
+        )
 
     filtered_rows = rows
 
@@ -981,45 +1187,35 @@ def _render_truth_first_summary_analysis(rows: list[dict]) -> None:
             or search_lower in " ".join(row.get("asin_identifiers", [])).lower()
         ]
 
-    st.info("已检测到 workbook truth，当前展示已切换为真相优先汇总视图。")
+    st.markdown(
+        '<div class="analysis-truth-banner">已检测到 workbook truth，当前展示已切换为真相优先汇总视图。</div>',
+        unsafe_allow_html=True,
+    )
     st.subheader(f"汇总真相视图 ({len(filtered_rows)} 条)")
 
     if not filtered_rows:
         st.warning("筛选后无数据")
         return
 
-    negative_count = sum(
-        1
-        for row in filtered_rows
-        if row.get("action_type") != "conflict"
-        and "negative" in str(row.get("action_type", ""))
-    )
-    manual_count = sum(
-        1
-        for row in filtered_rows
-        if row.get("action_type") != "conflict"
-        and "manual" in str(row.get("action_type", ""))
-    )
-    observe_count = sum(
-        1
-        for row in filtered_rows
-        if row.get("action_type") in {"continue_observe", "observe"}
-    )
-    conflict_count = sum(1 for row in filtered_rows if row.get("has_conflict"))
+    metrics = _build_truth_summary_metrics(filtered_rows)
 
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        st.metric("建议否定", negative_count)
+        st.metric("建议否定", metrics["negative_count"])
     with col2:
-        st.metric("建议手动投放", manual_count)
+        st.metric("建议手动投放", metrics["manual_count"])
     with col3:
-        st.metric("继续观察", observe_count)
+        st.metric("继续观察", metrics["observe_count"])
     with col4:
-        st.metric("跨ASIN分歧", conflict_count)
+        st.metric("跨ASIN分歧", metrics["conflict_count"])
     with col5:
-        st.metric("已审核", f"{len(filtered_rows)}/{len(filtered_rows)}")
+        st.metric("已审核", metrics["reviewed_label"])
 
     st.divider()
+    st.markdown(
+        '<p class="analysis-table-caption">当前表格已按最终汇总结论折叠成唯一搜索词视图，可继续使用表格自带的搜索、下载 CSV 和全屏查看能力。</p>',
+        unsafe_allow_html=True,
+    )
 
     display_df = pd.DataFrame(filtered_rows)[
         [
