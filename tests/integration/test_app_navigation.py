@@ -12,6 +12,8 @@ from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summar
 from src.ui.pages.actions import _build_actions_workbench_meta
 from src.ui.pages.home import _build_dashboard_metric_cards, _build_overview_chart_rows
 from src.ui.pages.review import _build_review_dashboard_state, _build_review_empty_state
+from src.ui.pages.settings import _build_settings_shell_meta
+from src.ui.pages.settings_rules import _build_rule_settings_summary
 from src.ui.pages.upload import _build_truth_import_guidance
 
 
@@ -345,6 +347,44 @@ def test_review_dashboard_state_and_empty_state_copy():
         "title": "所有词都已审核完成",
         "description": "这批数据已经完成人工判定，可以直接回到首页看待处理项，或进入操作清单执行。",
         "badge": "审核闭环已完成",
+    }
+
+
+def test_settings_shell_meta_matches_control_console_copy():
+    """系统设置页应稳定输出规则控制台文案。"""
+    meta = _build_settings_shell_meta("桌面验收产品")
+    assert meta == {
+        "eyebrow": "规则控制台",
+        "title": "系统设置",
+        "description": "把规则、词库、产品信息和数据管理收在同一处，先定策略，再批量应用到当前产品。",
+        "chips": [
+            "当前产品：桌面验收产品",
+            "先调规则，再看分析页回放",
+            "数据管理与规则设置分区阅读",
+        ],
+    }
+
+
+def test_rule_settings_summary_surfaces_stage_and_thresholds():
+    """规则配置页应输出稳定的人话摘要，减少长表单疲劳。"""
+    summary = _build_rule_settings_summary(
+        {"is_new_product": True},
+        {
+            "min_clicks_for_analysis": 20,
+            "min_clicks_for_asin_neg": 6,
+            "high_spend_no_order": 20.0,
+            "good_cvr": 0.10,
+        },
+    )
+    assert summary == {
+        "title": "规则阈值配置",
+        "description": "先确定产品阶段和样本量门槛，再微调 CVR、否词、手动投放和竞品 ASIN 规则，避免把整页输入框当 Excel 填。",
+        "chips": [
+            "当前阶段：新品期",
+            "可靠分析点击门槛 20",
+            "ASIN 否定门槛 6 点击 / $20",
+            "好转化率 10%",
+        ],
     }
 
 

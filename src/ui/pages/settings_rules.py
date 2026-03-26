@@ -18,6 +18,30 @@ from src.ui.utils import safe_error
 logger = get_logger(__name__)
 
 
+def _build_rule_settings_summary(
+    config: dict | None,
+    thresholds: dict | None,
+) -> dict[str, str | list[str]]:
+    """构建规则配置页的人话摘要。"""
+    config = config or {}
+    thresholds = thresholds or {}
+    stage_label = "新品期" if config.get("is_new_product", False) else "常规期"
+    analysis_clicks = int(thresholds.get("min_clicks_for_analysis", 20))
+    asin_clicks = int(thresholds.get("min_clicks_for_asin_neg", 6))
+    asin_spend = float(thresholds.get("high_spend_no_order", 20.0))
+    good_cvr = float(thresholds.get("good_cvr", 0.10))
+    return {
+        "title": "规则阈值配置",
+        "description": "先确定产品阶段和样本量门槛，再微调 CVR、否词、手动投放和竞品 ASIN 规则，避免把整页输入框当 Excel 填。",
+        "chips": [
+            f"当前阶段：{stage_label}",
+            f"可靠分析点击门槛 {analysis_clicks}",
+            f"ASIN 否定门槛 {asin_clicks} 点击 / ${asin_spend:.0f}",
+            f"好转化率 {good_cvr:.0%}",
+        ],
+    }
+
+
 def reapply_rules_to_data(db, product_id: int) -> int:
     """重新应用规则到现有数据
 
@@ -93,8 +117,6 @@ def reapply_rules_to_data(db, product_id: int) -> int:
 
 def render_rule_settings(db, product_id: int):
     """渲染规则配置"""
-    st.write("### 规则阈值配置")
-
     if not product_id:
         st.warning("请先选择产品")
         return
@@ -103,6 +125,13 @@ def render_rule_settings(db, product_id: int):
     product = db.get_product(product_id)
     config = product.get("config", {}) if product else {}
     thresholds = config.get("thresholds", {})
+    summary = _build_rule_settings_summary(config, thresholds)
+    st.write(f"### {summary['title']}")
+    st.caption(summary["description"])
+    chip_cols = st.columns(len(summary["chips"]))
+    for col, chip in zip(chip_cols, summary["chips"], strict=False):
+        with col:
+            st.info(chip)
 
     # 新品期设置
     st.write("#### 产品阶段")
@@ -343,6 +372,7 @@ def render_rule_settings(db, product_id: int):
 def render_rule_management(db, product_id: int):
     """渲染规则管理界面 - 支持增删改查自定义规则"""
     st.write("### 规则管理")
+    st.caption("这里处理的是规则本身：优先级、启用状态和重新应用。要改阈值，请回到“规则配置”；要改词库，请去“关键词库”。")
 
     st.info("""
     **规则说明**

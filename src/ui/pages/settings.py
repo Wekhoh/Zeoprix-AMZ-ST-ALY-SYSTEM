@@ -3,6 +3,7 @@
 管理规则配置、产品配置和系统参数
 """
 
+from html import escape
 
 import streamlit as st
 
@@ -20,16 +21,118 @@ from src.ui.utils import safe_error
 logger = get_logger(__name__)
 
 
+SETTINGS_PAGE_CSS = """
+<style>
+.settings-hero {
+    padding: 1.6rem 1.8rem;
+    border-radius: 26px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,255,0.96) 100%);
+    border: 1px solid rgba(59, 91, 219, 0.10);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.06);
+    margin-bottom: 1.2rem;
+}
+.settings-hero__eyebrow,
+.settings-note__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.72rem;
+    border-radius: 999px;
+    background: rgba(59, 91, 219, 0.08);
+    color: #3b5bdb;
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-bottom: 0.95rem;
+}
+.settings-hero h1 {
+    margin: 0;
+    font-size: 2.05rem;
+    line-height: 1.1;
+    color: #0f172a;
+}
+.settings-hero p,
+.settings-note p {
+    margin: 0.85rem 0 0;
+    color: #52607a;
+    font-size: 1rem;
+    line-height: 1.72;
+}
+.settings-hero__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin-top: 1.1rem;
+}
+.settings-hero__chip {
+    padding: 0.54rem 0.88rem;
+    border-radius: 999px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: rgba(255,255,255,0.82);
+    color: #334155;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+.settings-note {
+    padding: 1rem 1.15rem;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.78);
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+    margin-bottom: 1rem;
+}
+</style>
+"""
+
+
+def _build_settings_shell_meta(product_name: str | None) -> dict[str, str | list[str]]:
+    """构建系统设置页的控制台文案。"""
+    current_product = product_name or "未选择产品"
+    return {
+        "eyebrow": "规则控制台",
+        "title": "系统设置",
+        "description": "把规则、词库、产品信息和数据管理收在同一处，先定策略，再批量应用到当前产品。",
+        "chips": [
+            f"当前产品：{current_product}",
+            "先调规则，再看分析页回放",
+            "数据管理与规则设置分区阅读",
+        ],
+    }
+
+
 def render_settings():
     """渲染系统设置页面"""
-    st.title("系统设置")
-
     db = st.session_state.get("db")
     product_id = st.session_state.get("current_product_id")
 
     if not db:
         st.error("数据库未初始化")
         return
+
+    product_name = None
+    if product_id:
+        product = db.get_product(product_id)
+        if product:
+            product_name = product.get("name")
+
+    meta = _build_settings_shell_meta(product_name)
+    chips_html = "".join(
+        f'<div class="settings-hero__chip">{escape(chip)}</div>' for chip in meta["chips"]
+    )
+    st.markdown(SETTINGS_PAGE_CSS, unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <section class="settings-hero">
+            <div class="settings-hero__eyebrow">{escape(meta["eyebrow"])}</div>
+            <h1>{escape(meta["title"])}</h1>
+            <p>{escape(meta["description"])}</p>
+            <div class="settings-hero__chips">{chips_html}</div>
+        </section>
+        <section class="settings-note">
+            <div class="settings-note__eyebrow">建议顺序</div>
+            <p>先改规则配置与关键词库，再看产品配置；API 设置和数据管理放在后面，避免一开始就掉进长表单里打滚。</p>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # 标签页
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
@@ -58,6 +161,7 @@ def render_settings():
 def render_product_settings(db, product_id: int):
     """渲染产品配置"""
     st.write("### 产品信息")
+    st.caption("把产品名、ASIN、核心关键词和竞品列表收在一起，方便你从“规则”跳到“产品上下文”。")
 
     if not product_id:
         st.warning("请先选择产品")
@@ -141,6 +245,7 @@ def render_product_settings(db, product_id: int):
 def render_api_settings():
     """渲染API设置"""
     st.write("### API配置")
+    st.caption("API 设置主要用于确认模型和密钥状态，日常不需要频繁改动，把它当成运维区更合适。")
 
     st.info("API密钥存储在 .env 文件中，请手动编辑该文件来修改。")
 
