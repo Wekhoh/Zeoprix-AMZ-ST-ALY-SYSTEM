@@ -19,6 +19,116 @@ from src.data.parser import FileParser
 
 logger = get_logger(__name__)
 
+UPLOAD_PAGE_CSS = """
+<style>
+.upload-flow-shell {
+    padding: 1.2rem 1.35rem;
+    border-radius: 22px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    background: linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(248,250,252,0.92) 100%);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.05);
+    margin-bottom: 1.35rem;
+}
+.upload-flow-shell h1 {
+    margin: 0.85rem 0 0.3rem 0 !important;
+}
+.upload-flow-shell p {
+    margin: 0;
+    color: #64748B;
+    font-size: 0.96rem;
+    line-height: 1.6;
+}
+.upload-flow-badge {
+    display: inline-flex;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.08);
+    color: #2563EB;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.upload-flow-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin-top: 1rem;
+}
+.upload-flow-chip {
+    padding: 0.58rem 0.82rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(255,255,255,0.88);
+    color: #334155;
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+.upload-section-note {
+    margin: 0.2rem 0 1rem 0;
+    color: #64748B;
+    font-size: 0.94rem;
+    line-height: 1.55;
+}
+.upload-status-card {
+    padding: 0.9rem 1rem;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    background: rgba(255,255,255,0.88);
+    margin-bottom: 1rem;
+}
+.upload-status-card strong {
+    display: block;
+    color: #0F172A;
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
+}
+.upload-status-card span {
+    color: #64748B;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+.upload-status-card--warning {
+    background: linear-gradient(180deg, rgba(255,251,235,0.92) 0%, rgba(255,247,214,0.95) 100%);
+    border-color: rgba(245, 158, 11, 0.18);
+}
+.upload-status-card--success {
+    background: linear-gradient(180deg, rgba(236,253,245,0.92) 0%, rgba(220,252,231,0.95) 100%);
+    border-color: rgba(16, 185, 129, 0.18);
+}
+.upload-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.85rem;
+    margin: 0.75rem 0 1rem 0;
+}
+.upload-summary-card {
+    padding: 1rem 1.05rem;
+    border-radius: 18px;
+    background: rgba(255,255,255,0.94);
+    border: 1px solid rgba(226,232,240,0.9);
+    box-shadow: 0 10px 24px rgba(15,23,42,0.04);
+}
+.upload-summary-card span {
+    display: block;
+    color: #64748B;
+    font-size: 0.84rem;
+    font-weight: 600;
+    margin-bottom: 0.45rem;
+}
+.upload-summary-card strong {
+    color: #1E3A8A;
+    font-size: 1.8rem;
+    line-height: 1.05;
+}
+@media (max-width: 1100px) {
+    .upload-summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+</style>
+"""
+
 
 def get_upload_product_default_index(products, current_product_id: int | None) -> int:
     """根据当前产品优先选中上传页的产品下拉框。"""
@@ -29,6 +139,23 @@ def get_upload_product_default_index(products, current_product_id: int | None) -
         if product.get("id") == current_product_id:
             return index
     return 0
+
+
+def _build_truth_import_guidance(
+    current_product_id: int | None, campaign_count: int
+) -> tuple[str, str]:
+    """生成人工判定表导入前的顺序提示。"""
+    if not current_product_id:
+        return ("warning", "先选择或创建产品，再导入人工判定表。")
+    if campaign_count == 0:
+        return (
+            "warning",
+            "建议先导入原始报表，再导入广告组人工判定表，否则广告组名称无法匹配。",
+        )
+    return (
+        "success",
+        "当前产品已具备导入条件：先看预检结果，再一键导入人工判定表。",
+    )
 
 
 def _persist_uploaded_file(uploaded_file, target_dir: Path) -> Path:
@@ -110,7 +237,22 @@ def _render_truth_mapping_table(title: str, recognized_fields: dict[str, str]) -
 
 def render_upload():
     """渲染文件上传页面"""
-    st.title("文件上传")
+    st.markdown(UPLOAD_PAGE_CSS, unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="upload-flow-shell">
+            <span class="upload-flow-badge">导入流程</span>
+            <h1>文件上传</h1>
+            <p>把原始报表、广告组人工判定表和最终汇总结论表放在同一条流程里，先预检、再导入、再回到首页看结论。</p>
+            <div class="upload-flow-chips">
+                <span class="upload-flow-chip">1. 先选产品</span>
+                <span class="upload-flow-chip">2. 先导原始报表</span>
+                <span class="upload-flow-chip">3. 再导人工判定表</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     db = st.session_state.get("db")
     if not db:
@@ -157,8 +299,28 @@ def render_upload():
     if not current_product_id:
         st.info("请先选择或创建产品，再导入广告组人工判定表和最终汇总结论表。")
     else:
+        current_product_name = next(
+            (p["name"] for p in products if p["id"] == current_product_id),
+            "当前产品",
+        )
         st.caption(
             "如果这批数据已经在 Excel 里人工判定完成，可以直接导入两份表，系统会跳过重复审核并回放你的最终结论。"
+        )
+        campaign_count = db.execute(
+            "SELECT COUNT(*) AS count FROM campaigns WHERE product_id = ?",
+            (current_product_id,),
+        ).fetchone()["count"]
+        guidance_level, guidance_message = _build_truth_import_guidance(
+            current_product_id, campaign_count
+        )
+        st.markdown(
+            f"""
+            <div class="upload-status-card upload-status-card--{guidance_level}">
+                <strong>{current_product_name}</strong>
+                <span>{guidance_message}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
         campaign_truth_upload = st.file_uploader(
             "广告组人工判定表",
@@ -172,11 +334,6 @@ def render_upload():
             key="aggregate_truth_upload",
             help="例如：ASIN层面汇总分析_v7.xlsx",
         )
-
-        campaign_count = db.execute(
-            "SELECT COUNT(*) AS count FROM campaigns WHERE product_id = ?",
-            (current_product_id,),
-        ).fetchone()["count"]
         if campaign_truth_upload is not None and campaign_count == 0:
             st.warning("当前产品还没有原始报表导入后的广告活动。若要导入广告组人工判定表，请先导入原始报表，否则广告组名称无法匹配。")
 
@@ -324,33 +481,33 @@ def render_upload():
 
             # 汇总统计
             st.write("**汇总统计：**")
-            col1, col2, col3, col4 = st.columns(4)
-
             all_dfs = [f["df"] for f in parsed_files]
-
-            with col1:
-                total_terms = sum(
-                    df["term"].nunique() if "term" in df.columns else 0
-                    for df in all_dfs
-                )
-                st.metric("搜索词数", total_terms)
-            with col2:
-                total_spend = sum(
-                    df["spend"].sum() if "spend" in df.columns else 0 for df in all_dfs
-                )
-                st.metric("总花费", f"${total_spend:.2f}")
-            with col3:
-                total_orders = sum(
-                    int(df["orders"].sum()) if "orders" in df.columns else 0
-                    for df in all_dfs
-                )
-                st.metric("总订单", total_orders)
-            with col4:
-                total_clicks = sum(
-                    int(df["clicks"].sum()) if "clicks" in df.columns else 0
-                    for df in all_dfs
-                )
-                st.metric("总点击", total_clicks)
+            total_terms = sum(
+                df["term"].nunique() if "term" in df.columns else 0
+                for df in all_dfs
+            )
+            total_spend = sum(
+                df["spend"].sum() if "spend" in df.columns else 0 for df in all_dfs
+            )
+            total_orders = sum(
+                int(df["orders"].sum()) if "orders" in df.columns else 0
+                for df in all_dfs
+            )
+            total_clicks = sum(
+                int(df["clicks"].sum()) if "clicks" in df.columns else 0
+                for df in all_dfs
+            )
+            st.markdown(
+                f"""
+                <div class="upload-summary-grid">
+                    <div class="upload-summary-card"><span>搜索词数</span><strong>{total_terms}</strong></div>
+                    <div class="upload-summary-card"><span>总花费</span><strong>${total_spend:.2f}</strong></div>
+                    <div class="upload-summary-card"><span>总订单</span><strong>{total_orders}</strong></div>
+                    <div class="upload-summary-card"><span>总点击</span><strong>{total_clicks}</strong></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
             st.divider()
 

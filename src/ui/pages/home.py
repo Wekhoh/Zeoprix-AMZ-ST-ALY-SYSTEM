@@ -20,6 +20,151 @@ logger = get_logger(__name__)
 # 缓存时间（秒）
 CACHE_TTL = 60
 
+HOME_PAGE_CSS = """
+<style>
+.dashboard-hero {
+    padding: 1.35rem 1.5rem;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 22px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(239,246,255,0.92) 100%);
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.05);
+    margin-bottom: 1.35rem;
+}
+.dashboard-hero__eyebrow {
+    display: inline-flex;
+    padding: 0.32rem 0.68rem;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.08);
+    color: #2563EB;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.dashboard-hero h1 {
+    margin: 0.85rem 0 0.35rem 0 !important;
+}
+.dashboard-hero p {
+    margin: 0;
+    color: #64748B;
+    font-size: 0.98rem;
+    line-height: 1.6;
+}
+.dashboard-hero__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin-top: 1rem;
+}
+.dashboard-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.56rem 0.8rem;
+    border-radius: 999px;
+    font-size: 0.84rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+}
+.dashboard-chip--neutral {
+    background: rgba(15, 23, 42, 0.04);
+    color: #334155;
+    border-color: rgba(148, 163, 184, 0.18);
+}
+.dashboard-chip--warning {
+    background: rgba(245, 158, 11, 0.12);
+    color: #B45309;
+    border-color: rgba(245, 158, 11, 0.18);
+}
+.dashboard-chip--success {
+    background: rgba(16, 185, 129, 0.12);
+    color: #047857;
+    border-color: rgba(16, 185, 129, 0.16);
+}
+.dashboard-section-shell {
+    padding: 1.15rem 1.2rem;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 14px 36px rgba(15, 23, 42, 0.04);
+}
+.dashboard-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.4rem;
+}
+.dashboard-kpi-card {
+    padding: 1.2rem 1.25rem;
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.95) 100%);
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+}
+.dashboard-kpi-card span {
+    display: block;
+    color: #64748B;
+    font-size: 0.88rem;
+    font-weight: 600;
+    margin-bottom: 0.55rem;
+}
+.dashboard-kpi-card strong {
+    color: #1E3A8A;
+    font-size: 2.05rem;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+}
+.pending-notice-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.pending-notice-card {
+    border-radius: 18px;
+    padding: 0.95rem 1rem;
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    background: rgba(248, 250, 252, 0.9);
+}
+.pending-notice-card small {
+    display: block;
+    color: #94A3B8;
+    font-size: 0.73rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.35rem;
+}
+.pending-notice-card strong {
+    display: block;
+    color: #0F172A;
+    font-size: 1rem;
+    line-height: 1.45;
+}
+.pending-notice-card--warning {
+    background: linear-gradient(180deg, rgba(255,251,235,0.92) 0%, rgba(255,247,214,0.95) 100%);
+    border-color: rgba(245, 158, 11, 0.18);
+}
+.pending-notice-card--success {
+    background: linear-gradient(180deg, rgba(236,253,245,0.92) 0%, rgba(220,252,231,0.95) 100%);
+    border-color: rgba(16, 185, 129, 0.18);
+}
+.pending-notice-card--info {
+    background: linear-gradient(180deg, rgba(239,246,255,0.92) 0%, rgba(219,234,254,0.95) 100%);
+    border-color: rgba(59, 130, 246, 0.18);
+}
+.quick-action-caption {
+    margin: 0 0 1rem 0;
+    color: #64748B;
+    font-size: 0.92rem;
+    line-height: 1.55;
+}
+@media (max-width: 1100px) {
+    .dashboard-kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+</style>
+"""
+
 
 def _build_overview_chart_rows(chart_data: dict[str, int]) -> list[dict[str, float | int | str]]:
     """将首页概览图数据整理为稳定排序的渲染行。"""
@@ -68,6 +213,34 @@ def _render_overview_chart(chart_data: dict[str, int]) -> None:
         unsafe_allow_html=True,
     )
 
+
+def _build_dashboard_metric_cards(stats: dict) -> list[dict[str, str]]:
+    """统一首页 KPI 卡片的数据结构，保证顺序与展示文案稳定。"""
+    acos_value = f"{stats['acos']:.2%}" if stats["acos"] > 0 else "N/A"
+    return [
+        {"label": "总花费", "value": f"${stats['total_spend']:.2f}"},
+        {"label": "总订单", "value": str(stats["total_orders"])},
+        {"label": "整体ACOS", "value": acos_value},
+        {"label": "搜索词数", "value": str(stats["term_count"])},
+    ]
+
+
+def _render_dashboard_metric_grid(stats: dict) -> None:
+    cards_html = "".join(
+        (
+            f'<div class="dashboard-kpi-card">'
+            f"<span>{escape(card['label'])}</span>"
+            f"<strong>{escape(card['value'])}</strong>"
+            "</div>"
+        )
+        for card in _build_dashboard_metric_cards(stats)
+    )
+    st.markdown(
+        f'<div class="dashboard-kpi-grid">{cards_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def _build_pending_notices(pending_stats: dict[str, int]) -> list[tuple[str, str]]:
     """将首页待处理项整理为稳定、可测试的提示列表。"""
     notices: list[tuple[str, str]] = []
@@ -91,6 +264,22 @@ def _build_pending_notices(pending_stats: dict[str, int]) -> list[tuple[str, str
         notices.append(("success", "暂无待处理项"))
 
     return notices
+
+
+def _render_pending_notice_cards(notices: list[tuple[str, str]]) -> None:
+    cards_html = "".join(
+        (
+            f'<div class="pending-notice-card pending-notice-card--{escape(level)}">'
+            f"<small>{'待处理' if level != 'success' else '可执行机会'}</small>"
+            f"<strong>{escape(message)}</strong>"
+            "</div>"
+        )
+        for level, message in notices
+    )
+    st.markdown(
+        f'<div class="pending-notice-stack">{cards_html}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _navigate_to(page: str) -> None:
@@ -127,10 +316,35 @@ def get_all_dashboard_data(_db, product_id: int = None) -> dict:
 
 def render_home():
     """渲染首页"""
-    st.title("搜索词分析仪表盘")
+    st.markdown(HOME_PAGE_CSS, unsafe_allow_html=True)
 
     db = st.session_state.get("db")
     product_id = st.session_state.get("current_product_id")
+
+    product_name = None
+    if db and product_id:
+        row = db.execute(
+            "SELECT name FROM products WHERE id = ?",
+            (product_id,),
+        ).fetchone()
+        if row:
+            product_name = row["name"]
+
+    st.markdown(
+        f"""
+        <div class="dashboard-hero">
+            <span class="dashboard-hero__eyebrow">运营总览</span>
+            <h1>搜索词分析仪表盘</h1>
+            <p>{escape(product_name or "当前产品未选择")} · 先看结论、再看动作、最后看明细，避免在一堆表格里来回捞针。</p>
+            <div class="dashboard-hero__chips">
+                <span class="dashboard-chip dashboard-chip--neutral">truth-first 仪表盘</span>
+                <span class="dashboard-chip dashboard-chip--warning">优先处理待否定与跨ASIN分歧</span>
+                <span class="dashboard-chip dashboard-chip--success">一键进入上传 / 分析 / 执行</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if not db:
         st.error("数据库未初始化")
@@ -140,52 +354,25 @@ def render_home():
     all_data = get_all_dashboard_data(db, product_id)
     stats = all_data["dashboard_stats"]
 
-    # 关键指标卡片
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric(
-            label="总花费",
-            value=f"${stats['total_spend']:.2f}",
-            delta=None,
-        )
-
-    with col2:
-        st.metric(
-            label="总订单",
-            value=f"{stats['total_orders']}",
-            delta=None,
-        )
-
-    with col3:
-        st.metric(
-            label="整体ACOS",
-            value=f"{stats['acos']:.2%}" if stats["acos"] > 0 else "N/A",
-            delta=None,
-        )
-
-    with col4:
-        st.metric(
-            label="搜索词数",
-            value=f"{stats['term_count']}",
-            delta=None,
-        )
-
-    st.divider()
+    _render_dashboard_metric_grid(stats)
 
     # 待处理项
     col_left, col_right = st.columns(2)
 
     with col_left:
         st.subheader("待处理项")
+        st.caption("按执行优先级整理，只把真正需要你立刻处理的事项放在上面。")
 
         pending_stats = all_data["pending_stats"]
-
-        for level, message in _build_pending_notices(pending_stats):
-            getattr(st, level)(message)
+        notices = _build_pending_notices(pending_stats)
+        _render_pending_notice_cards(notices)
 
     with col_right:
         st.subheader("快速操作")
+        st.markdown(
+            '<p class="quick-action-caption">把最常用的动作压缩在一屏里：先上传，再分析，再去执行清单，不用在左侧来回点菜单。</p>',
+            unsafe_allow_html=True,
+        )
 
         col_btn1, col_btn2 = st.columns(2)
 

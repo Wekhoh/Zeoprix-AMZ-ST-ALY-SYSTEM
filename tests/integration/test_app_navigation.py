@@ -7,7 +7,8 @@ from pathlib import Path
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
-from src.ui.pages.home import _build_overview_chart_rows
+from src.ui.pages.home import _build_dashboard_metric_cards, _build_overview_chart_rows
+from src.ui.pages.upload import _build_truth_import_guidance
 
 
 APP_PATH = Path(__file__).resolve().parents[2] / "src" / "app.py"
@@ -32,6 +33,18 @@ def _get_sidebar_nav_radio(app: AppTest):
     return next(
         radio for radio in app.radio if list(radio.options) == SIDEBAR_NAV_OPTIONS
     )
+
+
+def _get_current_page_heading(app: AppTest) -> str | None:
+    """兼容原生标题与自定义 HTML hero 的页面标题提取。"""
+    if app.title:
+        return app.title[0].value
+
+    for markdown in app.markdown:
+        value = markdown.value or ""
+        if "<h1>" in value and "</h1>" in value:
+            return value.split("<h1>", 1)[1].split("</h1>", 1)[0].strip()
+    return None
 
 
 def test_sidebar_product_selector_prefers_current_product_id():
@@ -95,19 +108,20 @@ def test_sidebar_navigation_updates_on_each_selection_change(
     app = _make_app_test(monkeypatch, db.db_path)
 
     app.run(timeout=20)
-    assert app.title[0].value == "搜索词分析仪表盘"
+    assert _get_current_page_heading(app) == "搜索词分析仪表盘"
+    assert len(app.code) == 0
 
     sidebar_radio = _get_sidebar_nav_radio(app)
     sidebar_radio.set_value("文件上传").run(timeout=20)
-    assert app.title[0].value == "文件上传"
+    assert _get_current_page_heading(app) == "文件上传"
 
     sidebar_radio = _get_sidebar_nav_radio(app)
     sidebar_radio.set_value("搜索词分析").run(timeout=20)
-    assert app.title[0].value == "搜索词分析"
+    assert _get_current_page_heading(app) == "搜索词分析"
 
     sidebar_radio = _get_sidebar_nav_radio(app)
     sidebar_radio.set_value("操作清单").run(timeout=20)
-    assert app.title[0].value == "操作清单"
+    assert _get_current_page_heading(app) == "操作清单"
 
 
 def test_home_quick_action_button_navigates_after_single_click(
@@ -124,7 +138,7 @@ def test_home_quick_action_button_navigates_after_single_click(
     )
     quick_action_button.click().run(timeout=20)
 
-    assert app.title[0].value == "操作清单"
+    assert _get_current_page_heading(app) == "操作清单"
 
 
 def test_pending_notices_are_rendered_in_truth_first_priority_order():
@@ -163,6 +177,41 @@ def test_pending_notices_fall_back_to_empty_state_when_all_counts_are_zero():
     )
 
     assert notices == [("success", "暂无待处理项")]
+
+
+def test_dashboard_metric_cards_keep_truth_first_order_and_format():
+    """首页 KPI 卡片应保持稳定顺序和格式化文案。"""
+    cards = _build_dashboard_metric_cards(
+        {
+            "total_spend": 5803.51,
+            "total_orders": 88,
+            "acos": 2.4323,
+            "term_count": 316,
+        }
+    )
+
+    assert cards == [
+        {"label": "总花费", "value": "$5803.51"},
+        {"label": "总订单", "value": "88"},
+        {"label": "整体ACOS", "value": "243.23%"},
+        {"label": "搜索词数", "value": "316"},
+    ]
+
+
+def test_truth_import_guidance_matches_upload_sequence_rules():
+    """上传页导入顺序提示应覆盖未选产品、未导原始报表和可直接导入三种状态。"""
+    assert _build_truth_import_guidance(None, 0) == (
+        "warning",
+        "先选择或创建产品，再导入人工判定表。",
+    )
+    assert _build_truth_import_guidance(1, 0) == (
+        "warning",
+        "建议先导入原始报表，再导入广告组人工判定表，否则广告组名称无法匹配。",
+    )
+    assert _build_truth_import_guidance(1, 6) == (
+        "success",
+        "当前产品已具备导入条件：先看预检结果，再一键导入人工判定表。",
+    )
 
 
 def test_overview_chart_rows_are_sorted_for_custom_rendering():
