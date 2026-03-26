@@ -12,7 +12,11 @@ from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summar
 from src.ui.pages.actions import _build_actions_workbench_meta
 from src.ui.pages.home import _build_dashboard_metric_cards, _build_overview_chart_rows
 from src.ui.pages.review import _build_review_dashboard_state, _build_review_empty_state
-from src.ui.pages.settings import _build_settings_shell_meta
+from src.ui.pages.settings import (
+    _build_api_settings_summary,
+    _build_product_settings_summary,
+    _build_settings_shell_meta,
+)
 from src.ui.pages.settings_data import (
     _build_data_management_summary,
     _build_keyword_library_summary,
@@ -447,6 +451,46 @@ def test_data_management_summary_surfaces_scale_before_actions():
             "搜索词 461",
             "分析结果 316",
             "广告活动 6",
+        ],
+    }
+
+
+def test_product_settings_summary_surfaces_identity_and_competition_context():
+    """产品配置页应先告诉用户产品身份、核心词和竞品规模，而不是直接掉进输入框。"""
+    summary = _build_product_settings_summary(
+        {
+            "name": "桌面验收产品",
+            "asin": "B0TESTASIN",
+            "config": {
+                "core_keywords": ["travel pillow", "neck pillow"],
+                "competitor_asins": ["B0AAA", "B0BBB", "B0CCC"],
+            },
+        }
+    )
+
+    assert summary == {
+        "title": "产品配置",
+        "description": "把产品基本信息、核心关键词和竞品 ASIN 放在一页里维护，避免系统不知道你卖什么、也不知道你在和谁竞争。",
+        "chips": [
+            "产品名：桌面验收产品",
+            "ASIN 已配置",
+            "核心词 2",
+            "竞品 ASIN 3",
+        ],
+    }
+
+
+
+def test_api_settings_summary_surfaces_connection_and_model_status():
+    """API 设置页应先说明连接状态和当前模型，而不是直接把用户丢进配置说明。"""
+    summary = _build_api_settings_summary(True, "Gemini 2.5 Pro")
+    assert summary == {
+        "title": "API设置",
+        "description": "这里只处理模型连接和密钥状态。先确认可用性，再切模型，最后再去分析页验证结果，不要把这里当成日常高频操作页。",
+        "chips": [
+            "Gemini API 已连接",
+            "当前模型：Gemini 2.5 Pro",
+            ".env 文件托管密钥",
         ],
     }
 

@@ -98,6 +98,43 @@ def _build_settings_shell_meta(product_name: str | None) -> dict[str, str | list
     }
 
 
+def _build_product_settings_summary(product: dict | None) -> dict[str, str | list[str]]:
+    """构建产品配置页的摘要信息。"""
+    product = product or {}
+    config = product.get("config", {}) or {}
+    core_keywords = config.get("core_keywords", [])
+    competitor_asins = config.get("competitor_asins", [])
+    asin = (product.get("asin") or "").strip()
+
+    return {
+        "title": "产品配置",
+        "description": "把产品基本信息、核心关键词和竞品 ASIN 放在一页里维护，避免系统不知道你卖什么、也不知道你在和谁竞争。",
+        "chips": [
+            f"产品名：{product.get('name') or '未命名产品'}",
+            f"ASIN {'已配置' if asin else '待补充'}",
+            f"核心词 {len(core_keywords)}",
+            f"竞品 ASIN {len(competitor_asins)}",
+        ],
+    }
+
+
+
+def _build_api_settings_summary(
+    is_configured: bool,
+    selected_model_label: str,
+) -> dict[str, str | list[str]]:
+    """构建 API 设置页的摘要信息。"""
+    return {
+        "title": "API设置",
+        "description": "这里只处理模型连接和密钥状态。先确认可用性，再切模型，最后再去分析页验证结果，不要把这里当成日常高频操作页。",
+        "chips": [
+            f"Gemini API {'已连接' if is_configured else '未连接'}",
+            f"当前模型：{selected_model_label}",
+            ".env 文件托管密钥",
+        ],
+    }
+
+
 def render_settings():
     """渲染系统设置页面"""
     db = st.session_state.get("db")
@@ -159,10 +196,7 @@ def render_settings():
 
 
 def render_product_settings(db, product_id: int):
-    """渲染产品配置"""
-    st.write("### 产品信息")
-    st.caption("把产品名、ASIN、核心关键词和竞品列表收在一起，方便你从“规则”跳到“产品上下文”。")
-
+    """渲染产品设置。"""
     if not product_id:
         st.warning("请先选择产品")
         return
@@ -173,61 +207,69 @@ def render_product_settings(db, product_id: int):
         st.error("产品不存在")
         return
 
-    col1, col2 = st.columns(2)
+    config = product.get("config", {}) or {}
+    summary = _build_product_settings_summary(product)
 
-    with col1:
-        product_name = st.text_input(
-            "产品名称",
-            value=product.get("name", ""),
-        )
+    st.write(f"### {summary['title']}")
+    st.caption(summary["description"])
+    chip_cols = st.columns(len(summary["chips"]))
+    for col, chip in zip(chip_cols, summary["chips"], strict=False):
+        with col:
+            st.info(chip)
 
-        product_asin = st.text_input(
-            "ASIN",
-            value=product.get("asin", ""),
-        )
+    with st.container(border=True):
+        st.write("#### 基本信息")
+        st.caption("先把产品名、ASIN 和类目填稳，后面的词和竞品才有上下文。")
+        col1, col2 = st.columns(2)
 
-    with col2:
-        product_category = st.text_input(
-            "品类",
-            value=product.get("category", ""),
-            placeholder="例如：电子产品",
-        )
+        with col1:
+            product_name = st.text_input(
+                "产品名称",
+                value=product.get("name", ""),
+            )
+            product_asin = st.text_input(
+                "ASIN",
+                value=product.get("asin", ""),
+            )
 
-        # 从config中读取核心关键词
-        config = product.get("config", {}) or {}
+        with col2:
+            product_category = st.text_input(
+                "品类",
+                value=product.get("category", ""),
+                placeholder="例如：旅行枕",
+            )
+
+    with st.container(border=True):
+        st.write("#### 核心关键词")
+        st.caption("这里放的是你最想守住的核心词，帮助系统理解哪些词和你的产品最直接相关。")
         core_keywords = config.get("core_keywords", [])
         product_keywords = st.text_area(
             "核心关键词（每行一个）",
             value="\n".join(core_keywords) if core_keywords else "",
-            height=100,
+            height=120,
             placeholder="travel pillow\nneck pillow",
         )
 
-    st.divider()
-
-    # 竞品ASIN - 从config中读取
-    st.write("#### 竞品ASIN")
-
-    comp_asins = config.get("competitor_asins", [])
-    competitor_asins = st.text_area(
-        "竞品ASIN列表（每行一个）",
-        value="\n".join(comp_asins) if comp_asins else "",
-        height=100,
-        placeholder="B0XXXXXXXX\nB0YYYYYYYY",
-    )
+    with st.container(border=True):
+        st.write("#### 竞品ASIN")
+        st.caption("把真正需要盯防的对手沉淀在这里，方便系统在竞品流量里做更准确的判断。")
+        comp_asins = config.get("competitor_asins", [])
+        competitor_asins = st.text_area(
+            "竞品ASIN列表（每行一个）",
+            value="\n".join(comp_asins) if comp_asins else "",
+            height=120,
+            placeholder="B0XXXXXXXX\nB0YYYYYYYY",
+        )
 
     if st.button("保存产品信息", type="primary", width="stretch"):
         try:
-            # 解析关键词和竞品
             keywords = [k.strip() for k in product_keywords.split("\n") if k.strip()]
             competitors = [a.strip() for a in competitor_asins.split("\n") if a.strip()]
 
-            # 获取现有config并更新
             existing_config = product.get("config", {}) or {}
             existing_config["core_keywords"] = keywords
             existing_config["competitor_asins"] = competitors
 
-            # 使用 update_product 方法（自动处理JSON序列化和事务）
             db.update_product(
                 product_id,
                 name=product_name,
@@ -241,74 +283,79 @@ def render_product_settings(db, product_id: int):
         except Exception as e:
             safe_error("产品信息保存", e)
 
-
 def render_api_settings():
-    """渲染API设置"""
-    st.write("### API配置")
-    st.caption("API 设置主要用于确认模型和密钥状态，日常不需要频繁改动，把它当成运维区更合适。")
-
-    st.info("API密钥存储在 .env 文件中，请手动编辑该文件来修改。")
-
-    # 显示当前状态
-    from src.config.settings import Settings
+    """渲染API设置。"""
+    from src.config.settings import AVAILABLE_GEMINI_MODELS, Settings
 
     settings = Settings()
+    if "selected_gemini_model" not in st.session_state:
+        st.session_state.selected_gemini_model = settings.gemini_model
 
-    col1, col2 = st.columns(2)
+    model_ids = [m[0] for m in AVAILABLE_GEMINI_MODELS]
+    model_labels = [m[1] for m in AVAILABLE_GEMINI_MODELS]
 
-    with col1:
-        st.write("**Gemini API**")
-        if settings.is_api_configured:
-            st.success(f"已配置 (****{settings.gemini_api_key[-4:]})")
-        else:
-            st.error("未配置 - 请在 .env 文件中设置有效的 GEMINI_API_KEY")
+    current_model = st.session_state.selected_gemini_model
+    try:
+        current_index = model_ids.index(current_model)
+    except ValueError:
+        current_index = 0
 
-    with col2:
-        st.write("**使用模型**")
-        from src.config.settings import AVAILABLE_GEMINI_MODELS
+    current_model_label = model_labels[current_index]
+    summary = _build_api_settings_summary(
+        settings.is_api_configured,
+        current_model_label,
+    )
 
-        # 初始化session中的模型选择
-        if "selected_gemini_model" not in st.session_state:
-            st.session_state.selected_gemini_model = settings.gemini_model
+    st.write(f"### {summary['title']}")
+    st.caption(summary["description"])
+    chip_cols = st.columns(len(summary["chips"]))
+    for col, chip in zip(chip_cols, summary["chips"], strict=False):
+        with col:
+            st.info(chip)
 
-        model_ids = [m[0] for m in AVAILABLE_GEMINI_MODELS]
-        model_labels = [m[1] for m in AVAILABLE_GEMINI_MODELS]
+    with st.container(border=True):
+        st.write("#### 连接状态与模型")
+        st.caption("先确认 Gemini API 是否可用，再切换模型；日常排查时先看这里，不用去翻 .env。")
+        col1, col2 = st.columns(2)
 
-        # 获取当前索引
-        current_model = st.session_state.selected_gemini_model
-        try:
-            current_index = model_ids.index(current_model)
-        except ValueError:
-            current_index = 0  # 默认第一个
+        with col1:
+            st.write("**Gemini API**")
+            if settings.is_api_configured:
+                st.success(f"已配置 (****{settings.gemini_api_key[-4:]})")
+            else:
+                st.error("未配置 - 请在 .env 文件中填写有效的 GEMINI_API_KEY")
 
-        selected_index = st.selectbox(
-            "选择模型",
-            options=range(len(model_labels)),
-            index=current_index,
-            format_func=lambda i: model_labels[i],
-            key="model_selector",
-            label_visibility="collapsed",
+        with col2:
+            st.write("**使用模型**")
+            selected_index = st.selectbox(
+                "选择模型",
+                options=range(len(model_labels)),
+                index=current_index,
+                format_func=lambda i: model_labels[i],
+                key="model_selector",
+                label_visibility="collapsed",
+            )
+            selected_model = model_ids[selected_index]
+            selected_model_label = model_labels[selected_index]
+            if selected_model != st.session_state.selected_gemini_model:
+                st.session_state.selected_gemini_model = selected_model
+                st.success(f"已切换到 {selected_model_label}")
+                st.rerun()
+            else:
+                st.info(f"当前已选择：{selected_model_label}")
+
+    with st.container(border=True):
+        st.write("#### 配置说明")
+        st.caption("如果你是第一次配置，按下面三步走就行；这个区块更像运维说明，不需要每天来回看。")
+        st.markdown(
+            """
+1. 在项目根目录创建 `.env` 文件
+2. 写入以下内容：
+```
+GEMINI_API_KEY=your_api_key_here
+```
+3. 重启应用使其生效
+
+**获取API Key**: [Google AI Studio](https://makersuite.google.com/app/apikey)
+            """
         )
-
-        selected_model = model_ids[selected_index]
-
-        # 更新session_state
-        if selected_model != st.session_state.selected_gemini_model:
-            st.session_state.selected_gemini_model = selected_model
-            st.success(f"已切换到 {model_labels[selected_index]}")
-            st.rerun()
-
-    st.divider()
-
-    # 配置说明
-    st.write("#### 配置说明")
-    st.markdown("""
-    1. 在项目根目录创建 `.env` 文件
-    2. 添加以下内容：
-    ```
-    GEMINI_API_KEY=your_api_key_here
-    ```
-    3. 重启应用生效
-
-    **获取API Key**: [Google AI Studio](https://makersuite.google.com/app/apikey)
-    """)
