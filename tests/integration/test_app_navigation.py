@@ -8,7 +8,11 @@ import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 from src.config.product_defaults import build_seeded_product_config
-from src.ui.pages.analysis import _build_truth_summary_metrics, _get_analysis_mode_meta
+from src.ui.pages.analysis import (
+    _build_truth_summary_metrics,
+    _get_analysis_mode_meta,
+    save_review_changes,
+)
 from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summary_cards
 from src.ui.pages.actions import _build_actions_workbench_meta
 from src.ui.pages.home import _build_dashboard_metric_cards, _build_overview_chart_rows
@@ -157,6 +161,41 @@ def test_home_quick_action_button_navigates_after_single_click(
     quick_action_button.click().run(timeout=20)
 
     assert _get_current_page_heading(app) == "操作清单"
+
+
+def test_analysis_ui_reviews_are_saved_as_ui_calibration(db, product_id, campaign_id):
+    """搜索词分析页的人工勾选应明确记录为 UI 人工校准来源。"""
+    original_df = pd.DataFrame([{"搜索词": "travel pillow", "已审核": False}])
+    edited_df = pd.DataFrame([{"搜索词": "travel pillow", "已审核": True}])
+    results = [
+        {
+            "term": "travel pillow",
+            "term_type": "keyword",
+            "suggested_action": "observe",
+        }
+    ]
+
+    save_review_changes(
+        db=db,
+        product_id=product_id,
+        original_df=original_df,
+        edited_df=edited_df,
+        results=results,
+        campaign_id=campaign_id,
+    )
+
+    row = db.conn.execute(
+        """
+        SELECT reviewed, review_source
+        FROM manual_reviews
+        WHERE product_id = ? AND term = ? AND campaign_id = ?
+        """,
+        (product_id, "travel pillow", campaign_id),
+    ).fetchone()
+
+    assert row is not None
+    assert row["reviewed"] == 1
+    assert row["review_source"] == "ui_calibration"
 
 
 def test_pending_notices_are_rendered_in_truth_first_priority_order():

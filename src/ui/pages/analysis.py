@@ -307,6 +307,9 @@ def save_review_changes(
                         system_action=result.get("suggested_action"),
                         final_action=result.get("suggested_action"),
                         reviewed=edited_reviewed,
+                        review_source=(
+                            "ui_calibration" if edited_reviewed else None
+                        ),
                     )
                     changed_count += 1
                 except Exception as e:
@@ -361,6 +364,9 @@ def save_campaign_review_changes(
                         system_action=result.get("suggested_action"),
                         final_action=result.get("suggested_action"),
                         reviewed=edited_reviewed,
+                        review_source=(
+                            "ui_calibration" if edited_reviewed else None
+                        ),
                     )
                     changed_count += 1
                 except Exception as e:
@@ -700,6 +706,7 @@ def render_summary_analysis(db, product_id: int):
                         system_action=r.get("suggested_action"),
                         final_action=r.get("suggested_action"),
                         reviewed=True,
+                        review_source="ui_calibration",
                     )
                     count += 1
                 except Exception as e:

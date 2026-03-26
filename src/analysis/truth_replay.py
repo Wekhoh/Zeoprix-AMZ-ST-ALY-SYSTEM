@@ -16,6 +16,7 @@ REVIEW_SOURCE_PRIORITY = {
     "upload_pending": 0,
     "aggregate_truth": 20,
     "campaign_truth": 30,
+    "ui_calibration": 40,
     "ui_review": 40,
 }
 
