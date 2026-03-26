@@ -49,6 +49,21 @@ def test_sidebar_product_selector_prefers_current_product_id():
     assert _get_product_selectbox_index([], 202) is None
 
 
+def test_sidebar_current_product_name_prefers_selected_product():
+    """侧边栏当前产品提示应优先展示 session 中选中的产品。"""
+    from src.app import _get_current_product_name
+
+    products = [
+        {"id": 101, "name": "第一个产品"},
+        {"id": 202, "name": "第二个产品"},
+        {"id": 303, "name": "第三个产品"},
+    ]
+
+    assert _get_current_product_name(products, 202) == "第二个产品"
+    assert _get_current_product_name(products, 999) == "第一个产品"
+    assert _get_current_product_name([], 202) is None
+
+
 def _seed_minimal_search_term(db, campaign_id: int) -> None:
     df = pd.DataFrame(
         [

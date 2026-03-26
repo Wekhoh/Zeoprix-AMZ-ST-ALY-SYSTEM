@@ -29,7 +29,7 @@ NAV_OPTIONS = [
 # 页面配置
 st.set_page_config(
     page_title="AMZ搜索词分析系统",
-    page_icon="A",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -73,15 +73,44 @@ def _get_product_selectbox_index(
     return 0
 
 
+def _get_current_product_name(
+    products: list[dict], current_product_id: int | None
+) -> str | None:
+    """根据当前产品ID返回当前产品名称，用于侧边栏上下文提示。"""
+    if not products:
+        return None
+
+    if current_product_id is not None:
+        for product in products:
+            if product.get("id") == current_product_id:
+                return product.get("name")
+
+    return products[0].get("name")
+
+
 def render_sidebar():
     """渲染侧边栏"""
     with st.sidebar:
-        st.title("AMZ搜索词分析")
+        st.markdown(
+            """
+            <div class="sidebar-brand-shell">
+                <span class="sidebar-eyebrow">运营工作台</span>
+                <h1>AMZ搜索词分析</h1>
+                <p>聚焦结论、动作与复盘，让每天的广告优化更稳一点。</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.divider()
 
         # 初始化导航状态
         if st.session_state.get("nav_page") not in NAV_OPTIONS:
             st.session_state.nav_page = "首页"
+
+        st.markdown(
+            '<div class="sidebar-section-label">导航</div>',
+            unsafe_allow_html=True,
+        )
 
         st.radio(
             "导航",
@@ -97,6 +126,9 @@ def render_sidebar():
         products = db.get_all_products()
 
         if products:
+            current_product_name = _get_current_product_name(
+                products, st.session_state.get("current_product_id")
+            )
             product_options = {p["name"]: p["id"] for p in products}
             selected_product = st.selectbox(
                 "当前产品",
@@ -107,6 +139,17 @@ def render_sidebar():
             )
             if selected_product:
                 st.session_state.current_product_id = product_options[selected_product]
+
+            if current_product_name:
+                st.markdown(
+                    f"""
+                    <div class="sidebar-current-product">
+                        <span>当前分析产品</span>
+                        <strong>{current_product_name}</strong>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
         else:
             st.info("请先上传数据或创建产品")
 

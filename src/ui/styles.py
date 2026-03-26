@@ -145,9 +145,11 @@ header[data-testid="stHeader"] {background: transparent;}
 
 /* 主内容区 */
 .main .block-container {
-    padding-top: var(--space-xl);
+    padding-top: 1.75rem;
     padding-bottom: var(--space-xl);
-    max-width: 1200px;
+    padding-left: 2.25rem;
+    padding-right: 2.25rem;
+    max-width: 1280px;
 }
 
 /* ===== 标题样式 - Premium Typography ===== */
@@ -177,7 +179,7 @@ h3 {
 
 /* ===== 侧边栏 - 增强版 ===== */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 40%, #E2E8F0 100%) !important;
+    background: linear-gradient(180deg, #F8FAFC 0%, #F5F7FB 48%, #EEF3FA 100%) !important;
     border-right: 1px solid var(--border-subtle);
     position: relative;
     z-index: 30 !important;
@@ -230,7 +232,7 @@ section[data-testid="stSidebar"] > div::before,
 
 [data-testid="stSidebar"] > div:first-child {
     background: transparent !important;
-    padding-top: var(--space-lg);
+    padding: 1.25rem 0.875rem 1rem 0.875rem;
     position: relative;
     z-index: 1;
 }
@@ -240,14 +242,73 @@ section[data-testid="stSidebar"] > div::before,
     --primary-color: #2563EB !important;
 }
 
-/* 侧边栏品牌标题 */
-[data-testid="stSidebar"] h1 {
-    font-size: 1.25rem !important;
-    color: var(--accent) !important;
-    font-weight: 700 !important;
-    margin-bottom: var(--space-lg) !important;
-    padding-bottom: var(--space-md);
-    border-bottom: 2px solid var(--accent-light);
+/* 侧边栏品牌区 */
+.sidebar-brand-shell {
+    padding: 0.25rem 0 0.5rem 0;
+}
+
+.sidebar-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.28rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.08);
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.sidebar-brand-shell h1 {
+    font-size: 1.5rem !important;
+    color: var(--primary-900) !important;
+    font-weight: 800 !important;
+    margin: 0.9rem 0 0.35rem 0 !important;
+    padding-bottom: 0 !important;
+    border-bottom: none !important;
+}
+
+.sidebar-brand-shell p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+    line-height: 1.55;
+}
+
+.sidebar-section-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0 0 0.55rem 0;
+}
+
+.sidebar-current-product {
+    margin-top: 0.7rem;
+    padding: 0.85rem 0.95rem;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.sidebar-current-product span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.35rem;
+}
+
+.sidebar-current-product strong {
+    display: block;
+    color: var(--primary-900);
+    font-size: 0.95rem;
+    font-weight: 700;
 }
 
 [data-testid="stSidebar"] .stRadio > label {
@@ -260,9 +321,9 @@ section[data-testid="stSidebar"] > div::before,
 }
 
 [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label {
-    padding: 0.875rem 1rem !important;
-    border-radius: var(--radius-md) !important;
-    margin: 0.25rem 0 !important;
+    padding: 0.72rem 0.9rem !important;
+    border-radius: 14px !important;
+    margin: 0.18rem 0 !important;
     transition: all var(--transition-fast) !important;
     border: 1px solid transparent !important;
     background: transparent !important;
@@ -277,11 +338,11 @@ section[data-testid="stSidebar"] > div::before,
 [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label[data-checked="true"],
 [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked),
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] + div label[data-checked="true"] {
-    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%) !important;
+    background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
     color: white !important;
     font-weight: 600 !important;
     border-color: var(--accent-hover) !important;
-    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35) !important;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.18) !important;
 }
 
 /* 选中状态内部文字强制白色 + 透明背景 */
@@ -1108,10 +1169,10 @@ button[data-testid="stPopoverButton"]:hover {
 
 /* ===== 下拉选择框增强 ===== */
 [data-testid="stSidebar"] .stSelectbox > div > div {
-    background: var(--bg-surface) !important;
-    border: 1px solid var(--border-subtle) !important;
-    border-radius: var(--radius-md) !important;
-    box-shadow: var(--shadow-sm) !important;
+    background: rgba(255, 255, 255, 0.92) !important;
+    border: 1px solid rgba(148, 163, 184, 0.26) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05) !important;
 }
 
 [data-testid="stSidebar"] .stSelectbox > div > div:hover {
@@ -1125,6 +1186,7 @@ button[data-testid="stPopoverButton"]:hover {
     color: var(--text-muted) !important;
     text-transform: uppercase !important;
     letter-spacing: 0.05em !important;
+    margin-bottom: 0.35rem !important;
 }
 
 /* ===== 空状态提示 ===== */
