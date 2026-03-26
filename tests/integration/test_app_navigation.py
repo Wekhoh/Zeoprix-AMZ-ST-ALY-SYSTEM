@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
+from src.config.product_defaults import build_seeded_product_config
 from src.ui.pages.analysis import _build_truth_summary_metrics, _get_analysis_mode_meta
 from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summary_cards
 from src.ui.pages.actions import _build_actions_workbench_meta
@@ -125,7 +126,7 @@ def test_sidebar_navigation_updates_on_each_selection_change(
     app = _make_app_test(monkeypatch, db.db_path)
 
     app.run(timeout=20)
-    assert _get_current_page_heading(app) == "搜索词分析仪表盘"
+    assert _get_current_page_heading(app) == "搜索词运营工作台"
     assert len(app.code) == 0
 
     sidebar_radio = _get_sidebar_nav_radio(app)
@@ -216,19 +217,44 @@ def test_dashboard_metric_cards_keep_truth_first_order_and_format():
 
 
 def test_truth_import_guidance_matches_upload_sequence_rules():
-    """上传页导入顺序提示应覆盖未选产品、未导原始报表和可直接导入三种状态。"""
+    """上传页应把人工判定表明确表达为可选人工校准入口。"""
     assert _build_truth_import_guidance(None, 0) == (
         "warning",
-        "先选择或创建产品，再导入人工判定表。",
+        "先选择或创建产品工作区，再导入人工校准表。",
     )
     assert _build_truth_import_guidance(1, 0) == (
         "warning",
-        "建议先导入原始报表，再导入广告组人工判定表，否则广告组名称无法匹配。",
+        "建议先导入原始报表，再导入广告组人工校准表，否则广告活动名称无法匹配。",
     )
     assert _build_truth_import_guidance(1, 6) == (
         "success",
-        "当前产品已具备导入条件：先看预检结果，再一键导入人工判定表。",
+        "当前工作区已具备导入条件：先看预检结果，再一键导入人工校准表。",
     )
+
+
+def test_seeded_product_config_defaults_to_generic_workspace_template():
+    """新建产品工作区默认应使用通用模板，而不是旅行枕验收模板。"""
+    config = build_seeded_product_config(product_asin="B0TEST1234")
+
+    assert config["own_asins"] == ["B0TEST1234"]
+    assert config["core_keywords"] == []
+    assert config["related_keywords"] == []
+    assert config["own_variants"] == []
+    assert config["competitor_asins"] == []
+    assert config["keyword_libraries"] == {
+        "irrelevant_keywords": [],
+        "weak_category_keywords": [],
+        "weak_exact_keywords": [],
+        "generic_keywords": [],
+        "car_keywords": [],
+    }
+    assert config["thresholds"] == {
+        "min_clicks_for_analysis": 20,
+        "min_clicks_for_asin_neg": 6,
+        "high_spend_no_order": 20.0,
+        "good_cvr": 0.1,
+        "bad_cvr": 0.05,
+    }
 
 
 def test_analysis_mode_meta_matches_workbench_copy():

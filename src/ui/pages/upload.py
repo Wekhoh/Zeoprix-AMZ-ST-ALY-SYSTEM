@@ -144,17 +144,17 @@ def get_upload_product_default_index(products, current_product_id: int | None) -
 def _build_truth_import_guidance(
     current_product_id: int | None, campaign_count: int
 ) -> tuple[str, str]:
-    """生成人工判定表导入前的顺序提示。"""
+    """生成人工校准导入前的顺序提示。"""
     if not current_product_id:
-        return ("warning", "先选择或创建产品，再导入人工判定表。")
+        return ("warning", "先选择或创建产品工作区，再导入人工校准表。")
     if campaign_count == 0:
         return (
             "warning",
-            "建议先导入原始报表，再导入广告组人工判定表，否则广告组名称无法匹配。",
+            "建议先导入原始报表，再导入广告组人工校准表，否则广告活动名称无法匹配。",
         )
     return (
         "success",
-        "当前产品已具备导入条件：先看预检结果，再一键导入人工判定表。",
+        "当前工作区已具备导入条件：先看预检结果，再一键导入人工校准表。",
     )
 
 
@@ -182,7 +182,7 @@ def import_truth_workbooks_from_uploads(
     campaign_upload=None,
     aggregate_upload=None,
 ) -> dict[str, int]:
-    """将 UI 上传的人工判定表落盘后导入 truth replay。"""
+    """将 UI 上传的人工判定表落盘后导入人工校准层。"""
     with tempfile.TemporaryDirectory(prefix="amz-truth-upload-") as temp_dir:
         temp_path = Path(temp_dir)
         campaign_path = (
@@ -207,7 +207,7 @@ def inspect_truth_workbooks_from_uploads(
     campaign_upload=None,
     aggregate_upload=None,
 ) -> dict[str, dict]:
-    """对 UI 上传的人工判定表做导入前预检。"""
+    """对 UI 上传的人工判定表做人工校准导入前预检。"""
     with tempfile.TemporaryDirectory(prefix="amz-truth-inspect-") as temp_dir:
         temp_path = Path(temp_dir)
         summary: dict[str, dict] = {}
@@ -243,11 +243,11 @@ def render_upload():
         <div class="upload-flow-shell">
             <span class="upload-flow-badge">导入流程</span>
             <h1>文件上传</h1>
-            <p>把原始报表、广告组人工判定表和最终汇总结论表放在同一条流程里，先预检、再导入、再回到首页看结论。</p>
+            <p>把原始报表、可选的人工校准表和最终结论导入放在同一条流程里：先跑自动建议，再按需要做人工校准，最后查看结论与执行清单。</p>
             <div class="upload-flow-chips">
-                <span class="upload-flow-chip">1. 先选产品</span>
+                <span class="upload-flow-chip">1. 先选产品工作区</span>
                 <span class="upload-flow-chip">2. 先导原始报表</span>
-                <span class="upload-flow-chip">3. 再导人工判定表</span>
+                <span class="upload-flow-chip">3. 按需导入人工校准表</span>
             </div>
         </div>
         """,
@@ -294,10 +294,10 @@ def render_upload():
     st.divider()
 
     current_product_id = st.session_state.get("current_product_id")
-    st.subheader("2. 导入人工判定表（可选）")
+    st.subheader("2. 导入人工校准表（可选）")
 
     if not current_product_id:
-        st.info("请先选择或创建产品，再导入广告组人工判定表和最终汇总结论表。")
+        st.info("请先选择或创建产品工作区，再按需导入广告组人工判定表和最终汇总结论表。")
     else:
         current_product_name = next(
             (p["name"] for p in products if p["id"] == current_product_id),
@@ -335,7 +335,7 @@ def render_upload():
             help="例如：ASIN层面汇总分析_v7.xlsx",
         )
         if campaign_truth_upload is not None and campaign_count == 0:
-            st.warning("当前产品还没有原始报表导入后的广告活动。若要导入广告组人工判定表，请先导入原始报表，否则广告组名称无法匹配。")
+            st.warning("当前工作区还没有原始报表导入后的广告活动。若要导入广告组人工判定表，请先导入原始报表，否则广告活动名称无法匹配。")
 
         if campaign_truth_upload is not None or aggregate_truth_upload is not None:
             inspection = inspect_truth_workbooks_from_uploads(
@@ -373,11 +373,11 @@ def render_upload():
                     st.caption("最终汇总结论表 sheet 预检")
                     st.dataframe(sheet_df, width="stretch", hide_index=True)
 
-        if st.button("导入人工判定表", key="import_truth_workbooks"):
+        if st.button("导入人工校准表", key="import_truth_workbooks"):
             if campaign_truth_upload is None and aggregate_truth_upload is None:
-                st.error("请至少上传一份人工判定表")
+                st.error("请至少上传一份人工校准表")
             else:
-                with st.spinner("正在导入人工判定表..."):
+                with st.spinner("正在导入人工校准表..."):
                     summary = import_truth_workbooks_from_uploads(
                         db=db,
                         product_id=current_product_id,
@@ -396,9 +396,9 @@ def render_upload():
                     )
                 if imported_parts:
                     st.success("导入完成：" + "，".join(imported_parts))
-                    st.info("现在可以前往首页、搜索词分析和操作清单查看 truth-first 结果。")
+                    st.info("现在可以前往首页、搜索词分析和操作清单查看自动建议、人工校准和最终结论。")
                 else:
-                    st.warning("没有导入到任何有效人工判定数据，请检查表格内容。")
+                    st.warning("没有导入到任何有效人工校准数据，请检查表格内容。")
 
     st.divider()
 

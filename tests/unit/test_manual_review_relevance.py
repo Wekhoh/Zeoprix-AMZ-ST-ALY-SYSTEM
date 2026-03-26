@@ -196,9 +196,9 @@ class TestProductConfigSeed:
         product = test_db.get_product(product_id)
         config = product["config"]
 
-        assert config["core_keywords"]
-        assert "travel neck pillow for car" in config["core_keywords"]
-        assert "microbead" in config["keyword_libraries"]["weak_category_keywords"]
+        assert config["core_keywords"] == []
+        assert config["related_keywords"] == []
+        assert config["keyword_libraries"]["weak_category_keywords"] == []
         assert "B0SEED1234" in config["own_asins"]
         assert config["thresholds"]["min_clicks_for_analysis"] == 20
 

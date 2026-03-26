@@ -406,7 +406,7 @@ def render_analysis():
             <p>把结论、筛选和明细放在同一块工作面板里，先锁定当前视角，再下钻到具体词和动作。</p>
             <div class="analysis-hero__chips">
                 <span class="analysis-hero__chip">{escape(mode_meta['title'])}</span>
-                <span class="analysis-hero__chip">真相优先结果优先展示</span>
+                <span class="analysis-hero__chip">最终结论优先展示</span>
                 <span class="analysis-hero__chip">支持按活动 / 按 ASIN 继续下钻</span>
             </div>
         </div>
@@ -1188,10 +1188,10 @@ def _render_truth_first_summary_analysis(rows: list[dict]) -> None:
         ]
 
     st.markdown(
-        '<div class="analysis-truth-banner">已检测到 workbook truth，当前展示已切换为真相优先汇总视图。</div>',
+        '<div class="analysis-truth-banner">已检测到人工校准结果，当前展示已切换为最终结论汇总视图。</div>',
         unsafe_allow_html=True,
     )
-    st.subheader(f"汇总真相视图 ({len(filtered_rows)} 条)")
+    st.subheader(f"汇总结论视图 ({len(filtered_rows)} 条)")
 
     if not filtered_rows:
         st.warning("筛选后无数据")

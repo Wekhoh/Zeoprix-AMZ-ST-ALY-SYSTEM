@@ -334,10 +334,10 @@ def render_home():
         f"""
         <div class="dashboard-hero">
             <span class="dashboard-hero__eyebrow">运营总览</span>
-            <h1>搜索词分析仪表盘</h1>
+            <h1>搜索词运营工作台</h1>
             <p>{escape(product_name or "当前产品未选择")} · 先看结论、再看动作、最后看明细，避免在一堆表格里来回捞针。</p>
             <div class="dashboard-hero__chips">
-                <span class="dashboard-chip dashboard-chip--neutral">truth-first 仪表盘</span>
+                <span class="dashboard-chip dashboard-chip--neutral">自动建议 / 人工校准 / 最终结论</span>
                 <span class="dashboard-chip dashboard-chip--warning">优先处理待否定与跨ASIN分歧</span>
                 <span class="dashboard-chip dashboard-chip--success">一键进入上传 / 分析 / 执行</span>
             </div>
@@ -541,7 +541,7 @@ def _get_overview_chart_impl(db, product_id: int = None) -> dict:
         if truth_distribution is not None:
             return {
                 "x_label": "分类",
-                "title": "数据概览（真相优先）",
+                "title": "数据概览（最终结论）",
                 "data": truth_distribution,
             }
 
