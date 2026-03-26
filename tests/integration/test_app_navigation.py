@@ -8,6 +8,7 @@ import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 from src.ui.pages.analysis import _build_truth_summary_metrics, _get_analysis_mode_meta
+from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summary_cards
 from src.ui.pages.home import _build_dashboard_metric_cards, _build_overview_chart_rows
 from src.ui.pages.upload import _build_truth_import_guidance
 
@@ -244,6 +245,53 @@ def test_truth_summary_metrics_keep_conflicts_out_of_action_counts():
         "conflict_count": 1,
         "reviewed_label": "5/5",
     }
+
+
+def test_asin_analysis_hero_meta_matches_workbench_copy():
+    """ASIN 分析页 Hero 应稳定输出对比工作台文案。"""
+    meta = _build_asin_hero_meta(["BLK", "DBL"])
+    assert meta["title"] == "ASIN分析"
+    assert meta["chips"] == [
+        "已识别 2 个 ASIN",
+        "当前重点：BLK / DBL",
+        "Top/Bottom 与跨ASIN智能属于洞察页",
+    ]
+
+
+def test_asin_summary_cards_keep_metric_order():
+    """ASIN 总览卡片应保持固定指标顺序，避免页面视觉回归。"""
+    summary_df = pd.DataFrame(
+        [
+            {
+                "asin_id": "BLK",
+                "impressions": 1200,
+                "clicks": 45,
+                "spend": 67.89,
+                "orders": 4,
+                "sales": 123.45,
+                "ctr": 0.0375,
+                "cvr": 0.0889,
+                "acos": 0.55,
+            }
+        ]
+    )
+
+    cards = _build_asin_summary_cards(summary_df)
+    assert cards == [
+        {
+            "asin_id": "BLK",
+            "metrics": [
+                {"label": "展示量", "value": "1,200"},
+                {"label": "点击量", "value": "45"},
+                {"label": "花费", "value": "$67.89"},
+                {"label": "订单", "value": "4"},
+                {"label": "销售额", "value": "$123.45"},
+                {"label": "CTR", "value": "3.75%"},
+                {"label": "CVR", "value": "8.89%"},
+                {"label": "ACOS", "value": "55.0%"},
+            ],
+        }
+    ]
 
 
 def test_overview_chart_rows_are_sorted_for_custom_rendering():
