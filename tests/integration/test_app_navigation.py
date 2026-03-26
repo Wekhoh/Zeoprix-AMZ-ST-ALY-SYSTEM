@@ -16,7 +16,11 @@ from src.ui.pages.analysis import (
 from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summary_cards
 from src.ui.pages.actions import _build_actions_workbench_meta
 from src.ui.pages.home import _build_dashboard_metric_cards, _build_overview_chart_rows
-from src.ui.pages.review import _build_review_dashboard_state, _build_review_empty_state
+from src.ui.pages.review import (
+    _build_review_dashboard_state,
+    _build_review_empty_state,
+    _build_review_upsert_payload,
+)
 from src.ui.pages.settings import (
     _build_api_settings_summary,
     _build_product_settings_summary,
@@ -421,9 +425,43 @@ def test_review_dashboard_state_and_empty_state_copy():
 
     assert _build_review_empty_state() == {
         "title": "所有词都已审核完成",
-        "description": "这批数据已经完成人工判定，可以直接回到首页看待处理项，或进入操作清单执行。",
+        "description": "这批数据已经完成人工校准，可以直接回到首页看待处理项，或进入操作清单执行。",
         "badge": "审核闭环已完成",
     }
+
+
+def test_review_upsert_payload_marks_ui_calibration_source():
+    """相关性审核页保存时，应把 UI 审核明确标记为人工校准来源。"""
+    keyword_payload = _build_review_upsert_payload(
+        product_id=1,
+        term="travel pillow",
+        term_type="keyword",
+        scope="local",
+        selected_relevance="strong_core",
+        selected_competition=None,
+        notes="核心词",
+    )
+    asin_payload = _build_review_upsert_payload(
+        product_id=1,
+        term="B0TESTASIN",
+        term_type="asin",
+        scope="global",
+        selected_relevance=None,
+        selected_competition="can_compete",
+        notes="可以竞争",
+    )
+
+    assert keyword_payload["review_source"] == "ui_calibration"
+    assert keyword_payload["reviewed"] is True
+    assert keyword_payload["relevance"] == "strong_core"
+    assert keyword_payload["relevance_notes"] == "核心词"
+    assert "competition_level" not in keyword_payload
+
+    assert asin_payload["review_source"] == "ui_calibration"
+    assert asin_payload["reviewed"] is True
+    assert asin_payload["competition_level"] == "can_compete"
+    assert asin_payload["competition_notes"] == "可以竞争"
+    assert "relevance" not in asin_payload
 
 
 def test_settings_shell_meta_matches_control_console_copy():

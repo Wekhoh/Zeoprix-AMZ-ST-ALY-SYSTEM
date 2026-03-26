@@ -97,9 +97,37 @@ def _build_review_empty_state() -> dict[str, str]:
     """构建审核页完成态文案。"""
     return {
         "title": "所有词都已审核完成",
-        "description": "这批数据已经完成人工判定，可以直接回到首页看待处理项，或进入操作清单执行。",
+        "description": "这批数据已经完成人工校准，可以直接回到首页看待处理项，或进入操作清单执行。",
         "badge": "审核闭环已完成",
     }
+
+
+def _build_review_upsert_payload(
+    *,
+    product_id: int,
+    term: str,
+    term_type: str,
+    scope: str,
+    selected_relevance: str | None,
+    selected_competition: str | None,
+    notes: str | None,
+) -> dict:
+    """统一构建审核页保存时的人工校准写入载荷。"""
+    payload = {
+        "product_id": product_id,
+        "term": term,
+        "term_type": term_type,
+        "scope": scope,
+        "reviewed": True,
+        "review_source": "ui_calibration",
+    }
+    if term_type == "asin":
+        payload["competition_level"] = selected_competition
+        payload["competition_notes"] = notes if notes else None
+    else:
+        payload["relevance"] = selected_relevance
+        payload["relevance_notes"] = notes if notes else None
+    return payload
 
 
 def render_review():
@@ -630,24 +658,28 @@ def _render_batch_form(db, product_id: int, pending_list: list):
                     if term_type == "asin":
                         # ASIN: 保存竞争力评估
                         db.upsert_manual_review(
-                            product_id=product_id,
-                            term=term,
-                            term_type=term_type,
-                            competition_level=selected_competition,
-                            competition_notes=batch_notes if batch_notes else None,
-                            scope=selected_scope,
-                            reviewed=True,
+                            **_build_review_upsert_payload(
+                                product_id=product_id,
+                                term=term,
+                                term_type=term_type,
+                                scope=selected_scope,
+                                selected_relevance=None,
+                                selected_competition=selected_competition,
+                                notes=batch_notes,
+                            )
                         )
                     else:
                         # 关键词: 保存相关性标记
                         db.upsert_manual_review(
-                            product_id=product_id,
-                            term=term,
-                            term_type=term_type,
-                            relevance=selected_relevance,
-                            relevance_notes=batch_notes if batch_notes else None,
-                            scope=selected_scope,
-                            reviewed=True,
+                            **_build_review_upsert_payload(
+                                product_id=product_id,
+                                term=term,
+                                term_type=term_type,
+                                scope=selected_scope,
+                                selected_relevance=selected_relevance,
+                                selected_competition=None,
+                                notes=batch_notes,
+                            )
                         )
                     success_count += 1
                 except Exception as e:
@@ -941,25 +973,29 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
             if term_type == "asin":
                 # ASIN: 保存竞争力评估
                 db.upsert_manual_review(
-                    product_id=product_id,
-                    term=term,
-                    term_type=term_type,
-                    competition_level=selected_competition,
-                    competition_notes=notes if notes else None,
-                    scope=selected_scope,
-                    reviewed=True,
+                    **_build_review_upsert_payload(
+                        product_id=product_id,
+                        term=term,
+                        term_type=term_type,
+                        scope=selected_scope,
+                        selected_relevance=None,
+                        selected_competition=selected_competition,
+                        notes=notes,
+                    )
                 )
                 st.success(f"已保存 ASIN '{term}' 的竞争力评估")
             else:
                 # 关键词: 保存相关性标记
                 db.upsert_manual_review(
-                    product_id=product_id,
-                    term=term,
-                    term_type=term_type,
-                    relevance=selected_relevance,
-                    relevance_notes=notes if notes else None,
-                    scope=selected_scope,
-                    reviewed=True,
+                    **_build_review_upsert_payload(
+                        product_id=product_id,
+                        term=term,
+                        term_type=term_type,
+                        scope=selected_scope,
+                        selected_relevance=selected_relevance,
+                        selected_competition=None,
+                        notes=notes,
+                    )
                 )
                 st.success(f"已保存 '{term}' 的相关性标记")
 
