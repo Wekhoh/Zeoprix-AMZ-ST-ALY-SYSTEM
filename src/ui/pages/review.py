@@ -3,12 +3,29 @@
 v2.0: 支持人工标记搜索词的相关性等级
 """
 
+from html import escape
+
 import streamlit as st
 
 from src.ai.analyzer import AIAnalyzer
 from src.config.logger import get_logger
+from src.ui.pages.actions import ACTIONS_PAGE_CSS
 
 logger = get_logger(__name__)
+
+
+REVIEW_PAGE_CSS = """
+<style>
+.review-hero {
+    padding: 1.6rem 1.8rem;
+    border-radius: 26px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,255,0.96) 100%);
+    border: 1px solid rgba(59, 91, 219, 0.10);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.06);
+    margin-bottom: 1.1rem;
+}
+</style>
+"""
 
 
 # 相关性等级显示映射
@@ -55,10 +72,38 @@ COMPETITION_DISPLAY = {
 }
 
 
+def _build_review_dashboard_state(
+    pending_count: dict[str, int], review_mode: str
+) -> dict[str, str | list[str]]:
+    """构建审核页概览文案。"""
+    mode_label = "批量模式" if review_mode == "batch" else "单条模式"
+    total = pending_count.get("total", 0)
+    keywords = pending_count.get("keywords", 0)
+    asins = pending_count.get("asins", 0)
+    return {
+        "eyebrow": "审核面板",
+        "title": "相关性审核",
+        "description": "把待审核项按词类型和花费收窄后逐条处理，避免在批量模式里误伤本该细看的词。",
+        "chips": [
+            f"待审核 {total} 项",
+            f"关键词 {keywords} 项",
+            f"ASIN {asins} 项",
+            f"当前模式：{mode_label}",
+        ],
+    }
+
+
+def _build_review_empty_state() -> dict[str, str]:
+    """构建审核页完成态文案。"""
+    return {
+        "title": "所有词都已审核完成",
+        "description": "这批数据已经完成人工判定，可以直接回到首页看待处理项，或进入操作清单执行。",
+        "badge": "审核闭环已完成",
+    }
+
+
 def render_review():
     """渲染相关性审核页面"""
-    st.title("相关性审核")
-
     db = st.session_state.get("db")
     product_id = st.session_state.get("current_product_id")
 
@@ -70,8 +115,28 @@ def render_review():
         st.warning("请先选择产品")
         return
 
+    if "review_mode" not in st.session_state:
+        st.session_state.review_mode = "single"
+
     # 获取待审核统计
     pending_count = db.get_pending_reviews_count(product_id)
+    state = _build_review_dashboard_state(pending_count, st.session_state.review_mode)
+    chips_html = "".join(
+        f'<div class="review-hero__chip">{escape(chip)}</div>' for chip in state["chips"]
+    )
+
+    st.markdown(ACTIONS_PAGE_CSS + REVIEW_PAGE_CSS, unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <section class="review-hero">
+            <div class="review-hero__eyebrow">{escape(state["eyebrow"])}</div>
+            <h1>{escape(state["title"])}</h1>
+            <p>{escape(state["description"])}</p>
+            <div class="review-hero__chips">{chips_html}</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # 顶部统计卡片
     col1, col2, col3, col4 = st.columns(4)
@@ -83,8 +148,6 @@ def render_review():
         st.metric("ASIN", pending_count.get("asins", 0))
     with col4:
         # 模式切换
-        if "review_mode" not in st.session_state:
-            st.session_state.review_mode = "single"
         mode_label = (
             "批量模式" if st.session_state.review_mode == "single" else "单条模式"
         )
@@ -99,7 +162,17 @@ def render_review():
 
     # 检查是否有待审核项
     if pending_count.get("total", 0) == 0:
-        st.success("所有词都已审核完成！")
+        empty_state = _build_review_empty_state()
+        st.markdown(
+            f"""
+            <section class="review-completion">
+                <div class="review-completion__badge">{escape(empty_state["badge"])}</div>
+                <h3>{escape(empty_state["title"])}</h3>
+                <p>{escape(empty_state["description"])}</p>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
         return
 
     # 获取待审核列表（移除100条限制，支持分页）
@@ -111,6 +184,10 @@ def render_review():
 
     # ========== T51: 筛选搜索功能 ==========
     with st.expander("筛选与搜索", expanded=False):
+        st.markdown(
+            '<p class="review-section-note">先用词类型和花费范围缩小集合，再用搜索词精准定位，能大幅减少批量审核时误点的概率。</p>',
+            unsafe_allow_html=True,
+        )
         filter_col1, filter_col2, filter_col3 = st.columns([1, 1, 2])
 
         with filter_col1:

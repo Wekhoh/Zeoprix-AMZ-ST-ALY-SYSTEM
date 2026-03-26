@@ -3,14 +3,151 @@
 展示待执行的否词和手动投放操作
 """
 
+from html import escape
+
 import pandas as pd
 import streamlit as st
 
-from src.analysis.truth_replay import get_truth_first_action_buckets
+from src.analysis.truth_replay import (
+    get_truth_first_action_buckets,
+    get_truth_first_pending_stats,
+)
 from src.config.logger import get_logger
 from src.rules.engine import AnalysisResult, analyze_search_terms
 
 logger = get_logger(__name__)
+
+
+ACTIONS_PAGE_CSS = """
+<style>
+.actions-hero {
+    padding: 1.6rem 1.8rem;
+    border-radius: 26px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,255,0.96) 100%);
+    border: 1px solid rgba(59, 91, 219, 0.10);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.06);
+    margin-bottom: 1.35rem;
+}
+.actions-hero__eyebrow,
+.review-hero__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.72rem;
+    border-radius: 999px;
+    background: rgba(59, 91, 219, 0.08);
+    color: #3b5bdb;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.95rem;
+}
+.actions-hero h1,
+.review-hero h1 {
+    margin: 0;
+    font-size: 2.05rem;
+    line-height: 1.1;
+    color: #0f172a;
+}
+.actions-hero p,
+.review-hero p {
+    margin: 0.85rem 0 0;
+    color: #52607a;
+    font-size: 1rem;
+    line-height: 1.72;
+}
+.actions-hero__chips,
+.review-hero__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin-top: 1.1rem;
+}
+.actions-hero__chip,
+.review-hero__chip {
+    padding: 0.54rem 0.88rem;
+    border-radius: 999px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    background: rgba(255,255,255,0.82);
+    color: #334155;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+.actions-section-note,
+.review-section-note {
+    margin: 0.15rem 0 1rem;
+    color: #64748b;
+    font-size: 0.95rem;
+    line-height: 1.7;
+}
+.review-completion {
+    padding: 1.8rem;
+    border-radius: 24px;
+    background: linear-gradient(180deg, rgba(240, 253, 244, 0.92) 0%, rgba(236, 253, 245, 0.98) 100%);
+    border: 1px solid rgba(34, 197, 94, 0.18);
+    box-shadow: 0 14px 34px rgba(34, 197, 94, 0.08);
+    margin-top: 1rem;
+}
+.review-completion__badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.32rem 0.72rem;
+    border-radius: 999px;
+    background: rgba(34, 197, 94, 0.12);
+    color: #15803d;
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-bottom: 0.9rem;
+}
+.review-completion h3 {
+    margin: 0;
+    color: #14532d;
+    font-size: 1.45rem;
+}
+.review-completion p {
+    margin: 0.7rem 0 0;
+    color: #166534;
+    font-size: 0.98rem;
+    line-height: 1.75;
+}
+</style>
+"""
+
+
+def _build_actions_workbench_meta(
+    product_name: str,
+    truth_buckets: dict | None,
+    pending_stats: dict | None = None,
+) -> dict[str, str | list[str]]:
+    """构建操作清单页的工作台文案与核心数量。"""
+    counts = {
+        "negative": 0,
+        "manual": 0,
+        "conflict": 0,
+    }
+    if truth_buckets:
+        counts["negative"] = sum(
+            len(truth_buckets.get(key, []))
+            for key in ("negative_keyword_exact", "negative_keyword_phrase", "negative_asin")
+        )
+        counts["manual"] = sum(
+            len(truth_buckets.get(key, []))
+            for key in ("manual_keywords", "manual_products")
+        )
+        counts["conflict"] = len(truth_buckets.get("cross_asin_conflicts", []))
+    if pending_stats:
+        counts["conflict"] = pending_stats.get("conflict_count", counts["conflict"])
+
+    return {
+        "eyebrow": "执行面板",
+        "title": "操作清单",
+        "description": "先处理可直接执行的否词和投放动作，再回头处理需要人工拍板的跨ASIN分歧。",
+        "product_label": product_name,
+        "chips": [
+            f"可直接否定 {counts['negative']} 项",
+            f"可直接投放 {counts['manual']} 项",
+            f"待人工拍板 {counts['conflict']} 项",
+        ],
+    }
 
 
 def _get_export_results(db, product_id: int, export_kind: str) -> list[AnalysisResult]:
@@ -88,8 +225,6 @@ def _get_export_payload(db, product_id: int, export_kind: str, export_format: st
 
 def render_actions():
     """渲染操作清单页面"""
-    st.title("操作清单")
-
     db = st.session_state.get("db")
     product_id = st.session_state.get("current_product_id")
 
@@ -104,8 +239,25 @@ def render_actions():
     # 获取产品信息
     product = db.get_product(product_id)
     product_name = product.get("name", "未知产品") if product else "未知产品"
+    truth_buckets = get_truth_first_action_buckets(db, product_id) or {}
+    pending_stats = get_truth_first_pending_stats(db, product_id)
+    meta = _build_actions_workbench_meta(product_name, truth_buckets, pending_stats)
 
-    st.subheader(f"产品: {product_name}")
+    st.markdown(ACTIONS_PAGE_CSS, unsafe_allow_html=True)
+    chips_html = "".join(
+        f'<div class="actions-hero__chip">{escape(chip)}</div>' for chip in meta["chips"]
+    )
+    st.markdown(
+        f"""
+        <section class="actions-hero">
+            <div class="actions-hero__eyebrow">{escape(meta["eyebrow"])}</div>
+            <h1>{escape(meta["title"])}</h1>
+            <p>{escape(meta["product_label"])} · {escape(meta["description"])}</p>
+            <div class="actions-hero__chips">{chips_html}</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # 标签页切换
     tab1, tab2, tab3 = st.tabs(["否词操作", "手动投放", "操作历史"])
@@ -123,6 +275,10 @@ def render_actions():
 def render_negative_actions(db, product_id: int):
     """渲染否词操作清单"""
     st.write("### 待否定关键词")
+    st.markdown(
+        '<p class="actions-section-note">只保留已经可以直接执行的否词项；跨ASIN分歧不会混进这里，避免复制到后台后再返工。</p>',
+        unsafe_allow_html=True,
+    )
 
     truth_buckets = get_truth_first_action_buckets(db, product_id)
     if truth_buckets is not None:
@@ -287,6 +443,10 @@ def render_negative_actions(db, product_id: int):
 def render_manual_actions(db, product_id: int):
     """渲染手动投放操作清单"""
     st.write("### 推荐手动投放")
+    st.markdown(
+        '<p class="actions-section-note">这里展示的是已收敛成可执行动作的手动词与商品定位；如果还存在分歧，请先回首页或搜索词分析页确认。</p>',
+        unsafe_allow_html=True,
+    )
 
     truth_buckets = get_truth_first_action_buckets(db, product_id)
     if truth_buckets is not None:
@@ -435,6 +595,10 @@ def render_manual_actions(db, product_id: int):
 def render_action_history(db, product_id: int):
     """渲染操作历史"""
     st.write("### 操作历史")
+    st.markdown(
+        '<p class="actions-section-note">操作历史用于复盘最近执行记录，确认哪些动作已经落地，避免同一批词重复处理。</p>',
+        unsafe_allow_html=True,
+    )
 
     # 获取操作计划历史
     # action_plans 表没有 product_id，需要通过 analysis_results -> search_terms -> campaigns 关联

@@ -9,7 +9,9 @@ from streamlit.testing.v1 import AppTest
 
 from src.ui.pages.analysis import _build_truth_summary_metrics, _get_analysis_mode_meta
 from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summary_cards
+from src.ui.pages.actions import _build_actions_workbench_meta
 from src.ui.pages.home import _build_dashboard_metric_cards, _build_overview_chart_rows
+from src.ui.pages.review import _build_review_dashboard_state, _build_review_empty_state
 from src.ui.pages.upload import _build_truth_import_guidance
 
 
@@ -292,6 +294,58 @@ def test_asin_summary_cards_keep_metric_order():
             ],
         }
     ]
+
+
+def test_actions_workbench_meta_surfaces_execute_vs_review_counts():
+    """操作清单页应稳定输出执行面板文案和关键数量。"""
+    meta = _build_actions_workbench_meta(
+        "桌面验收产品",
+        {
+            "negative_keyword_exact": [{}] * 24,
+            "negative_keyword_phrase": [{}] * 8,
+            "negative_asin": [{}] * 5,
+            "manual_keywords": [{}] * 9,
+            "manual_products": [{}] * 2,
+            "cross_asin_conflicts": [{}] * 18,
+        },
+    )
+
+    assert meta == {
+        "eyebrow": "执行面板",
+        "title": "操作清单",
+        "description": "先处理可直接执行的否词和投放动作，再回头处理需要人工拍板的跨ASIN分歧。",
+        "product_label": "桌面验收产品",
+        "chips": [
+            "可直接否定 37 项",
+            "可直接投放 11 项",
+            "待人工拍板 18 项",
+        ],
+    }
+
+
+def test_review_dashboard_state_and_empty_state_copy():
+    """审核页应稳定输出统计概览和完成态文案。"""
+    state = _build_review_dashboard_state(
+        {"total": 12, "keywords": 9, "asins": 3},
+        review_mode="single",
+    )
+    assert state == {
+        "eyebrow": "审核面板",
+        "title": "相关性审核",
+        "description": "把待审核项按词类型和花费收窄后逐条处理，避免在批量模式里误伤本该细看的词。",
+        "chips": [
+            "待审核 12 项",
+            "关键词 9 项",
+            "ASIN 3 项",
+            "当前模式：单条模式",
+        ],
+    }
+
+    assert _build_review_empty_state() == {
+        "title": "所有词都已审核完成",
+        "description": "这批数据已经完成人工判定，可以直接回到首页看待处理项，或进入操作清单执行。",
+        "badge": "审核闭环已完成",
+    }
 
 
 def test_overview_chart_rows_are_sorted_for_custom_rendering():
