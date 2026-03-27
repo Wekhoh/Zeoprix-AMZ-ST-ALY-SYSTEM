@@ -22,6 +22,8 @@ class Database:
     """数据库操作类"""
 
     VALID_WORKSPACE_ROLES = {"admin", "editor", "viewer"}
+    DEFAULT_LOCAL_OWNER_EMAIL = "local-owner@workspace.local"
+    DEFAULT_LOCAL_OWNER_NAME = "本地工作区管理员"
 
     def __init__(self, db_path: str):
         """
@@ -341,7 +343,9 @@ class Database:
         row = cursor.fetchone()
         return row["id"]
 
-    def get_workspace_members(self, product_id: int) -> list[dict]:
+    def get_workspace_members(
+        self, product_id: int, include_system_members: bool = False
+    ) -> list[dict]:
         """获取产品工作区成员列表。"""
         cursor = self.conn.execute(
             """
@@ -368,7 +372,14 @@ class Database:
             """,
             (product_id,),
         )
-        return [dict(row) for row in cursor.fetchall()]
+        members = [dict(row) for row in cursor.fetchall()]
+        if include_system_members:
+            return members
+        return [
+            member
+            for member in members
+            if member["email"] != self.DEFAULT_LOCAL_OWNER_EMAIL
+        ]
 
     def get_workspace_role(self, product_id: int, user_id: int) -> str | None:
         """获取用户在产品工作区中的角色。"""
@@ -382,6 +393,31 @@ class Database:
         )
         row = cursor.fetchone()
         return row["role"] if row else None
+
+    def get_or_create_local_owner(self) -> dict:
+        """获取或创建默认本地工作区管理员。"""
+        owner = self.get_user(email=self.DEFAULT_LOCAL_OWNER_EMAIL)
+        if owner is not None:
+            return owner
+
+        user_id = self.create_user(
+            email=self.DEFAULT_LOCAL_OWNER_EMAIL,
+            display_name=self.DEFAULT_LOCAL_OWNER_NAME,
+        )
+        owner = self.get_user(user_id=user_id)
+        if owner is None:
+            raise RuntimeError("默认本地工作区管理员创建失败")
+        return owner
+
+    def get_workspace_summary(self, product_id: int) -> dict:
+        """获取产品工作区的成员摘要。"""
+        members = self.get_workspace_members(product_id, include_system_members=True)
+        owner = self.get_or_create_local_owner()
+        current_role = self.get_workspace_role(product_id, owner["id"])
+        return {
+            "member_count": len(members),
+            "current_role": current_role or "viewer",
+        }
 
     def create_product(
         self, name: str, asin: str = None, category: str = None, config: dict = None
@@ -412,7 +448,12 @@ class Database:
             (name, asin, category, json.dumps(normalized_config, ensure_ascii=False)),
         )
         self.conn.commit()
-        return cursor.lastrowid
+        product_id = cursor.lastrowid
+
+        default_owner = self.get_or_create_local_owner()
+        self.add_workspace_member(product_id, default_owner["id"], "admin")
+
+        return product_id
 
     def get_product(self, product_id: int) -> dict | None:
         """获取产品信息"""

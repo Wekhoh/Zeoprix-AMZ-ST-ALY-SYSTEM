@@ -157,6 +157,24 @@ HOME_PAGE_CSS = """
     font-size: 0.92rem;
     line-height: 1.55;
 }
+.workspace-summary-shell {
+    padding: 1rem 1.05rem;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+    margin-bottom: 1.15rem;
+}
+.workspace-summary-shell h3 {
+    margin: 0 0 0.35rem 0 !important;
+    font-size: 1rem;
+}
+.workspace-summary-shell p {
+    margin: 0 0 0.85rem 0;
+    color: #64748B;
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
 @media (max-width: 1100px) {
     .dashboard-kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -225,6 +243,23 @@ def _build_dashboard_metric_cards(stats: dict) -> list[dict[str, str]]:
     ]
 
 
+def _build_workspace_summary_meta(
+    product_name: str,
+    member_count: int,
+    current_role: str,
+) -> dict[str, str | list[str]]:
+    """统一首页工作区摘要文案。"""
+    return {
+        "title": "当前工作区",
+        "description": "把产品分析、规则调整和人工校准都收在同一个工作区里，后续多人协作时可以继续沿用这套成员与角色模型。",
+        "chips": [
+            f"工作区：{product_name}",
+            f"成员 {member_count} 人",
+            f"当前角色：{current_role}",
+        ],
+    }
+
+
 def _render_dashboard_metric_grid(stats: dict) -> None:
     cards_html = "".join(
         (
@@ -237,6 +272,23 @@ def _render_dashboard_metric_grid(stats: dict) -> None:
     )
     st.markdown(
         f'<div class="dashboard-kpi-grid">{cards_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_workspace_summary(meta: dict[str, str | list[str]]) -> None:
+    chips_html = "".join(
+        f'<span class="dashboard-chip dashboard-chip--neutral">{escape(str(chip))}</span>'
+        for chip in meta["chips"]
+    )
+    st.markdown(
+        f"""
+        <div class="workspace-summary-shell">
+            <h3>{escape(str(meta['title']))}</h3>
+            <p>{escape(str(meta['description']))}</p>
+            <div class="dashboard-hero__chips">{chips_html}</div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -345,6 +397,16 @@ def render_home():
         """,
         unsafe_allow_html=True,
     )
+
+    if product_id and product_name:
+        workspace_summary = db.get_workspace_summary(product_id)
+        _render_workspace_summary(
+            _build_workspace_summary_meta(
+                product_name=product_name,
+                member_count=workspace_summary["member_count"],
+                current_role=workspace_summary["current_role"],
+            )
+        )
 
     if not db:
         st.error("数据库未初始化")

@@ -15,7 +15,11 @@ from src.ui.pages.analysis import (
 )
 from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summary_cards
 from src.ui.pages.actions import _build_actions_workbench_meta
-from src.ui.pages.home import _build_dashboard_metric_cards, _build_overview_chart_rows
+from src.ui.pages.home import (
+    _build_dashboard_metric_cards,
+    _build_overview_chart_rows,
+    _build_workspace_summary_meta,
+)
 from src.ui.pages.review import (
     _build_review_dashboard_state,
     _build_review_empty_state,
@@ -103,6 +107,36 @@ def test_sidebar_current_product_name_prefers_selected_product():
     assert _get_current_product_name([], 202) is None
 
 
+def test_create_product_assigns_default_workspace_admin(db):
+    """新建产品工作区时，应自动绑定一个默认本地管理员成员。"""
+    product_id = db.create_product(name="新建工作区", asin="B0WORKSPACE1")
+
+    members = db.get_workspace_members(product_id, include_system_members=True)
+
+    assert len(members) == 1
+    assert members[0]["role"] == "admin"
+    assert members[0]["email"] == "local-owner@workspace.local"
+
+
+def test_workspace_summary_meta_surfaces_member_count_and_role():
+    """首页工作区摘要应稳定输出工作区、成员数和当前角色。"""
+    summary = _build_workspace_summary_meta(
+        product_name="旅行枕工作区",
+        member_count=3,
+        current_role="admin",
+    )
+
+    assert summary == {
+        "title": "当前工作区",
+        "description": "把产品分析、规则调整和人工校准都收在同一个工作区里，后续多人协作时可以继续沿用这套成员与角色模型。",
+        "chips": [
+            "工作区：旅行枕工作区",
+            "成员 3 人",
+            "当前角色：admin",
+        ],
+    }
+
+
 def _seed_minimal_search_term(db, campaign_id: int) -> None:
     df = pd.DataFrame(
         [
@@ -165,6 +199,19 @@ def test_home_quick_action_button_navigates_after_single_click(
     quick_action_button.click().run(timeout=20)
 
     assert _get_current_page_heading(app) == "操作清单"
+
+
+def test_homepage_surfaces_workspace_summary(monkeypatch, db, product_id, campaign_id):
+    """首页应展示当前工作区、成员数与当前角色摘要。"""
+    _seed_minimal_search_term(db, campaign_id)
+    app = _make_app_test(monkeypatch, db.db_path)
+
+    app.run(timeout=20)
+
+    markdown_values = [markdown.value or "" for markdown in app.markdown]
+    joined = "\n".join(markdown_values)
+    assert "workspace-summary-shell" in joined
+    assert "当前工作区" in joined
 
 
 def test_analysis_ui_reviews_are_saved_as_ui_calibration(db, product_id, campaign_id):
