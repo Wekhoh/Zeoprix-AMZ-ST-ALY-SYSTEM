@@ -676,6 +676,79 @@ def build_analysis_run_diff_rows(
     return diff_rows
 
 
+def _analysis_diff_action_label(action_type: str, suggested_action: str) -> str:
+    suggested = _normalize_text(suggested_action)
+    if suggested:
+        return suggested
+    normalized_action = _normalize_text(action_type)
+    return action_type_to_label(normalized_action) if normalized_action else "-"
+
+
+def _analysis_diff_source_label(source: str) -> str:
+    normalized = _normalize_text(source)
+    source_labels = {
+        "auto_suggestion": "自动建议",
+        "ui_calibration": "人工校准",
+        "ui_review": "人工校准",
+        "campaign_truth": "导入校准",
+        "aggregate_truth": "导入校准",
+        "upload_pending": "待确认导入",
+    }
+    return source_labels.get(normalized, normalized or "-")
+
+
+def get_latest_analysis_run_diff_preview(
+    db: Database, product_id: int
+) -> dict[str, Any]:
+    """返回最近两次分析运行之间的词级变化预览。"""
+    snapshots = db.list_analysis_run_snapshots(product_id, limit=2)
+    if len(snapshots) < 2:
+        return {
+            "rows": [],
+            "changed_count": 0,
+            "empty_message": "至少完成两次分析运行后，这里才会显示变化清单。",
+            "current_created_at": None,
+            "previous_created_at": None,
+        }
+
+    current_snapshot = snapshots[0]
+    previous_snapshot = snapshots[1]
+    diff_rows = build_analysis_run_diff_rows(
+        previous_snapshot.get("rows", []),
+        current_snapshot.get("rows", []),
+    )
+
+    preview_rows = [
+        {
+            "搜索词": row.get("term") or "",
+            "类型": "ASIN" if row.get("term_type") == "asin" else "关键词",
+            "旧动作": _analysis_diff_action_label(
+                row.get("old_action_type", ""),
+                row.get("old_suggested_action", ""),
+            ),
+            "新动作": _analysis_diff_action_label(
+                row.get("new_action_type", ""),
+                row.get("new_suggested_action", ""),
+            ),
+            "旧来源": _analysis_diff_source_label(row.get("old_decision_source", "")),
+            "新来源": _analysis_diff_source_label(row.get("new_decision_source", "")),
+        }
+        for row in diff_rows
+    ]
+
+    empty_message = ""
+    if not preview_rows:
+        empty_message = "最近两次分析运行没有产生动作变化。"
+
+    return {
+        "rows": preview_rows,
+        "changed_count": len(preview_rows),
+        "empty_message": empty_message,
+        "current_created_at": current_snapshot.get("created_at"),
+        "previous_created_at": previous_snapshot.get("created_at"),
+    }
+
+
 def get_truth_first_overview_distribution(
     db: Database,
     product_id: int,

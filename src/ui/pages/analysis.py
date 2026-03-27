@@ -5,6 +5,7 @@
 """
 
 from html import escape
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -457,12 +458,16 @@ def render_analysis():
 
 def render_summary_analysis(db, product_id: int):
     """渲染汇总模式分析页面（使用实时计算避免数据重复）"""
-    from src.analysis.truth_replay import get_truth_first_summary_rows
+    from src.analysis.truth_replay import (
+        get_latest_analysis_run_diff_preview,
+        get_truth_first_summary_rows,
+    )
     from src.rules.engine import analyze_search_terms
 
     truth_rows = get_truth_first_summary_rows(db, product_id)
     if truth_rows is not None:
-        _render_truth_first_summary_analysis(truth_rows)
+        diff_preview = get_latest_analysis_run_diff_preview(db, product_id)
+        _render_truth_first_summary_analysis(truth_rows, diff_preview)
         return
 
     # 筛选面板
@@ -1120,7 +1125,9 @@ def export_results(db, product_id: int, result_type: str):
         safe_error("导出", e)
 
 
-def _render_truth_first_summary_analysis(rows: list[dict]) -> None:
+def _render_truth_first_summary_analysis(
+    rows: list[dict], diff_preview: dict[str, Any] | None = None
+) -> None:
     """渲染 truth-first 汇总模式（按唯一搜索词折叠后的最终视图）。"""
     st.markdown(
         """
@@ -1217,6 +1224,22 @@ def _render_truth_first_summary_analysis(rows: list[dict]) -> None:
         st.metric("跨ASIN分歧", metrics["conflict_count"])
     with col5:
         st.metric("已审核", metrics["reviewed_label"])
+
+    diff_preview = diff_preview or {}
+    with st.container(border=True):
+        st.markdown("#### 最近一次分析变化")
+        st.caption("系统会比较最近两次分析运行的最终动作，帮助你快速判断这次调参或人工校准影响了哪些词。")
+        if diff_preview.get("rows"):
+            st.dataframe(
+                pd.DataFrame(diff_preview["rows"]),
+                hide_index=True,
+                width="stretch",
+            )
+        else:
+            st.info(
+                diff_preview.get("empty_message")
+                or "最近没有可展示的分析变化清单。"
+            )
 
     st.divider()
     st.markdown(

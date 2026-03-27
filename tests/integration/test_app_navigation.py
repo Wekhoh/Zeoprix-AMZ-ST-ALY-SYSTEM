@@ -8,6 +8,7 @@ import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 from src.config.product_defaults import build_seeded_product_config
+from src.analysis.truth_replay import get_latest_analysis_run_diff_preview
 from src.ui.pages.analysis import (
     _build_truth_summary_metrics,
     _get_analysis_mode_meta,
@@ -247,6 +248,82 @@ def test_analysis_ui_reviews_are_saved_as_ui_calibration(db, product_id, campaig
     assert row is not None
     assert row["reviewed"] == 1
     assert row["review_source"] == "ui_calibration"
+
+
+def test_latest_analysis_run_diff_preview_returns_empty_state_without_two_runs(
+    db, product_id
+):
+    """少于两次分析运行时，应返回明确的空态提示。"""
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "observe",
+                "suggested_action": "观察",
+                "decision_source": "auto_suggestion",
+            }
+        ],
+        run_source="manual",
+        summary={"observe_count": 1},
+    )
+
+    preview = get_latest_analysis_run_diff_preview(db, product_id)
+
+    assert preview["rows"] == []
+    assert preview["changed_count"] == 0
+    assert preview["empty_message"] == "至少完成两次分析运行后，这里才会显示变化清单。"
+
+
+def test_latest_analysis_run_diff_preview_formats_changed_terms(db, product_id):
+    """最近两次分析运行之间的动作变化应被格式化成人话清单。"""
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "observe",
+                "suggested_action": "观察",
+                "decision_source": "auto_suggestion",
+            }
+        ],
+        run_source="manual",
+        summary={"observe_count": 1},
+    )
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "decision_source": "ui_calibration",
+            }
+        ],
+        run_source="manual",
+        summary={"negative_count": 1},
+    )
+
+    preview = get_latest_analysis_run_diff_preview(db, product_id)
+
+    assert preview["changed_count"] == 1
+    assert preview["empty_message"] == ""
+    assert preview["rows"] == [
+        {
+            "搜索词": "travel pillow",
+            "类型": "关键词",
+            "旧动作": "观察",
+            "新动作": "否定精准",
+            "旧来源": "自动建议",
+            "新来源": "人工校准",
+        }
+    ]
 
 
 def test_pending_notices_are_rendered_in_truth_first_priority_order():
