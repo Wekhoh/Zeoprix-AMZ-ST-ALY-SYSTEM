@@ -1251,7 +1251,9 @@ def _render_truth_first_summary_analysis(
     diff_preview = diff_preview or {}
     with st.container(border=True):
         st.markdown("#### 最近一次分析变化")
-        st.caption("系统会比较最近两次分析运行的最终动作，帮助你快速判断这次调参或人工校准影响了哪些词。")
+        st.caption(
+            "系统会比较最近两次分析运行的最终动作、触发规则和结论来源，帮助你快速判断这次调参或人工校准为什么影响了这些词。"
+        )
         if diff_preview.get("rows"):
             st.dataframe(
                 pd.DataFrame(diff_preview["rows"]),

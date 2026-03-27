@@ -668,6 +668,8 @@ def build_analysis_run_diff_rows(
                 "new_action_type": new_action_type,
                 "old_suggested_action": _normalize_text(previous.get("suggested_action")),
                 "new_suggested_action": _normalize_text(current.get("suggested_action")),
+                "old_triggered_rule": _normalize_text(previous.get("triggered_rule")),
+                "new_triggered_rule": _normalize_text(current.get("triggered_rule")),
                 "old_decision_source": old_decision_source,
                 "new_decision_source": new_decision_source,
             }
@@ -695,6 +697,34 @@ def _analysis_diff_source_label(source: str) -> str:
         "upload_pending": "待确认导入",
     }
     return source_labels.get(normalized, normalized or "-")
+
+
+def _analysis_diff_rule_label(rule: str) -> str:
+    normalized = _normalize_text(rule)
+    return normalized or "-"
+
+
+def _analysis_diff_reason_label(row: dict[str, Any]) -> str:
+    old_source = _normalize_text(row.get("old_decision_source"))
+    new_source = _normalize_text(row.get("new_decision_source"))
+    old_rule = _normalize_text(row.get("old_triggered_rule"))
+    new_rule = _normalize_text(row.get("new_triggered_rule"))
+    old_action = _analysis_diff_action_label(
+        row.get("old_action_type", ""), row.get("old_suggested_action", "")
+    )
+    new_action = _analysis_diff_action_label(
+        row.get("new_action_type", ""), row.get("new_suggested_action", "")
+    )
+
+    if new_source in {"ui_calibration", "ui_review"} and old_source != new_source:
+        return "人工校准覆盖了自动建议。"
+    if new_source in {"campaign_truth", "aggregate_truth"} and old_source != new_source:
+        return "导入校准结果覆盖了原有结论。"
+    if old_rule and new_rule and old_rule != new_rule:
+        return f"规则判断从「{old_rule}」切换为「{new_rule}」。"
+    if old_action != new_action:
+        return f"最终动作从「{old_action}」调整为「{new_action}」。"
+    return "最终结论发生了变化。"
 
 
 def get_latest_analysis_run_diff_preview(
@@ -732,6 +762,13 @@ def get_latest_analysis_run_diff_preview(
             ),
             "旧来源": _analysis_diff_source_label(row.get("old_decision_source", "")),
             "新来源": _analysis_diff_source_label(row.get("new_decision_source", "")),
+            "旧触发规则": _analysis_diff_rule_label(
+                row.get("old_triggered_rule", "")
+            ),
+            "新触发规则": _analysis_diff_rule_label(
+                row.get("new_triggered_rule", "")
+            ),
+            "变化原因": _analysis_diff_reason_label(row),
         }
         for row in diff_rows
     ]

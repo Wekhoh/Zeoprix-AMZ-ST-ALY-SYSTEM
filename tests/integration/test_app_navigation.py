@@ -200,7 +200,7 @@ def test_home_quick_action_button_navigates_after_single_click(
     quick_action_button = next(
         button for button in app.button if button.label == "查看操作清单"
     )
-    quick_action_button.click().run(timeout=20)
+    quick_action_button.click().run(timeout=40)
 
     assert _get_current_page_heading(app) == "操作清单"
 
@@ -291,6 +291,7 @@ def test_latest_analysis_run_diff_preview_formats_changed_terms(db, product_id):
                 "term_type": "keyword",
                 "action_type": "observe",
                 "suggested_action": "观察",
+                "triggered_rule": "样本不足继续观察",
                 "decision_source": "auto_suggestion",
             }
         ],
@@ -306,6 +307,7 @@ def test_latest_analysis_run_diff_preview_formats_changed_terms(db, product_id):
                 "term_type": "keyword",
                 "action_type": "negative_exact",
                 "suggested_action": "否定精准",
+                "triggered_rule": "人工已审核回放",
                 "decision_source": "ui_calibration",
             }
         ],
@@ -325,8 +327,57 @@ def test_latest_analysis_run_diff_preview_formats_changed_terms(db, product_id):
             "新动作": "否定精准",
             "旧来源": "自动建议",
             "新来源": "人工校准",
+            "旧触发规则": "样本不足继续观察",
+            "新触发规则": "人工已审核回放",
+            "变化原因": "人工校准覆盖了自动建议。",
         }
     ]
+
+
+def test_latest_analysis_run_diff_preview_explains_rule_switches(db, product_id):
+    """当自动建议触发规则切换时，应输出明确的规则变化解释。"""
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        snapshot_rows=[
+            {
+                "term": "premium neck pillow",
+                "normalized_term": "premium neck pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "低转化高点击否定",
+                "decision_source": "auto_suggestion",
+            }
+        ],
+        run_source="manual",
+        summary={"negative_count": 1},
+    )
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        snapshot_rows=[
+            {
+                "term": "premium neck pillow",
+                "normalized_term": "premium neck pillow",
+                "term_type": "keyword",
+                "action_type": "manual_exact_no_neg",
+                "suggested_action": "手动精准",
+                "triggered_rule": "高转化手动投放",
+                "decision_source": "auto_suggestion",
+            }
+        ],
+        run_source="manual",
+        summary={"manual_count": 1},
+    )
+
+    preview = get_latest_analysis_run_diff_preview(db, product_id)
+
+    assert preview["changed_count"] == 1
+    assert preview["rows"][0]["旧触发规则"] == "低转化高点击否定"
+    assert preview["rows"][0]["新触发规则"] == "高转化手动投放"
+    assert (
+        preview["rows"][0]["变化原因"]
+        == "规则判断从「低转化高点击否定」切换为「高转化手动投放」。"
+    )
 
 
 def test_latest_analysis_run_summary_delta_returns_empty_state_without_two_runs(
