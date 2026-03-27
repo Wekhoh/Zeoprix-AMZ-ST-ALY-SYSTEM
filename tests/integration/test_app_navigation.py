@@ -8,7 +8,10 @@ import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 from src.config.product_defaults import build_seeded_product_config
-from src.analysis.truth_replay import get_latest_analysis_run_diff_preview
+from src.analysis.truth_replay import (
+    get_latest_analysis_run_diff_preview,
+    get_latest_analysis_run_summary_delta,
+)
 from src.ui.pages.analysis import (
     _build_truth_summary_metrics,
     _get_analysis_mode_meta,
@@ -323,6 +326,59 @@ def test_latest_analysis_run_diff_preview_formats_changed_terms(db, product_id):
             "旧来源": "自动建议",
             "新来源": "人工校准",
         }
+    ]
+
+
+def test_latest_analysis_run_summary_delta_returns_empty_state_without_two_runs(
+    db, product_id
+):
+    """少于两次分析运行时，应返回明确的摘要空态提示。"""
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        snapshot_rows=[],
+        run_source="manual",
+        summary={"observe_count": 1},
+    )
+
+    summary_delta = get_latest_analysis_run_summary_delta(db, product_id)
+
+    assert summary_delta["cards"] == []
+    assert summary_delta["empty_message"] == "至少完成两次分析运行后，这里才会显示变化摘要。"
+
+
+def test_latest_analysis_run_summary_delta_formats_count_changes(db, product_id):
+    """最近两次分析运行应输出稳定的汇总数量变化卡片。"""
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        snapshot_rows=[],
+        run_source="manual",
+        summary={
+            "negative_count": 1,
+            "manual_count": 0,
+            "observe_count": 3,
+            "conflict_count": 2,
+        },
+    )
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        snapshot_rows=[],
+        run_source="manual",
+        summary={
+            "negative_count": 4,
+            "manual_count": 2,
+            "observe_count": 1,
+            "conflict_count": 1,
+        },
+    )
+
+    summary_delta = get_latest_analysis_run_summary_delta(db, product_id)
+
+    assert summary_delta["empty_message"] == ""
+    assert summary_delta["cards"] == [
+        {"label": "建议否定", "value": 4, "delta": 3},
+        {"label": "建议手动投放", "value": 2, "delta": 2},
+        {"label": "继续观察", "value": 1, "delta": -2},
+        {"label": "跨ASIN分歧", "value": 1, "delta": -1},
     ]
 
 

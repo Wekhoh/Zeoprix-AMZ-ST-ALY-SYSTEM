@@ -460,6 +460,7 @@ def render_summary_analysis(db, product_id: int):
     """渲染汇总模式分析页面（使用实时计算避免数据重复）"""
     from src.analysis.truth_replay import (
         get_latest_analysis_run_diff_preview,
+        get_latest_analysis_run_summary_delta,
         get_truth_first_summary_rows,
     )
     from src.rules.engine import analyze_search_terms
@@ -467,7 +468,8 @@ def render_summary_analysis(db, product_id: int):
     truth_rows = get_truth_first_summary_rows(db, product_id)
     if truth_rows is not None:
         diff_preview = get_latest_analysis_run_diff_preview(db, product_id)
-        _render_truth_first_summary_analysis(truth_rows, diff_preview)
+        summary_delta = get_latest_analysis_run_summary_delta(db, product_id)
+        _render_truth_first_summary_analysis(truth_rows, diff_preview, summary_delta)
         return
 
     # 筛选面板
@@ -1126,7 +1128,9 @@ def export_results(db, product_id: int, result_type: str):
 
 
 def _render_truth_first_summary_analysis(
-    rows: list[dict], diff_preview: dict[str, Any] | None = None
+    rows: list[dict],
+    diff_preview: dict[str, Any] | None = None,
+    summary_delta: dict[str, Any] | None = None,
 ) -> None:
     """渲染 truth-first 汇总模式（按唯一搜索词折叠后的最终视图）。"""
     st.markdown(
@@ -1224,6 +1228,25 @@ def _render_truth_first_summary_analysis(
         st.metric("跨ASIN分歧", metrics["conflict_count"])
     with col5:
         st.metric("已审核", metrics["reviewed_label"])
+
+    summary_delta = summary_delta or {}
+    with st.container(border=True):
+        st.markdown("#### 本次分析变化摘要")
+        st.caption(
+            "对比最近两次分析运行，先看整体动作结构如何变化，再下钻到具体词的变化清单。"
+        )
+        if summary_delta.get("cards"):
+            delta_cols = st.columns(len(summary_delta["cards"]))
+            for col, card in zip(delta_cols, summary_delta["cards"], strict=False):
+                delta_value = int(card.get("delta", 0) or 0)
+                with col:
+                    st.metric(
+                        card.get("label", ""),
+                        int(card.get("value", 0) or 0),
+                        delta=f"{delta_value:+d}",
+                    )
+        else:
+            st.info(summary_delta.get("empty_message") or "暂无分析变化摘要。")
 
     diff_preview = diff_preview or {}
     with st.container(border=True):

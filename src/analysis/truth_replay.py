@@ -749,6 +749,50 @@ def get_latest_analysis_run_diff_preview(
     }
 
 
+def get_latest_analysis_run_summary_delta(
+    db: Database, product_id: int
+) -> dict[str, Any]:
+    """返回最近两次分析运行之间的汇总数量变化。"""
+    snapshots = db.list_analysis_run_snapshots(product_id, limit=2)
+    if len(snapshots) < 2:
+        return {
+            "cards": [],
+            "empty_message": "至少完成两次分析运行后，这里才会显示变化摘要。",
+            "current_created_at": None,
+            "previous_created_at": None,
+        }
+
+    current_snapshot = snapshots[0]
+    previous_snapshot = snapshots[1]
+    current_summary = current_snapshot.get("summary", {}) or {}
+    previous_summary = previous_snapshot.get("summary", {}) or {}
+
+    card_specs = (
+        ("建议否定", "negative_count"),
+        ("建议手动投放", "manual_count"),
+        ("继续观察", "observe_count"),
+        ("跨ASIN分歧", "conflict_count"),
+    )
+    cards = []
+    for label, key in card_specs:
+        current_value = int(current_summary.get(key, 0) or 0)
+        previous_value = int(previous_summary.get(key, 0) or 0)
+        cards.append(
+            {
+                "label": label,
+                "value": current_value,
+                "delta": current_value - previous_value,
+            }
+        )
+
+    return {
+        "cards": cards,
+        "empty_message": "",
+        "current_created_at": current_snapshot.get("created_at"),
+        "previous_created_at": previous_snapshot.get("created_at"),
+    }
+
+
 def get_truth_first_overview_distribution(
     db: Database,
     product_id: int,
