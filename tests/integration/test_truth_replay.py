@@ -1071,6 +1071,82 @@ class TestTruthFirstViews:
         assert conflicts.iloc[0]["term"] == "travel pillow"
         assert conflicts.iloc[0]["severity"] == "严重"
 
+
+    def test_analysis_run_snapshots_capture_term_level_diff_after_ui_calibration(
+        self, db, product_id, campaign_id
+    ):
+        from src.analysis.truth_replay import (
+            build_analysis_run_diff_rows,
+            build_analysis_run_snapshot_rows,
+            build_analysis_run_snapshot_summary,
+        )
+        from src.rules.engine import analyze_search_terms
+
+        db.save_search_terms(
+            _make_search_term_rows(
+                "calibration snapshot term",
+                clicks=5,
+                spend=6.0,
+            ),
+            campaign_id,
+        )
+
+        before_results = analyze_search_terms(db, product_id)
+        before_snapshot = build_analysis_run_snapshot_rows(before_results)
+        before_summary = build_analysis_run_snapshot_summary(before_snapshot)
+        db.save_analysis_run_snapshot(
+            product_id=product_id,
+            snapshot_rows=before_snapshot,
+            run_source="auto_analysis",
+            summary=before_summary,
+        )
+
+        db.upsert_manual_review(
+            product_id=product_id,
+            term="calibration snapshot term",
+            term_type="keyword",
+            reviewed=True,
+            review_source="ui_calibration",
+            truth_action_type="manual_exact",
+            manual_action="手动精准",
+            relevance="strong",
+        )
+
+        after_results = analyze_search_terms(db, product_id)
+        after_snapshot = build_analysis_run_snapshot_rows(after_results)
+        after_summary = build_analysis_run_snapshot_summary(after_snapshot)
+        db.save_analysis_run_snapshot(
+            product_id=product_id,
+            snapshot_rows=after_snapshot,
+            run_source="ui_calibration",
+            summary=after_summary,
+        )
+
+        assert db.get_table_count("analysis_run_snapshots") == 2
+
+        snapshots = db.list_analysis_run_snapshots(product_id, limit=2)
+        assert len(snapshots) == 2
+        assert snapshots[0]["run_source"] == "ui_calibration"
+        assert snapshots[1]["run_source"] == "auto_analysis"
+
+        diff_rows = build_analysis_run_diff_rows(
+            previous_rows=snapshots[1]["rows"],
+            current_rows=snapshots[0]["rows"],
+        )
+        before_row = next(
+            row for row in snapshots[1]["rows"] if row["term"] == "calibration snapshot term"
+        )
+        changed_row = next(
+            row for row in diff_rows if row["term"] == "calibration snapshot term"
+        )
+
+        assert changed_row["old_action_type"] == before_row["action_type"]
+        assert changed_row["new_action_type"] == "manual_exact"
+        assert changed_row["old_decision_source"] == before_row["decision_source"]
+        assert changed_row["new_decision_source"] == "ui_calibration"
+        assert after_summary["manual_count"] == before_summary["manual_count"] + 1
+        assert after_summary["negative_count"] == before_summary["negative_count"] - 1
+
     def test_truth_first_action_exports_use_truth_buckets(
         self, db, product_id, tmp_path
     ):

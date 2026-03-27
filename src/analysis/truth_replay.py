@@ -555,6 +555,127 @@ def get_truth_first_pending_stats(db: Database, product_id: int) -> dict[str, in
     }
 
 
+def _snapshot_numeric_metric(result: Any, total_key: str, fallback_key: str) -> float:
+    data = getattr(result, "data", {}) or {}
+    raw_value = data.get(total_key, getattr(result, fallback_key, data.get(fallback_key, 0)))
+    return float(raw_value or 0)
+
+
+def _snapshot_decision_source(result: Any) -> str:
+    truth_data = (getattr(result, "data", {}) or {}).get("truth_replay") or {}
+    return _normalize_text(truth_data.get("review_source")) or "auto_suggestion"
+
+
+def build_analysis_run_snapshot_rows(results: list[Any]) -> list[dict[str, Any]]:
+    """将分析结果归一化为可持久化的运行快照行。"""
+    snapshot_rows: list[dict[str, Any]] = []
+    for result in results:
+        term = _normalize_text(getattr(result, "term", ""))
+        normalized_term = _normalize_term(term)
+        if not normalized_term:
+            continue
+
+        snapshot_rows.append(
+            {
+                "term": term,
+                "normalized_term": normalized_term,
+                "term_type": _normalize_text(getattr(result, "term_type", "")) or "keyword",
+                "action_type": _normalize_text(getattr(result, "action_type", "")),
+                "suggested_action": _normalize_text(
+                    getattr(result, "suggested_action", "")
+                ),
+                "triggered_rule": _normalize_text(getattr(result, "triggered_rule", "")),
+                "decision_source": _snapshot_decision_source(result),
+                "clicks": _snapshot_numeric_metric(result, "total_clicks", "clicks"),
+                "orders": _snapshot_numeric_metric(result, "total_orders", "orders"),
+                "spend": _snapshot_numeric_metric(result, "total_spend", "spend"),
+                "sales": _snapshot_numeric_metric(result, "total_sales", "sales"),
+            }
+        )
+
+    return sorted(
+        snapshot_rows,
+        key=lambda row: (
+            row["term_type"] != "asin",
+            row["normalized_term"],
+        ),
+    )
+
+
+def build_analysis_run_snapshot_summary(
+    snapshot_rows: list[dict[str, Any]],
+) -> dict[str, int]:
+    """汇总分析运行快照中的关键动作计数。"""
+    summary = {
+        "negative_count": 0,
+        "manual_count": 0,
+        "observe_count": 0,
+        "conflict_count": 0,
+    }
+    for row in snapshot_rows:
+        action_type = row.get("action_type")
+        if action_type == "conflict":
+            summary["conflict_count"] += 1
+        elif ActionType.is_negative(action_type):
+            summary["negative_count"] += 1
+        elif ActionType.is_manual(action_type):
+            summary["manual_count"] += 1
+        elif ActionType.is_observe(action_type) or action_type == ActionType.EVALUATE:
+            summary["observe_count"] += 1
+    return summary
+
+
+def build_analysis_run_diff_rows(
+    previous_rows: list[dict[str, Any]],
+    current_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """比较两次分析运行快照，返回词级变化清单。"""
+    previous_lookup = {
+        (row.get("term_type"), row.get("normalized_term")): row for row in previous_rows
+    }
+    current_lookup = {
+        (row.get("term_type"), row.get("normalized_term")): row for row in current_rows
+    }
+
+    diff_rows: list[dict[str, Any]] = []
+    for key in sorted(set(previous_lookup) | set(current_lookup)):
+        previous = previous_lookup.get(key, {})
+        current = current_lookup.get(key, {})
+
+        old_action_type = _normalize_text(previous.get("action_type"))
+        new_action_type = _normalize_text(current.get("action_type"))
+        old_decision_source = _normalize_text(previous.get("decision_source"))
+        new_decision_source = _normalize_text(current.get("decision_source"))
+
+        if (
+            old_action_type == new_action_type
+            and old_decision_source == new_decision_source
+            and _normalize_text(previous.get("suggested_action"))
+            == _normalize_text(current.get("suggested_action"))
+        ):
+            continue
+
+        diff_rows.append(
+            {
+                "term": current.get("term") or previous.get("term") or "",
+                "term_type": current.get("term_type")
+                or previous.get("term_type")
+                or "keyword",
+                "normalized_term": current.get("normalized_term")
+                or previous.get("normalized_term")
+                or "",
+                "old_action_type": old_action_type,
+                "new_action_type": new_action_type,
+                "old_suggested_action": _normalize_text(previous.get("suggested_action")),
+                "new_suggested_action": _normalize_text(current.get("suggested_action")),
+                "old_decision_source": old_decision_source,
+                "new_decision_source": new_decision_source,
+            }
+        )
+
+    return diff_rows
+
+
 def get_truth_first_overview_distribution(
     db: Database,
     product_id: int,

@@ -218,6 +218,24 @@ class Database:
                 """
             )
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS analysis_run_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                run_source TEXT NOT NULL DEFAULT 'manual',
+                summary_json TEXT,
+                snapshot_json TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_analysis_run_snapshots_product_created
+            ON analysis_run_snapshots(product_id, created_at DESC)
+            """
+        )
+
     def init_default_rules(self) -> None:
         """插入默认规则配置"""
         cursor = self.conn.cursor()
@@ -1201,6 +1219,67 @@ class Database:
 
         return pd.read_sql_query(sql, self.conn, params=params)
 
+    def save_analysis_run_snapshot(
+        self,
+        product_id: int,
+        snapshot_rows: list[dict],
+        run_source: str = "manual",
+        summary: dict | None = None,
+    ) -> int:
+        """保存单次分析运行快照。"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO analysis_run_snapshots (
+                product_id,
+                run_source,
+                summary_json,
+                snapshot_json
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                product_id,
+                run_source,
+                json.dumps(summary or {}, ensure_ascii=False),
+                json.dumps(snapshot_rows, ensure_ascii=False),
+            ),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def list_analysis_run_snapshots(
+        self,
+        product_id: int,
+        limit: int = 20,
+    ) -> list[dict]:
+        """按时间倒序返回分析运行快照。"""
+        cursor = self.conn.execute(
+            """
+            SELECT id, product_id, run_source, summary_json, snapshot_json, created_at
+            FROM analysis_run_snapshots
+            WHERE product_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (product_id, limit),
+        )
+        snapshots: list[dict] = []
+        for row in cursor.fetchall():
+            snapshot = dict(row)
+            snapshot["summary"] = (
+                json.loads(snapshot.pop("summary_json"))
+                if snapshot.get("summary_json")
+                else {}
+            )
+            snapshot["rows"] = (
+                json.loads(snapshot.pop("snapshot_json"))
+                if snapshot.get("snapshot_json")
+                else []
+            )
+            snapshots.append(snapshot)
+        return snapshots
+
     # ==================== 工具方法 ====================
 
     def table_exists(self, table_name: str) -> bool:
@@ -1223,6 +1302,7 @@ class Database:
             "rules",
             "rule_versions",
             "analysis_results",
+            "analysis_run_snapshots",
             "action_plans",
             "manual_reviews",
         }
