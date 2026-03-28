@@ -137,6 +137,47 @@ def test_sidebar_workspace_context_meta_surfaces_current_user_and_role():
     }
 
 
+def test_workspace_user_selector_meta_prefers_current_member_and_labels_roles():
+    """侧边栏当前身份切换器应优先选中当前成员，并输出可读标签。"""
+    from src.app import _build_workspace_user_selector_meta
+
+    members = [
+        {
+            "user_id": 1,
+            "email": "local-owner@workspace.local",
+            "display_name": "本地工作区管理员",
+            "role": "admin",
+        },
+        {
+            "user_id": 2,
+            "email": "viewer@example.com",
+            "display_name": "查看者",
+            "role": "viewer",
+        },
+    ]
+
+    meta = _build_workspace_user_selector_meta(members, current_user_id=2)
+
+    assert meta["title"] == "当前身份"
+    assert meta["selected_label"] == "查看者 · viewer@example.com（viewer）"
+    assert meta["options"] == [
+        {
+            "label": "本地工作区管理员 · local-owner@workspace.local（admin）",
+            "user_id": 1,
+            "email": "local-owner@workspace.local",
+            "display_name": "本地工作区管理员",
+            "role": "admin",
+        },
+        {
+            "label": "查看者 · viewer@example.com（viewer）",
+            "user_id": 2,
+            "email": "viewer@example.com",
+            "display_name": "查看者",
+            "role": "viewer",
+        },
+    ]
+
+
 def test_resolve_current_user_context_prefers_selected_user_and_falls_back_to_local_owner(db):
     """当前用户上下文应优先使用 session 指定用户，缺失时回退到本地管理员。"""
     from src.app import _resolve_current_user_context
@@ -373,6 +414,42 @@ def test_sidebar_surfaces_workspace_collaboration_context(monkeypatch, db, produ
     assert "当前用户：本地工作区管理员" in joined
     assert "角色：" in joined
     assert "成员 " in joined
+
+
+def test_sidebar_current_user_switcher_updates_role_context(
+    monkeypatch, db, product_id, campaign_id
+):
+    """切换侧边栏当前身份后，应同步刷新协作上下文与设置页权限。"""
+    _seed_minimal_search_term(db, campaign_id)
+    db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email="viewer@example.com",
+        role="viewer",
+        display_name="查看者",
+    )
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["db"] = db
+    app.session_state["current_product_id"] = product_id
+
+    app.run(timeout=20)
+
+    user_selectbox = next(
+        selectbox
+        for selectbox in app.selectbox
+        if selectbox.label == "当前身份"
+    )
+    user_selectbox.set_value("查看者 · viewer@example.com（viewer）").run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    assert "当前用户：查看者" in joined
+    assert "角色：viewer" in joined
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("系统设置").run(timeout=20)
+    settings_joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    caption_joined = "\n".join(caption.value or "" for caption in app.caption)
+    assert "当前角色权限" in settings_joined
+    assert "查看者当前只建议阅读成员与产品摘要" in caption_joined
 
 
 def test_settings_page_blocks_sensitive_tabs_for_viewer(monkeypatch, db, product_id, campaign_id):

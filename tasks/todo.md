@@ -21,11 +21,12 @@
   - 已完成 A 主线：分析运行快照、词级变化清单、汇总 delta、规则解释
   - 已完成工作区协作可见化：首页/侧边栏/设置页成员摘要
   - 已完成最小成员管理：管理员可按邮箱添加或更新成员角色
-  - 正在推进：当前用户上下文显式化与更多角色门控
+  - 已完成：当前用户上下文显式化与侧边栏身份切换
+  - 正在推进：将角色门控扩展到更多敏感操作入口
 - Evidence:
-  - 最近全量验证基线：`DEBUG=true pytest -q` => 259 passed, 10 skipped, 2 warnings
+  - 最近全量验证基线：`DEBUG=true pytest -q` => 264 passed, 10 skipped, 2 warnings
   - `analyze_mismatches.py` => campaign 107/107, aggregate 398/398
-  - 已推送产品化提交：A 主线闭环 + workspace context/member management
+  - 已推送产品化提交：A 主线闭环 + workspace context/member management + current-user switching
 - Risks / follow-ups:
   - 当前用户上下文仍默认依赖本地 owner，需要继续显式化
   - viewer/editor 权限尚未覆盖所有敏感入口

@@ -133,6 +133,69 @@ def _build_sidebar_workspace_context_meta(
     }
 
 
+def _format_workspace_member_option(member: dict) -> str:
+    """格式化工作区成员选择器标签。"""
+    display_name = (member.get("display_name") or "").strip()
+    email = member["email"]
+    role = member["role"]
+    if display_name and display_name != email:
+        return f"{display_name} · {email}（{role}）"
+    return f"{email}（{role}）"
+
+
+def _build_workspace_user_selector_meta(
+    members: list[dict],
+    current_user_id: int | None,
+) -> dict[str, object]:
+    """构建侧边栏当前身份切换器元数据。"""
+    if not members:
+        return {
+            "title": "当前身份",
+            "description": "当前工作区还没有可切换的成员身份。",
+            "options": [],
+            "selected_label": None,
+        }
+
+    current_member = next(
+        (member for member in members if member["user_id"] == current_user_id),
+        None,
+    )
+    if current_member is None:
+        current_member = next(
+            (member for member in members if member["role"] == "admin"),
+            members[0],
+        )
+
+    options = [
+        {
+            "label": _format_workspace_member_option(member),
+            "user_id": member["user_id"],
+            "email": member["email"],
+            "display_name": member.get("display_name") or member["email"],
+            "role": member["role"],
+        }
+        for member in members
+    ]
+    selected_label = next(
+        option["label"]
+        for option in options
+        if option["user_id"] == current_member["user_id"]
+    )
+    return {
+        "title": "当前身份",
+        "description": "切换当前身份，模拟不同成员在同一个工作区里看到的页面和权限。",
+        "options": options,
+        "selected_label": selected_label,
+    }
+
+
+def _set_current_user_context(member_option: dict[str, object]) -> None:
+    """将选中的成员写入当前 session 用户上下文。"""
+    st.session_state.current_user_id = member_option["user_id"]
+    st.session_state.current_user_email = member_option["email"]
+    st.session_state.current_user_name = member_option["display_name"]
+
+
 def render_sidebar():
     """渲染侧边栏"""
     with st.sidebar:
@@ -171,6 +234,8 @@ def render_sidebar():
         products = db.get_all_products()
 
         if products:
+            if st.session_state.get("current_product_id") is None:
+                st.session_state.current_product_id = products[0]["id"]
             current_product_name = _get_current_product_name(
                 products, st.session_state.get("current_product_id")
             )
@@ -197,21 +262,49 @@ def render_sidebar():
                 )
 
                 current_user = _ensure_current_user_context(db)
-                workspace_role = (
-                    db.get_workspace_role(
-                        st.session_state.current_product_id, current_user["id"]
-                    )
-                    or "viewer"
+                workspace_members = db.get_workspace_members(
+                    st.session_state.current_product_id,
+                    include_system_members=True,
                 )
-                member_count = len(
-                    db.get_workspace_members(
-                        st.session_state.current_product_id,
-                        include_system_members=True,
-                    )
+                selector_meta = _build_workspace_user_selector_meta(
+                    workspace_members,
+                    current_user_id=current_user["id"],
                 )
+                selector_options = {
+                    option["label"]: option for option in selector_meta["options"]
+                }
+                selector_key = (
+                    f"workspace-user-selector-{st.session_state.current_product_id}"
+                )
+                if selector_meta["selected_label"] is not None and (
+                    st.session_state.get(selector_key) not in selector_options
+                ):
+                    st.session_state[selector_key] = selector_meta["selected_label"]
+
+                if selector_meta["options"]:
+                    st.caption(selector_meta["description"])
+                    selected_label = st.selectbox(
+                        selector_meta["title"],
+                        options=list(selector_options.keys()),
+                        key=selector_key,
+                    )
+                    selected_member = selector_options[selected_label]
+                    if selected_member["user_id"] != st.session_state.get(
+                        "current_user_id"
+                    ):
+                        _set_current_user_context(selected_member)
+                        st.rerun()
+                else:
+                    selected_member = {
+                        "display_name": st.session_state.current_user_name,
+                        "role": "viewer",
+                    }
+
+                workspace_role = selected_member["role"]
+                member_count = len(workspace_members)
                 workspace_meta = _build_sidebar_workspace_context_meta(
                     workspace_name=current_product_name,
-                    current_user_name=st.session_state.current_user_name,
+                    current_user_name=selected_member["display_name"],
                     member_count=member_count,
                     current_role=workspace_role,
                 )
