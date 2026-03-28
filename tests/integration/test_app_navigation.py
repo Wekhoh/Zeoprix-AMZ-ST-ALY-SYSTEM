@@ -25,6 +25,7 @@ from src.ui.pages.home import (
     _build_workspace_summary_meta,
 )
 from src.ui.pages.review import (
+    _build_review_access_meta,
     _build_review_dashboard_state,
     _build_review_empty_state,
     _build_review_upsert_payload,
@@ -46,6 +47,7 @@ from src.ui.pages.settings_rules import (
     _build_rule_settings_summary,
 )
 from src.ui.pages.upload import _build_truth_import_guidance
+from src.ui.pages.upload import _build_upload_access_meta
 
 
 APP_PATH = Path(__file__).resolve().parents[2] / "src" / "app.py"
@@ -278,6 +280,31 @@ def test_workspace_member_management_meta_gates_admin_actions():
     assert "管理员角色" in viewer_meta["blocked_message"]
 
 
+def test_upload_access_meta_distinguishes_admin_editor_and_viewer():
+    """上传页权限摘要应稳定区分创建工作区与导入数据的角色边界。"""
+    admin_meta = _build_upload_access_meta("admin")
+    editor_meta = _build_upload_access_meta("editor")
+    viewer_meta = _build_upload_access_meta("viewer")
+
+    assert admin_meta["can_create_workspace"] is True
+    assert admin_meta["can_import"] is True
+    assert editor_meta["can_create_workspace"] is False
+    assert editor_meta["can_import"] is True
+    assert viewer_meta["can_create_workspace"] is False
+    assert viewer_meta["can_import"] is False
+    assert "管理员" in viewer_meta["import_blocked_message"]
+
+
+def test_review_access_meta_blocks_viewer_but_allows_editor():
+    """审核页权限摘要应允许 editor/admin 审核，并阻止 viewer 写入人工校准。"""
+    editor_meta = _build_review_access_meta("editor")
+    viewer_meta = _build_review_access_meta("viewer")
+
+    assert editor_meta["can_review"] is True
+    assert viewer_meta["can_review"] is False
+    assert "管理员或编辑者权限" in viewer_meta["blocked_message"]
+
+
 def test_settings_access_meta_maps_editor_and_viewer_permissions():
     """系统设置权限摘要应稳定映射 editor/viewer 的可编辑区块和受限区块。"""
     editor_meta = _build_settings_access_meta("editor")
@@ -477,6 +504,78 @@ def test_settings_page_blocks_sensitive_tabs_for_viewer(monkeypatch, db, product
     assert "API 设置属于管理员区块" in infos
     assert "数据管理包含重算、清空和导入导出等敏感操作" in infos
     assert "当前角色只能查看产品摘要与关键词配置" in infos
+
+
+def test_upload_page_blocks_sensitive_actions_for_viewer(
+    monkeypatch, db, product_id, campaign_id
+):
+    """viewer 进入上传页时，应只能看导入说明，不能创建工作区或导入文件。"""
+    _seed_minimal_search_term(db, campaign_id)
+    db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email=db.DEFAULT_LOCAL_OWNER_EMAIL,
+        role="viewer",
+        display_name=db.DEFAULT_LOCAL_OWNER_NAME,
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.run(timeout=20)
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("文件上传").run(timeout=20)
+
+    product_select = next(
+        selectbox for selectbox in app.selectbox if selectbox.label == "选择产品"
+    )
+    product_select.set_value("创建新产品").run(timeout=20)
+
+    infos = "\n".join(element.value for element in app.info)
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+
+    assert "当前上传权限" in joined
+    assert "当前角色不能创建新工作区" in infos
+    assert "当前角色只能查看导入流程" in infos
+
+
+def test_review_page_blocks_sensitive_actions_for_viewer(
+    monkeypatch, db, product_id, campaign_id
+):
+    """viewer 进入审核页时，应只看到概览和只读提示，不暴露审核表单。"""
+    _seed_minimal_search_term(db, campaign_id)
+    db.save_analysis_result_by_term(
+        product_id=product_id,
+        term="travel pillow",
+        triggered_rule="样本不足继续观察",
+        suggested_action="观察",
+        action_type="observe",
+    )
+    db.upsert_manual_review(
+        product_id=product_id,
+        term="travel pillow",
+        term_type="keyword",
+        campaign_id=campaign_id,
+        relevance="pending",
+        reviewed=False,
+    )
+    db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email=db.DEFAULT_LOCAL_OWNER_EMAIL,
+        role="viewer",
+        display_name=db.DEFAULT_LOCAL_OWNER_NAME,
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.run(timeout=20)
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("相关性审核").run(timeout=20)
+
+    infos = "\n".join(element.value for element in app.info)
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    text_joined = "\n".join(element.value or "" for element in app.text)
+
+    assert "当前审核权限" in joined
+    assert "当前角色只能查看审核概览" in f"{infos}\n{text_joined}"
 
 
 def test_analysis_ui_reviews_are_saved_as_ui_calibration(db, product_id, campaign_id):

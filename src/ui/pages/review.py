@@ -130,6 +130,38 @@ def _build_review_upsert_payload(
     return payload
 
 
+def _resolve_review_role_context(db, product_id: int) -> dict[str, str | int]:
+    """解析审核页当前用户与工作区角色上下文。"""
+    current_user_id = st.session_state.get("current_user_id")
+    current_user = (
+        db.get_user(user_id=current_user_id) if current_user_id is not None else None
+    )
+    if current_user is None:
+        current_user = db.get_or_create_local_owner()
+
+    current_role = db.get_workspace_role(product_id, current_user["id"]) or "viewer"
+    return {
+        "current_user_name": current_user.get("display_name") or current_user["email"],
+        "current_role": current_role,
+        "current_user_id": current_user["id"],
+    }
+
+
+def _build_review_access_meta(current_role: str) -> dict[str, object]:
+    """构建审核页角色门控摘要。"""
+    can_review = current_role in {"admin", "editor"}
+    return {
+        "title": "当前审核权限",
+        "description": "相关性审核会直接写入人工校准结果。管理员和编辑者可以处理审核队列，查看者保留概览只读视图，避免误改最终结论。",
+        "chips": [
+            f"当前角色：{current_role}",
+            "可执行人工校准" if can_review else "只读查看",
+        ],
+        "can_review": can_review,
+        "blocked_message": "当前角色只能查看审核概览，保存人工校准需要管理员或编辑者权限。",
+    }
+
+
 def render_review():
     """渲染相关性审核页面"""
     db = st.session_state.get("db")
@@ -187,6 +219,39 @@ def render_review():
             st.rerun()
 
     st.divider()
+
+    access_context = _resolve_review_role_context(db, product_id)
+    access_meta = _build_review_access_meta(access_context["current_role"])
+    chips_html = "".join(
+        f'<div class="review-hero__chip">{escape(str(chip))}</div>'
+        for chip in access_meta["chips"]
+    )
+    st.markdown(
+        f"""
+        <section class="review-hero">
+            <div class="review-hero__eyebrow">{escape(str(access_meta["title"]))}</div>
+            <p>{escape(str(access_meta["description"]))}</p>
+            <div class="review-hero__chips">{chips_html}</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if not access_meta["can_review"]:
+        st.info(access_meta["blocked_message"])
+        if pending_count.get("total", 0) == 0:
+            empty_state = _build_review_empty_state()
+            st.markdown(
+                f"""
+                <section class="review-completion">
+                    <div class="review-completion__badge">{escape(empty_state["badge"])}</div>
+                    <h3>{escape(empty_state["title"])}</h3>
+                    <p>{escape(empty_state["description"])}</p>
+                </section>
+                """,
+                unsafe_allow_html=True,
+            )
+        return
 
     # 检查是否有待审核项
     if pending_count.get("total", 0) == 0:

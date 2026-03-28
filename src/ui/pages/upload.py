@@ -141,6 +141,55 @@ def get_upload_product_default_index(products, current_product_id: int | None) -
     return 0
 
 
+def _resolve_upload_role_context(db, product_id: int | None) -> dict[str, str | int]:
+    """解析上传页当前用户与工作区角色上下文。"""
+    current_user_id = st.session_state.get("current_user_id")
+    current_user = (
+        db.get_user(user_id=current_user_id) if current_user_id is not None else None
+    )
+    if current_user is None:
+        current_user = db.get_or_create_local_owner()
+
+    if product_id:
+        current_role = db.get_workspace_role(product_id, current_user["id"]) or "viewer"
+    elif current_user["email"] == db.DEFAULT_LOCAL_OWNER_EMAIL:
+        current_role = "admin"
+    else:
+        current_role = "viewer"
+
+    return {
+        "current_user_name": current_user.get("display_name") or current_user["email"],
+        "current_role": current_role,
+        "current_user_id": current_user["id"],
+    }
+
+
+def _build_upload_access_meta(current_role: str) -> dict[str, object]:
+    """构建上传页角色门控摘要。"""
+    can_create_workspace = current_role == "admin"
+    can_import = current_role in {"admin", "editor"}
+    restricted_sections = []
+    if not can_create_workspace:
+        restricted_sections.append("创建工作区")
+    if not can_import:
+        restricted_sections.append("导入原始报表 / 人工校准表")
+
+    return {
+        "title": "当前上传权限",
+        "description": "把工作区创建和数据导入分开管控：管理员负责开工作区，管理员/编辑者负责导入数据，查看者只能浏览导入说明与当前状态。",
+        "chips": [
+            f"当前角色：{current_role}",
+            "可创建工作区" if can_create_workspace else "不可创建工作区",
+            "可导入数据" if can_import else "仅查看导入流程",
+        ],
+        "restricted_sections": restricted_sections,
+        "can_create_workspace": can_create_workspace,
+        "can_import": can_import,
+        "create_blocked_message": "当前角色不能创建新工作区，请联系管理员先建立产品工作区。",
+        "import_blocked_message": "当前角色只能查看导入流程，原始报表和人工校准表的导入需要管理员或编辑者权限。",
+    }
+
+
 def _build_truth_import_guidance(
     current_product_id: int | None, campaign_count: int
 ) -> tuple[str, str]:
@@ -259,6 +308,23 @@ def render_upload():
         st.error("数据库未初始化")
         return
 
+    current_product_id = st.session_state.get("current_product_id")
+    access_context = _resolve_upload_role_context(db, current_product_id)
+    access_meta = _build_upload_access_meta(access_context["current_role"])
+    access_chips_html = "".join(
+        f'<span class="upload-flow-chip">{chip}</span>' for chip in access_meta["chips"]
+    )
+    st.markdown(
+        f"""
+        <div class="upload-status-card">
+            <strong>{access_meta["title"]}</strong>
+            <span>{access_meta["description"]}</span>
+            <div class="upload-flow-chips" style="margin-top:0.85rem;">{access_chips_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # 产品选择/创建
     st.subheader("1. 选择或创建产品")
 
@@ -268,23 +334,28 @@ def render_upload():
     selected_option = st.selectbox("选择产品", product_options, index=get_upload_product_default_index(products, st.session_state.get("current_product_id")))
 
     if selected_option == "创建新产品":
-        col1, col2 = st.columns(2)
-        with col1:
-            new_product_name = st.text_input("产品名称", placeholder="例如：无线充电器")
-        with col2:
-            new_product_asin = st.text_input("ASIN", placeholder="例如：B0XXXXXXXX")
-
-        if st.button("创建产品"):
-            if new_product_name:
-                product_id = db.create_product(
-                    name=new_product_name,
-                    asin=new_product_asin or None,
+        if not access_meta["can_create_workspace"]:
+            st.info(access_meta["create_blocked_message"])
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                new_product_name = st.text_input(
+                    "产品名称", placeholder="例如：无线充电器"
                 )
-                st.session_state.current_product_id = product_id
-                st.success(f"产品 '{new_product_name}' 创建成功")
-                st.rerun()
-            else:
-                st.error("请输入产品名称")
+            with col2:
+                new_product_asin = st.text_input("ASIN", placeholder="例如：B0XXXXXXXX")
+
+            if st.button("创建产品"):
+                if new_product_name:
+                    product_id = db.create_product(
+                        name=new_product_name,
+                        asin=new_product_asin or None,
+                    )
+                    st.session_state.current_product_id = product_id
+                    st.success(f"产品 '{new_product_name}' 创建成功")
+                    st.rerun()
+                else:
+                    st.error("请输入产品名称")
     else:
         # 使用现有产品
         product = next((p for p in products if p["name"] == selected_option), None)
@@ -322,88 +393,95 @@ def render_upload():
             """,
             unsafe_allow_html=True,
         )
-        campaign_truth_upload = st.file_uploader(
-            "广告组人工判定表",
-            type=["xlsx", "xls"],
-            key="campaign_truth_upload",
-            help="例如：广告组级别的否词和搜索词分析.xlsx",
-        )
-        aggregate_truth_upload = st.file_uploader(
-            "最终汇总结论表",
-            type=["xlsx", "xls"],
-            key="aggregate_truth_upload",
-            help="例如：ASIN层面汇总分析_v7.xlsx",
-        )
-        if campaign_truth_upload is not None and campaign_count == 0:
-            st.warning("当前工作区还没有原始报表导入后的广告活动。若要导入广告组人工判定表，请先导入原始报表，否则广告活动名称无法匹配。")
-
-        if campaign_truth_upload is not None or aggregate_truth_upload is not None:
-            inspection = inspect_truth_workbooks_from_uploads(
-                campaign_upload=campaign_truth_upload,
-                aggregate_upload=aggregate_truth_upload,
+        if not access_meta["can_import"]:
+            st.info(access_meta["import_blocked_message"])
+        else:
+            campaign_truth_upload = st.file_uploader(
+                "广告组人工判定表",
+                type=["xlsx", "xls"],
+                key="campaign_truth_upload",
+                help="例如：广告组级别的否词和搜索词分析.xlsx",
             )
-            with st.expander("查看人工判定表预检结果", expanded=True):
-                if campaign_summary := inspection.get("campaign"):
-                    if campaign_summary.get("ready"):
-                        st.success(f"广告组人工判定表可识别：有效数据 {campaign_summary['data_rows']} 行")
-                    else:
-                        st.error("广告组人工判定表缺少关键字段，当前不能可靠导入")
-                    if campaign_summary.get("missing_required"):
-                        st.caption("缺少关键字段：" + "、".join(campaign_summary["missing_required"]))
-                    _render_truth_mapping_table("广告组人工判定表字段映射", campaign_summary.get("recognized_fields", {}))
+            aggregate_truth_upload = st.file_uploader(
+                "最终汇总结论表",
+                type=["xlsx", "xls"],
+                key="aggregate_truth_upload",
+                help="例如：ASIN层面汇总分析_v7.xlsx",
+            )
+            if campaign_truth_upload is not None and campaign_count == 0:
+                st.warning("当前工作区还没有原始报表导入后的广告活动。若要导入广告组人工判定表，请先导入原始报表，否则广告活动名称无法匹配。")
 
-                if aggregate_summary := inspection.get("aggregate"):
-                    if aggregate_summary.get("ready"):
-                        st.success("最终汇总结论表可识别：前两个 sheet 均通过预检")
-                    else:
-                        st.warning("最终汇总结论表存在 sheet 字段缺失或动作信号不足，请先确认格式")
-                    sheet_df = pd.DataFrame(
-                        [
-                            {
-                                "sheet": sheet["sheet_name"],
-                                "ASIN": sheet["asin_identifier"],
-                                "行数": sheet["row_count"],
-                                "缺少关键字段": "、".join(sheet["missing_required"]) or "无",
-                                "动作信号": "、".join(sheet["action_fields"]) or "无",
-                                "状态": "可导入" if sheet["ready"] else "需检查",
-                            }
-                            for sheet in aggregate_summary.get("analyzed_sheets", [])
-                        ]
-                    )
-                    st.caption("最终汇总结论表 sheet 预检")
-                    st.dataframe(sheet_df, width="stretch", hide_index=True)
+            if campaign_truth_upload is not None or aggregate_truth_upload is not None:
+                inspection = inspect_truth_workbooks_from_uploads(
+                    campaign_upload=campaign_truth_upload,
+                    aggregate_upload=aggregate_truth_upload,
+                )
+                with st.expander("查看人工判定表预检结果", expanded=True):
+                    if campaign_summary := inspection.get("campaign"):
+                        if campaign_summary.get("ready"):
+                            st.success(f"广告组人工判定表可识别：有效数据 {campaign_summary['data_rows']} 行")
+                        else:
+                            st.error("广告组人工判定表缺少关键字段，当前不能可靠导入")
+                        if campaign_summary.get("missing_required"):
+                            st.caption("缺少关键字段：" + "、".join(campaign_summary["missing_required"]))
+                        _render_truth_mapping_table("广告组人工判定表字段映射", campaign_summary.get("recognized_fields", {}))
 
-        if st.button("导入人工校准表", key="import_truth_workbooks"):
-            if campaign_truth_upload is None and aggregate_truth_upload is None:
-                st.error("请至少上传一份人工校准表")
-            else:
-                with st.spinner("正在导入人工校准表..."):
-                    summary = import_truth_workbooks_from_uploads(
-                        db=db,
-                        product_id=current_product_id,
-                        campaign_upload=campaign_truth_upload,
-                        aggregate_upload=aggregate_truth_upload,
-                    )
+                    if aggregate_summary := inspection.get("aggregate"):
+                        if aggregate_summary.get("ready"):
+                            st.success("最终汇总结论表可识别：前两个 sheet 均通过预检")
+                        else:
+                            st.warning("最终汇总结论表存在 sheet 字段缺失或动作信号不足，请先确认格式")
+                        sheet_df = pd.DataFrame(
+                            [
+                                {
+                                    "sheet": sheet["sheet_name"],
+                                    "ASIN": sheet["asin_identifier"],
+                                    "行数": sheet["row_count"],
+                                    "缺少关键字段": "、".join(sheet["missing_required"]) or "无",
+                                    "动作信号": "、".join(sheet["action_fields"]) or "无",
+                                    "状态": "可导入" if sheet["ready"] else "需检查",
+                                }
+                                for sheet in aggregate_summary.get("analyzed_sheets", [])
+                            ]
+                        )
+                        st.caption("最终汇总结论表 sheet 预检")
+                        st.dataframe(sheet_df, width="stretch", hide_index=True)
 
-                imported_parts = []
-                if summary.get("campaign_rows", 0):
-                    imported_parts.append(
-                        f"广告组人工判定 {summary['campaign_rows']} 条"
-                    )
-                if summary.get("aggregate_rows", 0):
-                    imported_parts.append(
-                        f"最终汇总结论 {summary['aggregate_rows']} 条"
-                    )
-                if imported_parts:
-                    st.success("导入完成：" + "，".join(imported_parts))
-                    st.info("现在可以前往首页、搜索词分析和操作清单查看自动建议、人工校准和最终结论。")
+            if st.button("导入人工校准表", key="import_truth_workbooks"):
+                if campaign_truth_upload is None and aggregate_truth_upload is None:
+                    st.error("请至少上传一份人工校准表")
                 else:
-                    st.warning("没有导入到任何有效人工校准数据，请检查表格内容。")
+                    with st.spinner("正在导入人工校准表..."):
+                        summary = import_truth_workbooks_from_uploads(
+                            db=db,
+                            product_id=current_product_id,
+                            campaign_upload=campaign_truth_upload,
+                            aggregate_upload=aggregate_truth_upload,
+                        )
+
+                    imported_parts = []
+                    if summary.get("campaign_rows", 0):
+                        imported_parts.append(
+                            f"广告组人工判定 {summary['campaign_rows']} 条"
+                        )
+                    if summary.get("aggregate_rows", 0):
+                        imported_parts.append(
+                            f"最终汇总结论 {summary['aggregate_rows']} 条"
+                        )
+                    if imported_parts:
+                        st.success("导入完成：" + "，".join(imported_parts))
+                        st.info("现在可以前往首页、搜索词分析和操作清单查看自动建议、人工校准和最终结论。")
+                    else:
+                        st.warning("没有导入到任何有效人工校准数据，请检查表格内容。")
 
     st.divider()
 
     # 文件上传（支持批量）
     st.subheader("3. 上传搜索词报告")
+
+    if not access_meta["can_import"]:
+        st.info(access_meta["import_blocked_message"])
+        return
 
     uploaded_files = st.file_uploader(
         "拖拽或点击上传文件（支持批量上传）",
