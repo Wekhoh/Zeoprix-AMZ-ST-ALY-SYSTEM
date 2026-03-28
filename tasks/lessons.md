@@ -5,3 +5,10 @@
 - Preventive rule: 只要用户指出“页面看起来仍不对”或“体验仍有 bug”，必须重新做真实浏览器端到端巡检，逐页核对页面统计、表格、导出和 truth-first/人工结论是否同源后，才能宣称修复完成。
 - Trigger to apply: 用户对“已修复/已对齐”提出质疑，或出现“页面显示和分析结果不一致”“按钮/导航体验异常”等反馈时。
 - How to verify the rule worked: 保留 RED->GREEN 测试证据、真实浏览器操作记录、页面关键数值截图/快照，以及和 workbook/对齐脚本的一致性结果。
+
+## 2026-03-28
+- Context: 用户明确说明后续不需要再请求 `APPROVED_WRITE`，希望可以直接继续推进收尾与产品化开发。
+- Mistake pattern: 在用户已经给出长期写入授权后，仍按旧流程重复请求 `APPROVED_WRITE`，打断节奏并增加不必要往返。
+- Preventive rule: 一旦用户明确授权“后续不用再请求 APPROVED_WRITE”，后续批次默认直接执行；只有当需求重新变得模糊，或将触发高风险外部副作用（例如越权、删除、联网安装）时，才重新单独确认。
+- Trigger to apply: 用户使用“后续不用再请求 APPROVED_WRITE”“可以放开手脚去做”“直接继续”之类的明确长期授权表达。
+- How to verify the rule worked: 后续开发批次不再向用户索取 `APPROVED_WRITE`，而是直接实施并在结果中说明采用了用户的持续授权。

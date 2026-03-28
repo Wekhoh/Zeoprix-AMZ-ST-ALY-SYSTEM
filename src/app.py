@@ -58,6 +58,31 @@ def init_session_state():
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
 
+    _ensure_current_user_context(st.session_state.db)
+
+
+def _resolve_current_user_context(db: Database, current_user_id: int | None) -> dict:
+    """根据 session 中的用户 ID 解析当前用户，缺失时回退到本地管理员。"""
+    if current_user_id is not None:
+        current_user = db.get_user(user_id=current_user_id)
+        if current_user is not None:
+            return current_user
+
+    return db.get_or_create_local_owner()
+
+
+def _ensure_current_user_context(db: Database) -> dict:
+    """确保 session 中始终有明确的当前用户上下文。"""
+    current_user = _resolve_current_user_context(
+        db, st.session_state.get("current_user_id")
+    )
+    st.session_state.current_user_id = current_user["id"]
+    st.session_state.current_user_email = current_user["email"]
+    st.session_state.current_user_name = (
+        current_user.get("display_name") or current_user["email"]
+    )
+    return current_user
+
 
 def _get_product_selectbox_index(
     products: list[dict], current_product_id: int | None
@@ -171,17 +196,24 @@ def render_sidebar():
                     unsafe_allow_html=True,
                 )
 
-                workspace_summary = db.get_workspace_summary(
-                    st.session_state.current_product_id
+                current_user = _ensure_current_user_context(db)
+                workspace_role = (
+                    db.get_workspace_role(
+                        st.session_state.current_product_id, current_user["id"]
+                    )
+                    or "viewer"
                 )
-                current_user = db.get_or_create_local_owner()
+                member_count = len(
+                    db.get_workspace_members(
+                        st.session_state.current_product_id,
+                        include_system_members=True,
+                    )
+                )
                 workspace_meta = _build_sidebar_workspace_context_meta(
                     workspace_name=current_product_name,
-                    current_user_name=(
-                        current_user.get("display_name") or current_user["email"]
-                    ),
-                    member_count=workspace_summary["member_count"],
-                    current_role=workspace_summary["current_role"],
+                    current_user_name=st.session_state.current_user_name,
+                    member_count=member_count,
+                    current_role=workspace_role,
                 )
                 chips_html = "".join(
                     f'<span style="display:inline-flex; padding:0.36rem 0.72rem; border-radius:999px; '

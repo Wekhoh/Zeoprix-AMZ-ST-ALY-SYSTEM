@@ -178,10 +178,50 @@ def _build_workspace_member_management_meta(
     }
 
 
+def _build_settings_access_meta(current_role: str) -> dict[str, str | list[str]]:
+    """构建当前角色在系统设置页的权限摘要。"""
+    role = current_role or "viewer"
+    editable_tabs_map = {
+        "admin": ["规则配置", "规则管理", "关键词库", "产品配置", "API设置", "数据管理"],
+        "editor": ["规则配置", "规则管理", "关键词库", "产品配置"],
+        "viewer": [],
+    }
+    restricted_tabs_map = {
+        "admin": [],
+        "editor": ["成员管理", "API设置", "数据管理"],
+        "viewer": ["规则配置", "规则管理", "关键词库", "产品配置", "API设置", "数据管理", "成员管理"],
+    }
+    description_map = {
+        "admin": "管理员可以处理规则、产品、API、数据和成员管理，是当前工作区的全功能入口。",
+        "editor": "编辑者先聚焦规则、词库和产品本身，涉及成员管理、模型切换和数据级危险操作时交给管理员。",
+        "viewer": "查看者当前只建议阅读成员与产品摘要，避免直接触发配置变更或危险操作。",
+    }
+
+    editable_tabs = editable_tabs_map.get(role, [])
+    restricted_tabs = restricted_tabs_map.get(role, [])
+
+    return {
+        "title": "当前角色权限",
+        "description": description_map.get(role, description_map["viewer"]),
+        "chips": [
+            f"当前角色：{role}",
+            f"可编辑 {len(editable_tabs)} 个区块",
+            (
+                f"受限：{'、'.join(restricted_tabs[:3])}"
+                if restricted_tabs
+                else "全部关键区块可编辑"
+            ),
+        ],
+        "editable_tabs": editable_tabs,
+        "restricted_tabs": restricted_tabs,
+    }
+
+
 def render_settings():
     """渲染系统设置页面"""
     db = st.session_state.get("db")
     product_id = st.session_state.get("current_product_id")
+    current_role = "viewer"
 
     if not db:
         st.error("数据库未初始化")
@@ -219,13 +259,21 @@ def render_settings():
         if workspace_notice:
             st.success(workspace_notice)
 
-        workspace_summary = db.get_workspace_summary(product_id)
-        current_user = db.get_or_create_local_owner()
+        current_user_id = st.session_state.get("current_user_id")
+        current_user = (
+            db.get_user(user_id=current_user_id)
+            if current_user_id is not None
+            else None
+        ) or db.get_or_create_local_owner()
+        current_user_name = st.session_state.get("current_user_name") or (
+            current_user.get("display_name") or current_user["email"]
+        )
+        current_role = db.get_workspace_role(product_id, current_user["id"]) or "viewer"
         members = db.get_workspace_members(product_id, include_system_members=True)
         member_summary = _build_workspace_member_summary(
             product_name=product_name,
-            current_user_name=current_user.get("display_name") or current_user["email"],
-            current_role=workspace_summary["current_role"],
+            current_user_name=current_user_name,
+            current_role=current_role,
             members=members,
         )
         st.write(f"### {member_summary['title']}")
@@ -240,8 +288,15 @@ def render_settings():
                 width="stretch",
                 hide_index=True,
             )
+        access_meta = _build_settings_access_meta(current_role)
+        st.write(f"### {access_meta['title']}")
+        st.caption(access_meta["description"])
+        access_chip_cols = st.columns(len(access_meta["chips"]))
+        for col, chip in zip(access_chip_cols, access_meta["chips"], strict=False):
+            with col:
+                st.info(chip)
         management_meta = _build_workspace_member_management_meta(
-            workspace_summary["current_role"]
+            current_role
         )
         st.write(f"### {management_meta['title']}")
         st.caption(management_meta["description"])
@@ -294,25 +349,40 @@ def render_settings():
     )
 
     with tab1:
-        render_rule_settings(db, product_id)
+        if current_role in {"admin", "editor"}:
+            render_rule_settings(db, product_id)
+        else:
+            st.info("当前角色没有规则配置权限；如需调整阈值和阶段，请联系工作区管理员或编辑者。")
 
     with tab2:
-        render_rule_management(db, product_id)
+        if current_role in {"admin", "editor"}:
+            render_rule_management(db, product_id)
+        else:
+            st.info("当前角色没有规则管理权限；如需新增、重排或回滚规则，请联系工作区管理员或编辑者。")
 
     with tab3:
-        render_keyword_library_settings(db, product_id)
+        if current_role in {"admin", "editor"}:
+            render_keyword_library_settings(db, product_id)
+        else:
+            st.info("当前角色没有关键词库编辑权限；这里先保持只读，由管理员或编辑者统一维护。")
 
     with tab4:
-        render_product_settings(db, product_id)
+        render_product_settings(db, product_id, can_edit=current_role in {"admin", "editor"})
 
     with tab5:
-        render_api_settings()
+        if current_role == "admin":
+            render_api_settings()
+        else:
+            st.info("API 设置属于管理员区块；模型切换和密钥配置暂时只开放给管理员处理。")
 
     with tab6:
-        render_data_management(db, product_id)
+        if current_role == "admin":
+            render_data_management(db, product_id)
+        else:
+            st.info("数据管理包含重算、清空和导入导出等敏感操作，当前角色暂不开放。")
 
 
-def render_product_settings(db, product_id: int):
+def render_product_settings(db, product_id: int, can_edit: bool = True):
     """渲染产品设置。"""
     if not product_id:
         st.warning("请先选择产品")
@@ -343,10 +413,12 @@ def render_product_settings(db, product_id: int):
             product_name = st.text_input(
                 "产品名称",
                 value=product.get("name", ""),
+                disabled=not can_edit,
             )
             product_asin = st.text_input(
                 "ASIN",
                 value=product.get("asin", ""),
+                disabled=not can_edit,
             )
 
         with col2:
@@ -354,6 +426,7 @@ def render_product_settings(db, product_id: int):
                 "品类",
                 value=product.get("category", ""),
                 placeholder="例如：旅行枕",
+                disabled=not can_edit,
             )
 
     with st.container(border=True):
@@ -365,6 +438,7 @@ def render_product_settings(db, product_id: int):
             value="\n".join(core_keywords) if core_keywords else "",
             height=120,
             placeholder="travel pillow\nneck pillow",
+            disabled=not can_edit,
         )
 
     with st.container(border=True):
@@ -376,7 +450,12 @@ def render_product_settings(db, product_id: int):
             value="\n".join(comp_asins) if comp_asins else "",
             height=120,
             placeholder="B0XXXXXXXX\nB0YYYYYYYY",
+            disabled=not can_edit,
         )
+
+    if not can_edit:
+        st.info("当前角色只能查看产品摘要与关键词配置，产品信息保存需要管理员或编辑者权限。")
+        return
 
     if st.button("保存产品信息", type="primary", width="stretch"):
         try:

@@ -32,6 +32,7 @@ from src.ui.pages.review import (
 from src.ui.pages.settings import (
     _build_api_settings_summary,
     _build_product_settings_summary,
+    _build_settings_access_meta,
     _build_settings_shell_meta,
     _build_workspace_member_management_meta,
     _build_workspace_member_summary,
@@ -136,6 +137,22 @@ def test_sidebar_workspace_context_meta_surfaces_current_user_and_role():
     }
 
 
+def test_resolve_current_user_context_prefers_selected_user_and_falls_back_to_local_owner(db):
+    """当前用户上下文应优先使用 session 指定用户，缺失时回退到本地管理员。"""
+    from src.app import _resolve_current_user_context
+
+    created_user_id = db.create_user(
+        email="viewer@example.com",
+        display_name="查看者",
+    )
+
+    assert _resolve_current_user_context(db, created_user_id)["email"] == "viewer@example.com"
+    assert (
+        _resolve_current_user_context(db, 999999)["email"]
+        == db.DEFAULT_LOCAL_OWNER_EMAIL
+    )
+
+
 def test_create_product_assigns_default_workspace_admin(db):
     """新建产品工作区时，应自动绑定一个默认本地管理员成员。"""
     product_id = db.create_product(name="新建工作区", asin="B0WORKSPACE1")
@@ -218,6 +235,28 @@ def test_workspace_member_management_meta_gates_admin_actions():
     assert admin_meta["fields"] == ["成员邮箱", "成员名称（可选）", "角色"]
     assert viewer_meta["can_manage"] is False
     assert "管理员角色" in viewer_meta["blocked_message"]
+
+
+def test_settings_access_meta_maps_editor_and_viewer_permissions():
+    """系统设置权限摘要应稳定映射 editor/viewer 的可编辑区块和受限区块。"""
+    editor_meta = _build_settings_access_meta("editor")
+    viewer_meta = _build_settings_access_meta("viewer")
+
+    assert editor_meta["editable_tabs"] == ["规则配置", "规则管理", "关键词库", "产品配置"]
+    assert editor_meta["restricted_tabs"] == ["成员管理", "API设置", "数据管理"]
+    assert "编辑者" in editor_meta["description"]
+
+    assert viewer_meta["editable_tabs"] == []
+    assert viewer_meta["restricted_tabs"] == [
+        "规则配置",
+        "规则管理",
+        "关键词库",
+        "产品配置",
+        "API设置",
+        "数据管理",
+        "成员管理",
+    ]
+    assert "查看者" in viewer_meta["description"]
 
 
 def test_upsert_workspace_member_by_email_creates_and_updates_workspace_member(db, product_id):
@@ -334,6 +373,33 @@ def test_sidebar_surfaces_workspace_collaboration_context(monkeypatch, db, produ
     assert "当前用户：本地工作区管理员" in joined
     assert "角色：" in joined
     assert "成员 " in joined
+
+
+def test_settings_page_blocks_sensitive_tabs_for_viewer(monkeypatch, db, product_id, campaign_id):
+    """viewer 角色进入系统设置时，应只看到受限提示，不暴露敏感区块操作。"""
+    _seed_minimal_search_term(db, campaign_id)
+    db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email=db.DEFAULT_LOCAL_OWNER_EMAIL,
+        role="viewer",
+        display_name=db.DEFAULT_LOCAL_OWNER_NAME,
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.run(timeout=20)
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("系统设置").run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    infos = "\n".join(element.value for element in app.info)
+
+    assert "当前角色权限" in joined
+    assert "工作区成员" in joined
+    assert "当前角色没有规则配置权限" in infos
+    assert "API 设置属于管理员区块" in infos
+    assert "数据管理包含重算、清空和导入导出等敏感操作" in infos
+    assert "当前角色只能查看产品摘要与关键词配置" in infos
 
 
 def test_analysis_ui_reviews_are_saved_as_ui_calibration(db, product_id, campaign_id):
