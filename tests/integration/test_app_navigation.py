@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from src.config.product_defaults import build_seeded_product_config
@@ -276,6 +277,7 @@ def test_workspace_member_management_meta_gates_admin_actions():
 
     assert admin_meta["can_manage"] is True
     assert admin_meta["fields"] == ["成员邮箱", "成员名称（可选）", "角色"]
+    assert "至少保留 1 位管理员" in admin_meta["description"]
     assert viewer_meta["can_manage"] is False
     assert "管理员角色" in viewer_meta["blocked_message"]
 
@@ -349,6 +351,16 @@ def test_upsert_workspace_member_by_email_creates_and_updates_workspace_member(d
     assert updated_member["role"] == "viewer"
     assert updated_member["display_name"] == "渠道同学"
     assert len(matching_members) == 1
+
+
+def test_upsert_workspace_member_by_email_rejects_demoting_last_admin(db, product_id):
+    with pytest.raises(ValueError, match="至少需要保留 1 个管理员"):
+        db.upsert_workspace_member_by_email(
+            product_id=product_id,
+            email=db.DEFAULT_LOCAL_OWNER_EMAIL,
+            role="viewer",
+            display_name=db.DEFAULT_LOCAL_OWNER_NAME,
+        )
 
 
 def _seed_minimal_search_term(db, campaign_id: int) -> None:
@@ -482,14 +494,16 @@ def test_sidebar_current_user_switcher_updates_role_context(
 def test_settings_page_blocks_sensitive_tabs_for_viewer(monkeypatch, db, product_id, campaign_id):
     """viewer 角色进入系统设置时，应只看到受限提示，不暴露敏感区块操作。"""
     _seed_minimal_search_term(db, campaign_id)
-    db.upsert_workspace_member_by_email(
+    viewer_member = db.upsert_workspace_member_by_email(
         product_id=product_id,
-        email=db.DEFAULT_LOCAL_OWNER_EMAIL,
+        email="viewer-settings@example.com",
         role="viewer",
-        display_name=db.DEFAULT_LOCAL_OWNER_NAME,
+        display_name="只读设置成员",
     )
 
     app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_user_id"] = viewer_member["user_id"]
+    app.session_state["current_user_name"] = viewer_member["display_name"]
     app.run(timeout=20)
 
     sidebar_radio = _get_sidebar_nav_radio(app)
@@ -511,14 +525,16 @@ def test_upload_page_blocks_sensitive_actions_for_viewer(
 ):
     """viewer 进入上传页时，应只能看导入说明，不能创建工作区或导入文件。"""
     _seed_minimal_search_term(db, campaign_id)
-    db.upsert_workspace_member_by_email(
+    viewer_member = db.upsert_workspace_member_by_email(
         product_id=product_id,
-        email=db.DEFAULT_LOCAL_OWNER_EMAIL,
+        email="viewer-upload@example.com",
         role="viewer",
-        display_name=db.DEFAULT_LOCAL_OWNER_NAME,
+        display_name="只读上传成员",
     )
 
     app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_user_id"] = viewer_member["user_id"]
+    app.session_state["current_user_name"] = viewer_member["display_name"]
     app.run(timeout=20)
 
     sidebar_radio = _get_sidebar_nav_radio(app)
@@ -557,14 +573,16 @@ def test_review_page_blocks_sensitive_actions_for_viewer(
         relevance="pending",
         reviewed=False,
     )
-    db.upsert_workspace_member_by_email(
+    viewer_member = db.upsert_workspace_member_by_email(
         product_id=product_id,
-        email=db.DEFAULT_LOCAL_OWNER_EMAIL,
+        email="viewer-review@example.com",
         role="viewer",
-        display_name=db.DEFAULT_LOCAL_OWNER_NAME,
+        display_name="只读审核成员",
     )
 
     app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_user_id"] = viewer_member["user_id"]
+    app.session_state["current_user_name"] = viewer_member["display_name"]
     app.run(timeout=20)
 
     sidebar_radio = _get_sidebar_nav_radio(app)

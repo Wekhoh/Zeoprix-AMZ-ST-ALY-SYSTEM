@@ -171,7 +171,7 @@ def _build_workspace_member_management_meta(
     can_manage = current_role == "admin"
     return {
         "title": "成员管理",
-        "description": "先把协作者加进当前工作区，再决定谁能改规则、谁只负责看结果，避免后面补权限时还得回头重排成员关系。",
+        "description": "先把协作者加进当前工作区，再决定谁能改规则、谁只负责看结果；至少保留 1 位管理员，避免工作区失去治理入口。",
         "can_manage": can_manage,
         "fields": ["成员邮箱", "成员名称（可选）", "角色"],
         "blocked_message": "当前账号还不是管理员，所以这里只展示成员列表；真正的增删改成员需要管理员角色。",
@@ -301,6 +301,7 @@ def render_settings():
         st.write(f"### {management_meta['title']}")
         st.caption(management_meta["description"])
         if management_meta["can_manage"]:
+            st.info("管理员调整角色时，系统会自动保护最后一个管理员，避免把工作区锁死。")
             with st.form("workspace-member-management-form"):
                 email_col, name_col, role_col = st.columns([1.25, 1.0, 0.75])
                 with email_col:

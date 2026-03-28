@@ -338,6 +338,11 @@ class Database:
             raise ValueError(
                 f"不支持的工作区角色: {role}，仅支持 {sorted(self.VALID_WORKSPACE_ROLES)}"
             )
+        self._validate_workspace_admin_transition(
+            product_id=product_id,
+            user_id=user_id,
+            new_role=normalized_role,
+        )
 
         self.conn.execute(
             """
@@ -360,6 +365,30 @@ class Database:
         )
         row = cursor.fetchone()
         return row["id"]
+
+    def _count_workspace_role_members(self, product_id: int, role: str) -> int:
+        """统计当前工作区某个角色的成员数。"""
+        cursor = self.conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM workspace_memberships
+            WHERE product_id = ? AND role = ?
+            """,
+            (product_id, role),
+        )
+        row = cursor.fetchone()
+        return int(row["total"]) if row is not None else 0
+
+    def _validate_workspace_admin_transition(
+        self, product_id: int, user_id: int, new_role: str
+    ) -> None:
+        """防止最后一个管理员被降级，避免工作区失去治理入口。"""
+        current_role = self.get_workspace_role(product_id, user_id)
+        if current_role != "admin" or new_role == "admin":
+            return
+        admin_count = self._count_workspace_role_members(product_id, "admin")
+        if admin_count <= 1:
+            raise ValueError("当前工作区至少需要保留 1 个管理员，不能降级最后一个管理员。")
 
     def upsert_workspace_member_by_email(
         self,
