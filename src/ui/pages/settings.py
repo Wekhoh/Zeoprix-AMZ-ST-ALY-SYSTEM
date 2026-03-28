@@ -164,6 +164,20 @@ def _build_workspace_member_summary(
     }
 
 
+def _build_workspace_member_management_meta(
+    current_role: str,
+) -> dict[str, str | bool | list[str]]:
+    """构建工作区成员管理区块文案。"""
+    can_manage = current_role == "admin"
+    return {
+        "title": "成员管理",
+        "description": "先把协作者加进当前工作区，再决定谁能改规则、谁只负责看结果，避免后面补权限时还得回头重排成员关系。",
+        "can_manage": can_manage,
+        "fields": ["成员邮箱", "成员名称（可选）", "角色"],
+        "blocked_message": "当前账号还不是管理员，所以这里只展示成员列表；真正的增删改成员需要管理员角色。",
+    }
+
+
 def render_settings():
     """渲染系统设置页面"""
     db = st.session_state.get("db")
@@ -201,6 +215,10 @@ def render_settings():
     )
 
     if product_id and product_name:
+        workspace_notice = st.session_state.pop("workspace_member_notice", None)
+        if workspace_notice:
+            st.success(workspace_notice)
+
         workspace_summary = db.get_workspace_summary(product_id)
         current_user = db.get_or_create_local_owner()
         members = db.get_workspace_members(product_id, include_system_members=True)
@@ -222,6 +240,52 @@ def render_settings():
                 width="stretch",
                 hide_index=True,
             )
+        management_meta = _build_workspace_member_management_meta(
+            workspace_summary["current_role"]
+        )
+        st.write(f"### {management_meta['title']}")
+        st.caption(management_meta["description"])
+        if management_meta["can_manage"]:
+            with st.form("workspace-member-management-form"):
+                email_col, name_col, role_col = st.columns([1.25, 1.0, 0.75])
+                with email_col:
+                    member_email = st.text_input(
+                        "成员邮箱",
+                        placeholder="teammate@example.com",
+                    )
+                with name_col:
+                    display_name = st.text_input(
+                        "成员名称（可选）",
+                        placeholder="运营同学",
+                    )
+                with role_col:
+                    role = st.selectbox(
+                        "角色",
+                        options=["admin", "editor", "viewer"],
+                    )
+                submitted = st.form_submit_button("添加或更新成员", width="stretch")
+
+            if submitted:
+                try:
+                    member = db.upsert_workspace_member_by_email(
+                        product_id=product_id,
+                        email=member_email,
+                        role=role,
+                        display_name=display_name or None,
+                    )
+                except ValueError as exc:
+                    st.error(str(exc))
+                except Exception as exc:
+                    logger.error("保存工作区成员失败: %s", exc)
+                    st.error(safe_error(exc))
+                else:
+                    member_name = member.get("display_name") or member["email"]
+                    st.session_state["workspace_member_notice"] = (
+                        f"已将 {member_name} 设置为 {member['role']}。"
+                    )
+                    st.rerun()
+        else:
+            st.info(str(management_meta["blocked_message"]))
         st.divider()
 
     # 标签页

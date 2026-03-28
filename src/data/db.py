@@ -361,6 +361,55 @@ class Database:
         row = cursor.fetchone()
         return row["id"]
 
+    def upsert_workspace_member_by_email(
+        self,
+        product_id: int,
+        email: str,
+        role: str,
+        display_name: str | None = None,
+    ) -> dict:
+        """按邮箱创建/更新工作区成员，并返回最新成员信息。"""
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            raise ValueError("成员邮箱不能为空")
+
+        existing_user = self.get_user(email=normalized_email)
+        if existing_user is None:
+            user_id = self.create_user(
+                email=normalized_email,
+                display_name=display_name.strip() if display_name else None,
+            )
+        else:
+            user_id = existing_user["id"]
+            normalized_display_name = display_name.strip() if display_name else None
+            if normalized_display_name and normalized_display_name != (
+                existing_user.get("display_name") or ""
+            ):
+                self.conn.execute(
+                    """
+                    UPDATE users
+                    SET display_name = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (normalized_display_name, user_id),
+                )
+                self.conn.commit()
+
+        self.add_workspace_member(product_id=product_id, user_id=user_id, role=role)
+        member = next(
+            (
+                row
+                for row in self.get_workspace_members(
+                    product_id, include_system_members=True
+                )
+                if row["user_id"] == user_id
+            ),
+            None,
+        )
+        if member is None:
+            raise RuntimeError("工作区成员写入成功后未能查询到成员记录")
+        return member
+
     def get_workspace_members(
         self, product_id: int, include_system_members: bool = False
     ) -> list[dict]:

@@ -33,6 +33,7 @@ from src.ui.pages.settings import (
     _build_api_settings_summary,
     _build_product_settings_summary,
     _build_settings_shell_meta,
+    _build_workspace_member_management_meta,
     _build_workspace_member_summary,
 )
 from src.ui.pages.settings_data import (
@@ -207,6 +208,40 @@ def test_workspace_member_summary_surfaces_roles_and_member_roster():
             },
         ],
     }
+
+
+def test_workspace_member_management_meta_gates_admin_actions():
+    admin_meta = _build_workspace_member_management_meta("admin")
+    viewer_meta = _build_workspace_member_management_meta("viewer")
+
+    assert admin_meta["can_manage"] is True
+    assert admin_meta["fields"] == ["成员邮箱", "成员名称（可选）", "角色"]
+    assert viewer_meta["can_manage"] is False
+    assert "管理员角色" in viewer_meta["blocked_message"]
+
+
+def test_upsert_workspace_member_by_email_creates_and_updates_workspace_member(db, product_id):
+    created_member = db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email="operator@example.com",
+        role="editor",
+        display_name="运营同学",
+    )
+    updated_member = db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email="operator@example.com",
+        role="viewer",
+        display_name="渠道同学",
+    )
+    members = db.get_workspace_members(product_id, include_system_members=True)
+    matching_members = [
+        member for member in members if member["email"] == "operator@example.com"
+    ]
+
+    assert created_member["role"] == "editor"
+    assert updated_member["role"] == "viewer"
+    assert updated_member["display_name"] == "渠道同学"
+    assert len(matching_members) == 1
 
 
 def _seed_minimal_search_term(db, campaign_id: int) -> None:
