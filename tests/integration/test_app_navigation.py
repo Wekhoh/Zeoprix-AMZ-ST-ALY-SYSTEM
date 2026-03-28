@@ -33,6 +33,7 @@ from src.ui.pages.settings import (
     _build_api_settings_summary,
     _build_product_settings_summary,
     _build_settings_shell_meta,
+    _build_workspace_member_summary,
 )
 from src.ui.pages.settings_data import (
     _build_data_management_summary,
@@ -111,6 +112,29 @@ def test_sidebar_current_product_name_prefers_selected_product():
     assert _get_current_product_name([], 202) is None
 
 
+def test_sidebar_workspace_context_meta_surfaces_current_user_and_role():
+    """侧边栏工作区协作摘要应稳定输出当前用户、角色和成员数。"""
+    from src.app import _build_sidebar_workspace_context_meta
+
+    meta = _build_sidebar_workspace_context_meta(
+        workspace_name="旅行枕工作区",
+        current_user_name="本地工作区管理员",
+        member_count=3,
+        current_role="admin",
+    )
+
+    assert meta == {
+        "title": "当前工作区协作",
+        "description": "工作区已经绑定成员与角色，后续切到多人协作时会沿着这套上下文继续扩展，不用再从单机工具重搭一次。",
+        "chips": [
+            "工作区：旅行枕工作区",
+            "当前用户：本地工作区管理员",
+            "角色：admin",
+            "成员 3 人",
+        ],
+    }
+
+
 def test_create_product_assigns_default_workspace_admin(db):
     """新建产品工作区时，应自动绑定一个默认本地管理员成员。"""
     product_id = db.create_product(name="新建工作区", asin="B0WORKSPACE1")
@@ -137,6 +161,50 @@ def test_workspace_summary_meta_surfaces_member_count_and_role():
             "工作区：旅行枕工作区",
             "成员 3 人",
             "当前角色：admin",
+        ],
+    }
+
+
+def test_workspace_member_summary_surfaces_roles_and_member_roster():
+    """系统设置页应稳定输出工作区成员摘要与成员清单。"""
+    summary = _build_workspace_member_summary(
+        product_name="旅行枕工作区",
+        current_user_name="本地工作区管理员",
+        current_role="admin",
+        members=[
+            {
+                "display_name": "本地工作区管理员",
+                "email": "local-owner@workspace.local",
+                "role": "admin",
+            },
+            {
+                "display_name": "运营同学",
+                "email": "operator@example.com",
+                "role": "editor",
+            },
+        ],
+    )
+
+    assert summary == {
+        "title": "工作区成员",
+        "description": "先确认当前是谁在这个工作区里、大家分别能做什么，后面再继续补真正的登录和权限拦截。",
+        "chips": [
+            "当前工作区：旅行枕工作区",
+            "当前用户：本地工作区管理员",
+            "当前角色：admin",
+            "成员 2 人",
+        ],
+        "rows": [
+            {
+                "成员": "本地工作区管理员",
+                "邮箱": "local-owner@workspace.local",
+                "角色": "admin",
+            },
+            {
+                "成员": "运营同学",
+                "邮箱": "operator@example.com",
+                "角色": "editor",
+            },
         ],
     }
 
@@ -216,6 +284,21 @@ def test_homepage_surfaces_workspace_summary(monkeypatch, db, product_id, campai
     joined = "\n".join(markdown_values)
     assert "workspace-summary-shell" in joined
     assert "当前工作区" in joined
+
+
+def test_sidebar_surfaces_workspace_collaboration_context(monkeypatch, db, product_id, campaign_id):
+    """侧边栏应展示当前工作区协作上下文。"""
+    _seed_minimal_search_term(db, campaign_id)
+    app = _make_app_test(monkeypatch, db.db_path)
+
+    app.run(timeout=20)
+
+    markdown_values = [markdown.value or "" for markdown in app.markdown]
+    joined = "\n".join(markdown_values)
+    assert "当前工作区协作" in joined
+    assert "当前用户：本地工作区管理员" in joined
+    assert "角色：" in joined
+    assert "成员 " in joined
 
 
 def test_analysis_ui_reviews_are_saved_as_ui_calibration(db, product_id, campaign_id):

@@ -4,6 +4,7 @@ AMZ搜索词分析系统 - Streamlit主应用
 
 import sys
 import os
+from html import escape
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -88,6 +89,25 @@ def _get_current_product_name(
     return products[0].get("name")
 
 
+def _build_sidebar_workspace_context_meta(
+    workspace_name: str,
+    current_user_name: str,
+    member_count: int,
+    current_role: str,
+) -> dict[str, str | list[str]]:
+    """构建侧边栏工作区协作文案。"""
+    return {
+        "title": "当前工作区协作",
+        "description": "工作区已经绑定成员与角色，后续切到多人协作时会沿着这套上下文继续扩展，不用再从单机工具重搭一次。",
+        "chips": [
+            f"工作区：{workspace_name}",
+            f"当前用户：{current_user_name}",
+            f"角色：{current_role}",
+            f"成员 {member_count} 人",
+        ],
+    }
+
+
 def render_sidebar():
     """渲染侧边栏"""
     with st.sidebar:
@@ -146,6 +166,40 @@ def render_sidebar():
                     <div class="sidebar-current-product">
                         <span>当前分析产品</span>
                         <strong>{current_product_name}</strong>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                workspace_summary = db.get_workspace_summary(
+                    st.session_state.current_product_id
+                )
+                current_user = db.get_or_create_local_owner()
+                workspace_meta = _build_sidebar_workspace_context_meta(
+                    workspace_name=current_product_name,
+                    current_user_name=(
+                        current_user.get("display_name") or current_user["email"]
+                    ),
+                    member_count=workspace_summary["member_count"],
+                    current_role=workspace_summary["current_role"],
+                )
+                chips_html = "".join(
+                    f'<span style="display:inline-flex; padding:0.36rem 0.72rem; border-radius:999px; '
+                    f'background:rgba(59,91,219,0.08); border:1px solid rgba(59,91,219,0.12); '
+                    f'font-size:0.78rem; color:#334155; font-weight:600;">{escape(chip)}</span>'
+                    for chip in workspace_meta["chips"]
+                )
+                st.markdown(
+                    f"""
+                    <div class="sidebar-current-product" style="margin-top:0.8rem;">
+                        <span>{escape(workspace_meta["title"])}</span>
+                        <strong>{escape(current_product_name)}</strong>
+                        <p style="margin:0.7rem 0 0; color:#52607a; font-size:0.84rem; line-height:1.55;">
+                            {escape(workspace_meta["description"])}
+                        </p>
+                        <div style="display:flex; flex-wrap:wrap; gap:0.45rem; margin-top:0.85rem;">
+                            {chips_html}
+                        </div>
                     </div>
                     """,
                     unsafe_allow_html=True,

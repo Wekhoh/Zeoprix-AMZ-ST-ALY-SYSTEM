@@ -5,6 +5,7 @@
 
 from html import escape
 
+import pandas as pd
 import streamlit as st
 
 from src.config.logger import get_logger
@@ -135,6 +136,34 @@ def _build_api_settings_summary(
     }
 
 
+def _build_workspace_member_summary(
+    product_name: str,
+    current_user_name: str,
+    current_role: str,
+    members: list[dict],
+) -> dict[str, str | list[str] | list[dict[str, str]]]:
+    """构建工作区成员摘要。"""
+    rows = [
+        {
+            "成员": member.get("display_name") or member["email"],
+            "邮箱": member["email"],
+            "角色": member["role"],
+        }
+        for member in members
+    ]
+    return {
+        "title": "工作区成员",
+        "description": "先确认当前是谁在这个工作区里、大家分别能做什么，后面再继续补真正的登录和权限拦截。",
+        "chips": [
+            f"当前工作区：{product_name}",
+            f"当前用户：{current_user_name}",
+            f"当前角色：{current_role}",
+            f"成员 {len(members)} 人",
+        ],
+        "rows": rows,
+    }
+
+
 def render_settings():
     """渲染系统设置页面"""
     db = st.session_state.get("db")
@@ -170,6 +199,30 @@ def render_settings():
         """,
         unsafe_allow_html=True,
     )
+
+    if product_id and product_name:
+        workspace_summary = db.get_workspace_summary(product_id)
+        current_user = db.get_or_create_local_owner()
+        members = db.get_workspace_members(product_id, include_system_members=True)
+        member_summary = _build_workspace_member_summary(
+            product_name=product_name,
+            current_user_name=current_user.get("display_name") or current_user["email"],
+            current_role=workspace_summary["current_role"],
+            members=members,
+        )
+        st.write(f"### {member_summary['title']}")
+        st.caption(member_summary["description"])
+        member_chip_cols = st.columns(len(member_summary["chips"]))
+        for col, chip in zip(member_chip_cols, member_summary["chips"], strict=False):
+            with col:
+                st.info(chip)
+        if member_summary["rows"]:
+            st.dataframe(
+                pd.DataFrame(member_summary["rows"]),
+                width="stretch",
+                hide_index=True,
+            )
+        st.divider()
 
     # 标签页
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
