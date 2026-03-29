@@ -7,8 +7,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 import streamlit as st
+from fastapi.testclient import TestClient
 from streamlit.testing.v1 import AppTest
 
+from src.backend.app import create_app
 from src.config.product_defaults import build_seeded_product_config
 from src.analysis.truth_replay import (
     get_latest_analysis_run_diff_preview,
@@ -36,6 +38,9 @@ from src.ui.pages.review import (
     _build_review_upsert_payload,
 )
 from src.ui.pages.settings import (
+    _backend_get_workspace_members,
+    _backend_remove_workspace_member,
+    _backend_upsert_workspace_member,
     _build_api_settings_summary,
     _build_product_settings_summary,
     _build_settings_access_meta,
@@ -43,6 +48,7 @@ from src.ui.pages.settings import (
     _build_workspace_member_management_meta,
     _build_workspace_member_removal_meta,
     _build_workspace_member_summary,
+    _normalize_backend_workspace_members_for_settings,
 )
 from src.ui.pages.settings_data import (
     _build_data_management_summary,
@@ -559,6 +565,185 @@ def test_workspace_member_removal_meta_filters_out_system_owner():
     assert "最后一个管理员" in admin_meta["description"]
     assert viewer_meta["can_manage"] is False
     assert viewer_meta["can_remove"] is False
+
+
+def _bootstrap_backend_api(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(
+        "AMZ_BACKEND_DATABASE_URL",
+        f"sqlite:///{(tmp_path / 'backend-settings.db').as_posix()}",
+    )
+    monkeypatch.setenv("AMZ_BACKEND_JWT_SECRET", "test-secret-with-at-least-32-bytes")
+    monkeypatch.setenv("AMZ_BOOTSTRAP_ADMIN_EMAIL", "owner@example.com")
+    monkeypatch.setenv("AMZ_BOOTSTRAP_ADMIN_PASSWORD", "owner-password")
+    monkeypatch.setenv("AMZ_BOOTSTRAP_ADMIN_NAME", "Workspace Owner")
+
+
+def _login_backend_user(client: TestClient, email: str, password: str) -> tuple[str, dict]:
+    response = client.post("/auth/login", json={"email": email, "password": password})
+    assert response.status_code == 200
+    body = response.json()
+    return body["access_token"], body["user"]
+
+
+def test_backend_workspace_member_delete_endpoint_deletes_non_admin(monkeypatch, tmp_path):
+    _bootstrap_backend_api(monkeypatch, tmp_path)
+
+    with TestClient(create_app()) as client:
+        owner_token, _ = _login_backend_user(client, "owner@example.com", "owner-password")
+        create_member = client.post(
+            "/workspaces/default/members",
+            json={
+                "email": "viewer@example.com",
+                "name": "Viewer",
+                "password": "viewer-password",
+                "role": "viewer",
+            },
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+        assert create_member.status_code == 200
+
+        member_id = create_member.json()["id"]
+        delete_member = client.delete(
+            f"/workspaces/default/members/{member_id}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+
+        assert delete_member.status_code == 200
+        assert delete_member.json()["email"] == "viewer@example.com"
+
+        members_response = client.get(
+            "/workspaces/default/members",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+        assert members_response.status_code == 200
+        assert [member["email"] for member in members_response.json()] == ["owner@example.com"]
+
+
+def test_backend_workspace_member_delete_endpoint_rejects_last_admin(monkeypatch, tmp_path):
+    _bootstrap_backend_api(monkeypatch, tmp_path)
+
+    with TestClient(create_app()) as client:
+        owner_token, owner = _login_backend_user(client, "owner@example.com", "owner-password")
+        delete_owner = client.delete(
+            f"/workspaces/default/members/{owner['id']}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+
+    assert delete_owner.status_code == 400
+    assert "At least one workspace admin must remain assigned." in delete_owner.json()["detail"]
+
+
+def test_shared_settings_member_helpers_use_backend_api(monkeypatch):
+    import src.ui.pages.settings as settings_module
+
+    captured = []
+
+    class DummyResponse:
+        def __init__(self, body: str):
+            self._body = body.encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return self._body
+
+    def fake_urlopen(req, timeout):
+        captured.append(
+            {
+                "url": req.full_url,
+                "method": req.get_method(),
+                "auth": req.headers.get("Authorization"),
+                "body": req.data.decode("utf-8") if req.data else None,
+                "timeout": timeout,
+            }
+        )
+        if req.get_method() == "GET":
+            return DummyResponse(
+                '[{"id":"user-1","email":"owner@example.com","name":"Owner","role":"admin"}]'
+            )
+        if req.get_method() == "POST":
+            return DummyResponse(
+                '{"id":"user-2","email":"editor@example.com","name":"Editor","role":"editor"}'
+            )
+        if req.get_method() == "DELETE":
+            return DummyResponse(
+                '{"id":"user-2","email":"editor@example.com","name":"Editor","role":"editor"}'
+            )
+        raise AssertionError("unexpected method")
+
+    monkeypatch.setattr(settings_module.request, "urlopen", fake_urlopen)
+
+    members = _backend_get_workspace_members("https://backend.example.com", "access-token")
+    created = _backend_upsert_workspace_member(
+        "https://backend.example.com",
+        "access-token",
+        email="editor@example.com",
+        password="editor-password",
+        role="editor",
+        display_name="Editor",
+    )
+    removed = _backend_remove_workspace_member(
+        "https://backend.example.com",
+        "access-token",
+        user_id="user-2",
+    )
+
+    assert members == [
+        {"id": "user-1", "email": "owner@example.com", "name": "Owner", "role": "admin"}
+    ]
+    assert created["email"] == "editor@example.com"
+    assert removed["id"] == "user-2"
+    assert captured == [
+        {
+            "url": "https://backend.example.com/workspaces/default/members",
+            "method": "GET",
+            "auth": "Bearer access-token",
+            "body": None,
+            "timeout": 5,
+        },
+        {
+            "url": "https://backend.example.com/workspaces/default/members",
+            "method": "POST",
+            "auth": "Bearer access-token",
+            "body": '{"email": "editor@example.com", "password": "editor-password", "role": "editor", "name": "Editor"}',
+            "timeout": 5,
+        },
+        {
+            "url": "https://backend.example.com/workspaces/default/members/user-2",
+            "method": "DELETE",
+            "auth": "Bearer access-token",
+            "body": None,
+            "timeout": 5,
+        },
+    ]
+
+
+def test_shared_settings_member_helpers_normalize_backend_members():
+    normalized = _normalize_backend_workspace_members_for_settings(
+        [
+            {"id": "user-1", "email": "owner@example.com", "name": "Owner", "role": "admin"},
+            {"id": "user-2", "email": "viewer@example.com", "name": "", "role": "viewer"},
+        ]
+    )
+
+    assert normalized == [
+        {
+            "user_id": "user-1",
+            "email": "owner@example.com",
+            "display_name": "Owner",
+            "role": "admin",
+        },
+        {
+            "user_id": "user-2",
+            "email": "viewer@example.com",
+            "display_name": "viewer@example.com",
+            "role": "viewer",
+        },
+    ]
 
 
 def test_upload_access_meta_distinguishes_admin_editor_and_viewer():

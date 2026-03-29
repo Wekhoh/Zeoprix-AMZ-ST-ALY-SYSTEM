@@ -188,6 +188,50 @@ def _upsert_workspace_member(session_factory, workspace_id: str, payload: Worksp
         return WorkspaceMemberResponse(id=user.id, email=user.email, name=user.name, role=membership.role)
 
 
+def _remove_workspace_member(session_factory, workspace_id: str, user_id: str) -> WorkspaceMemberResponse:
+    from src.backend.models import User, WorkspaceMembership
+
+    with session_factory() as session:
+        membership = session.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == workspace_id,
+                WorkspaceMembership.user_id == user_id,
+            )
+        )
+        if membership is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='Workspace member was not found.',
+            )
+
+        if membership.role == 'admin':
+            admin_count = session.scalar(
+                select(func.count()).select_from(WorkspaceMembership).where(
+                    WorkspaceMembership.workspace_id == workspace_id,
+                    WorkspaceMembership.role == 'admin',
+                )
+            ) or 0
+            if admin_count <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail='At least one workspace admin must remain assigned.',
+                )
+
+        user = session.get(User, membership.user_id)
+        removed_role = membership.role
+        session.delete(membership)
+        session.commit()
+
+        member_email = user.email if user is not None else user_id
+        member_name = user.name if user is not None else member_email
+        return WorkspaceMemberResponse(
+            id=user_id,
+            email=member_email,
+            name=member_name,
+            role=removed_role,
+        )
+
+
 async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> UserResponse:
     try:
         user = get_current_user_from_token(token, _get_runtime_session_factory(request))
@@ -272,6 +316,17 @@ def create_app() -> FastAPI:
         session_factory = _get_runtime_session_factory(request)
         workspace_id, _, _ = _get_current_workspace_context(session_factory, current_user.id)
         return _upsert_workspace_member(session_factory, workspace_id, payload)
+
+    @app.delete('/workspaces/default/members/{member_user_id}', response_model=WorkspaceMemberResponse, tags=['workspaces'])
+    async def delete_default_workspace_member(
+        member_user_id: str,
+        request: Request,
+        current_user: UserResponse = Depends(get_current_user),
+    ) -> WorkspaceMemberResponse:
+        _require_admin(current_user)
+        session_factory = _get_runtime_session_factory(request)
+        workspace_id, _, _ = _get_current_workspace_context(session_factory, current_user.id)
+        return _remove_workspace_member(session_factory, workspace_id, member_user_id)
 
     return app
 

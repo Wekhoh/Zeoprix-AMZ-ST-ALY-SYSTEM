@@ -4,6 +4,8 @@
 """
 
 from html import escape
+import json
+from urllib import error, request
 
 import pandas as pd
 import streamlit as st
@@ -134,6 +136,141 @@ def _build_api_settings_summary(
             ".env 文件托管密钥",
         ],
     }
+
+
+def _get_shared_backend_auth_context() -> tuple[str, str] | None:
+    """获取共享后端模式下的登录上下文。"""
+    base_url = (st.session_state.get("backend_auth_base_url") or "").strip().rstrip("/")
+    access_token = (st.session_state.get("backend_access_token") or "").strip()
+    if not base_url or not access_token:
+        return None
+    return base_url, access_token
+
+
+def _backend_request_json(
+    base_url: str,
+    access_token: str,
+    path: str,
+    *,
+    method: str = "GET",
+    payload: dict | None = None,
+    timeout: int = 5,
+):
+    """调用共享后端并返回 JSON 结果。"""
+    headers = {"Authorization": f"Bearer {access_token}"}
+    body = None
+    if payload is not None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json; charset=utf-8"
+    req = request.Request(f"{base_url}{path}", data=body, headers=headers, method=method)
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            raw_body = response.read().decode("utf-8")
+    except error.HTTPError as exc:
+        response_text = exc.read().decode("utf-8", errors="ignore") if hasattr(exc, "read") else ""
+        detail = ""
+        if response_text:
+            try:
+                parsed = json.loads(response_text)
+            except json.JSONDecodeError:
+                detail = response_text
+            else:
+                if isinstance(parsed, dict):
+                    detail = str(parsed.get("detail") or parsed.get("error") or "")
+        if exc.code in {401, 403}:
+            raise RuntimeError("当前登录已失效，请重新登录。") from exc
+        if exc.code >= 500:
+            raise RuntimeError("共享后端暂时不可用，请稍后重试。") from exc
+        raise RuntimeError(detail or "共享后端请求失败，请稍后重试。") from exc
+    except error.URLError as exc:
+        raise RuntimeError("无法连接共享后端，请检查部署地址或网络。") from exc
+
+    if not raw_body:
+        return None
+    return json.loads(raw_body)
+
+
+def _backend_get_workspace_members(base_url: str, access_token: str) -> list[dict]:
+    """从共享后端读取当前工作区成员列表。"""
+    response = _backend_request_json(
+        base_url,
+        access_token,
+        "/workspaces/default/members",
+        timeout=5,
+    )
+    return response if isinstance(response, list) else []
+
+
+def _backend_upsert_workspace_member(
+    base_url: str,
+    access_token: str,
+    *,
+    email: str,
+    password: str,
+    role: str,
+    display_name: str | None = None,
+) -> dict:
+    """通过共享后端新增或更新当前工作区成员。"""
+    payload = {
+        "email": email,
+        "password": password,
+        "role": role,
+        "name": display_name,
+    }
+    response = _backend_request_json(
+        base_url,
+        access_token,
+        "/workspaces/default/members",
+        method="POST",
+        payload=payload,
+        timeout=5,
+    )
+    return response if isinstance(response, dict) else {}
+
+
+def _backend_remove_workspace_member(
+    base_url: str,
+    access_token: str,
+    *,
+    user_id: str,
+) -> dict:
+    """通过共享后端移除当前工作区成员。"""
+    response = _backend_request_json(
+        base_url,
+        access_token,
+        f"/workspaces/default/members/{user_id}",
+        method="DELETE",
+        timeout=5,
+    )
+    return response if isinstance(response, dict) else {}
+
+
+def _normalize_backend_workspace_members_for_settings(members: list[dict]) -> list[dict]:
+    """将后端工作区成员结构转换为设置页现有的成员结构。"""
+    normalized = []
+    for member in members:
+        email = (member.get("email") or "").strip()
+        display_name = (member.get("name") or email).strip() or email
+        normalized.append(
+            {
+                "user_id": member.get("id"),
+                "email": email,
+                "display_name": display_name,
+                "role": (member.get("role") or "viewer").strip() or "viewer",
+            }
+        )
+    return normalized
+
+
+def _refresh_shared_workspace_members(base_url: str, access_token: str) -> list[dict]:
+    """刷新共享模式下缓存的工作区成员列表。"""
+    members = _backend_get_workspace_members(base_url, access_token)
+    st.session_state.backend_workspace_members = members
+    backend_workspace = st.session_state.get("backend_workspace")
+    if isinstance(backend_workspace, dict):
+        backend_workspace["member_count"] = len(members)
+        st.session_state.backend_workspace = backend_workspace
+    return members
 
 
 def _build_workspace_member_summary(
@@ -286,19 +423,42 @@ def render_settings():
         if workspace_notice:
             st.success(workspace_notice)
 
-        current_user_id = st.session_state.get("current_user_id")
-        current_user = (
-            db.get_user(user_id=current_user_id)
-            if current_user_id is not None
-            else None
-        ) or db.get_or_create_local_owner()
-        current_user_name = st.session_state.get("current_user_name") or (
-            current_user.get("display_name") or current_user["email"]
-        )
-        current_role = db.get_workspace_role(product_id, current_user["id"]) or "viewer"
-        members = db.get_workspace_members(product_id, include_system_members=True)
+        shared_auth = _get_shared_backend_auth_context()
+        workspace_display_name = product_name
+        if shared_auth:
+            base_url, access_token = shared_auth
+            backend_workspace = st.session_state.get("backend_workspace") or {}
+            raw_members = st.session_state.get("backend_workspace_members")
+            if raw_members is None:
+                try:
+                    raw_members = _refresh_shared_workspace_members(base_url, access_token)
+                except RuntimeError as exc:
+                    st.error(str(exc))
+                    raw_members = []
+            members = _normalize_backend_workspace_members_for_settings(raw_members or [])
+            backend_user = st.session_state.get("backend_auth_user") or {}
+            current_user_name = st.session_state.get("current_user_name") or backend_user.get("name") or "团队成员"
+            current_role = (
+                st.session_state.get("current_user_role")
+                or backend_workspace.get("role")
+                or backend_user.get("role")
+                or "viewer"
+            )
+            workspace_display_name = backend_workspace.get("name") or product_name
+        else:
+            current_user_id = st.session_state.get("current_user_id")
+            current_user = (
+                db.get_user(user_id=current_user_id)
+                if current_user_id is not None
+                else None
+            ) or db.get_or_create_local_owner()
+            current_user_name = st.session_state.get("current_user_name") or (
+                current_user.get("display_name") or current_user["email"]
+            )
+            current_role = db.get_workspace_role(product_id, current_user["id"]) or "viewer"
+            members = db.get_workspace_members(product_id, include_system_members=True)
         member_summary = _build_workspace_member_summary(
-            product_name=product_name,
+            product_name=workspace_display_name,
             current_user_name=current_user_name,
             current_role=current_role,
             members=members,
@@ -329,8 +489,9 @@ def render_settings():
         st.caption(management_meta["description"])
         if management_meta["can_manage"]:
             st.info("管理员调整角色时，系统会自动保护最后一个管理员，避免把工作区锁死。")
+            shared_auth = _get_shared_backend_auth_context()
             with st.form("workspace-member-management-form"):
-                email_col, name_col, role_col = st.columns([1.25, 1.0, 0.75])
+                email_col, name_col, role_col = st.columns([1.05, 0.9, 0.7])
                 with email_col:
                     member_email = st.text_input(
                         "成员邮箱",
@@ -346,23 +507,50 @@ def render_settings():
                         "角色",
                         options=["admin", "editor", "viewer"],
                     )
+                initial_password = None
+                if shared_auth:
+                    st.caption("共享模式下新增成员会同步创建团队登录账号，请为新成员设置初始登录密码。")
+                    initial_password = st.text_input(
+                        "初始登录密码",
+                        type="password",
+                        placeholder="至少 8 位",
+                    )
                 submitted = st.form_submit_button("添加或更新成员", width="stretch")
 
             if submitted:
                 try:
-                    member = db.upsert_workspace_member_by_email(
-                        product_id=product_id,
-                        email=member_email,
-                        role=role,
-                        display_name=display_name or None,
-                    )
+                    if shared_auth:
+                        if not initial_password:
+                            raise ValueError("共享模式下请为成员设置初始登录密码。")
+                        base_url, access_token = shared_auth
+                        member = _backend_upsert_workspace_member(
+                            base_url,
+                            access_token,
+                            email=member_email,
+                            password=initial_password,
+                            role=role,
+                            display_name=display_name or None,
+                        )
+                        members = _normalize_backend_workspace_members_for_settings(
+                            _refresh_shared_workspace_members(base_url, access_token)
+                        )
+                    else:
+                        member = db.upsert_workspace_member_by_email(
+                            product_id=product_id,
+                            email=member_email,
+                            role=role,
+                            display_name=display_name or None,
+                        )
+                        members = db.get_workspace_members(product_id, include_system_members=True)
                 except ValueError as exc:
+                    st.error(str(exc))
+                except RuntimeError as exc:
                     st.error(str(exc))
                 except Exception as exc:
                     logger.error("保存工作区成员失败: %s", exc)
                     st.error(safe_error(exc))
                 else:
-                    member_name = member.get("display_name") or member["email"]
+                    member_name = member.get("display_name") or member.get("name") or member["email"]
                     st.session_state["workspace_member_notice"] = (
                         f"已将 {member_name} 设置为 {member['role']}。"
                     )
@@ -388,11 +576,25 @@ def render_settings():
                         if option["label"] == removable_label
                     )
                     try:
-                        db.remove_workspace_member(
-                            product_id=product_id,
-                            user_id=selected_member["user_id"],
-                        )
+                        if shared_auth:
+                            base_url, access_token = shared_auth
+                            _backend_remove_workspace_member(
+                                base_url,
+                                access_token,
+                                user_id=str(selected_member["user_id"]),
+                            )
+                            members = _normalize_backend_workspace_members_for_settings(
+                                _refresh_shared_workspace_members(base_url, access_token)
+                            )
+                        else:
+                            db.remove_workspace_member(
+                                product_id=product_id,
+                                user_id=selected_member["user_id"],
+                            )
+                            members = db.get_workspace_members(product_id, include_system_members=True)
                     except ValueError as exc:
+                        st.error(str(exc))
+                    except RuntimeError as exc:
                         st.error(str(exc))
                     except Exception as exc:
                         logger.error("移除工作区成员失败: %s", exc)
