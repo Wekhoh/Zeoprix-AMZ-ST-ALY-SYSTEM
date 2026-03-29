@@ -3,6 +3,7 @@
 v2.0: 支持人工标记搜索词的相关性等级
 """
 
+import json
 from html import escape
 
 import streamlit as st
@@ -810,15 +811,21 @@ def _request_ai_suggestion(db, product_id: int, term: str, item: dict):
             "relevance": suggestion.suggested_relevance,
             "confidence": suggestion.confidence,
             "reasoning": suggestion.reasoning,
+            "suggested_action": suggestion.suggested_action,
         }
 
         # 同时保存到数据库（用于后续参考）
         try:
-            db.update_manual_review_ai_suggestion(
+            db.save_manual_review_ai_suggestion(
                 product_id=product_id,
                 term=term,
+                term_type=item.get("term_type", "keyword"),
                 ai_suggestion=suggestion.suggested_relevance,
                 ai_confidence=suggestion.confidence,
+                ai_reasoning=suggestion.reasoning,
+                ai_suggested_action=suggestion.suggested_action,
+                campaign_id=item.get("campaign_id"),
+                asin_identifier=item.get("asin_identifier"),
             )
         except Exception as e:
             logger.warning(f"保存AI建议到数据库失败: {e}")
@@ -828,6 +835,29 @@ def _request_ai_suggestion(db, product_id: int, term: str, item: dict):
     except Exception as e:
         logger.error(f"获取AI建议失败: {e}")
         st.error(f"获取AI建议失败: {e}")
+
+
+def _build_ai_suggestion_state(item: dict | None) -> dict | None:
+    """从待审核记录中恢复可回显的 AI 建议状态。"""
+    if not item or not item.get("ai_suggestion"):
+        return None
+
+    evidence_payload = item.get("evidence_payload")
+    payload = {}
+    if isinstance(evidence_payload, dict):
+        payload = evidence_payload
+    elif isinstance(evidence_payload, str) and evidence_payload:
+        try:
+            payload = json.loads(evidence_payload)
+        except json.JSONDecodeError:
+            payload = {}
+
+    return {
+        "relevance": item.get("ai_suggestion", "pending"),
+        "confidence": item.get("ai_confidence", 0) or 0,
+        "reasoning": payload.get("ai_reasoning", ""),
+        "suggested_action": payload.get("ai_suggested_action", ""),
+    }
 
 
 def _render_review_form(db, product_id: int, item: dict, pending_list: list):
@@ -853,12 +883,8 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
     ai_suggestion = st.session_state.get(ai_suggestion_key)
 
     # 也检查item中的预存建议
-    if not ai_suggestion and item.get("ai_suggestion"):
-        ai_suggestion = {
-            "relevance": item.get("ai_suggestion"),
-            "confidence": item.get("ai_confidence", 0),
-            "reasoning": item.get("ai_reasoning", ""),
-        }
+    if not ai_suggestion:
+        ai_suggestion = _build_ai_suggestion_state(item)
 
     # AI建议展示区
     with st.container():
@@ -876,6 +902,7 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
                 )
                 confidence = ai_suggestion.get("confidence", 0)
                 reasoning = ai_suggestion.get("reasoning", "")
+                suggested_action = ai_suggestion.get("suggested_action", "")
 
                 # 根据置信度显示不同颜色
                 if confidence >= 0.8:
@@ -891,6 +918,8 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
 
                 if reasoning:
                     st.caption(f"理由: {reasoning}")
+                if suggested_action:
+                    st.caption(f"建议动作: {suggested_action}")
             else:
                 st.caption("点击按钮获取AI相关性建议")
     # ========== AI建议功能结束 ==========

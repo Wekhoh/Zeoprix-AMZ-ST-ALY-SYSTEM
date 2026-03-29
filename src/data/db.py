@@ -1933,6 +1933,43 @@ class Database:
             logger.error(f"更新AI建议失败: {e}")
             return False
 
+    def save_manual_review_ai_suggestion(
+        self,
+        *,
+        product_id: int,
+        term: str,
+        term_type: str,
+        ai_suggestion: str,
+        ai_confidence: float,
+        ai_reasoning: str = None,
+        ai_suggested_action: str = None,
+        campaign_id: int = None,
+        asin_identifier: str = None,
+    ) -> int:
+        """
+        持久化审核页 AI 建议，并保留理由与建议动作，便于后续回显。
+
+        说明：
+        - 如果 manual_reviews 已存在对应记录，则仅补充 AI 建议相关字段，不覆盖人工结论。
+        - 如果记录不存在，则创建一条未审核记录，供后续人工校准继续使用。
+        """
+        evidence_payload = {
+            "ai_reasoning": ai_reasoning or "",
+            "ai_suggested_action": ai_suggested_action or "",
+        }
+        return self.upsert_manual_review(
+            product_id=product_id,
+            term=term,
+            term_type=term_type,
+            campaign_id=campaign_id,
+            asin_identifier=asin_identifier,
+            reviewed=False,
+            ai_suggestion=ai_suggestion,
+            ai_confidence=ai_confidence,
+            review_source="ai_assistant",
+            evidence_payload=evidence_payload,
+        )
+
     def get_keywords_by_category(
         self,
         product_id: int,

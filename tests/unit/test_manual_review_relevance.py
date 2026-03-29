@@ -19,6 +19,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.data.db import Database
+from src.ui.pages.review import _build_ai_suggestion_state
 
 
 @pytest.fixture
@@ -185,6 +186,69 @@ class TestUpsertManualReview:
             ("reviewed_term",),
         ).fetchone()
         assert row["reviewed"] == 1
+
+    def test_save_manual_review_ai_suggestion_persists_reasoning_payload(self, test_db):
+        test_db.upsert_manual_review(
+            product_id=1,
+            term="ai_term",
+            term_type="keyword",
+            reviewed=False,
+        )
+
+        test_db.save_manual_review_ai_suggestion(
+            product_id=1,
+            term="ai_term",
+            term_type="keyword",
+            ai_suggestion="strong_core",
+            ai_confidence=0.92,
+            ai_reasoning="搜索词直接命中产品核心用途",
+            ai_suggested_action="建议保留并手动精准投放",
+        )
+
+        row = test_db.conn.execute(
+            "SELECT ai_suggestion, ai_confidence, review_source, evidence_payload FROM manual_reviews WHERE term = ?",
+            ("ai_term",),
+        ).fetchone()
+
+        assert row["ai_suggestion"] == "strong_core"
+        assert row["ai_confidence"] == 0.92
+        assert row["review_source"] == "ai_assistant"
+        assert '"ai_reasoning": "搜索词直接命中产品核心用途"' in row["evidence_payload"]
+        assert '"ai_suggested_action": "建议保留并手动精准投放"' in row["evidence_payload"]
+
+
+class TestReviewAiSuggestionState:
+    def test_build_ai_suggestion_state_reads_reasoning_from_evidence_payload(self):
+        state = _build_ai_suggestion_state(
+            {
+                "ai_suggestion": "strong_core",
+                "ai_confidence": 0.88,
+                "evidence_payload": '{"ai_reasoning":"命中核心词","ai_suggested_action":"保留"}',
+            }
+        )
+
+        assert state == {
+            "relevance": "strong_core",
+            "confidence": 0.88,
+            "reasoning": "命中核心词",
+            "suggested_action": "保留",
+        }
+
+    def test_build_ai_suggestion_state_tolerates_invalid_evidence_payload(self):
+        state = _build_ai_suggestion_state(
+            {
+                "ai_suggestion": "weak",
+                "ai_confidence": 0.51,
+                "evidence_payload": "not-json",
+            }
+        )
+
+        assert state == {
+            "relevance": "weak",
+            "confidence": 0.51,
+            "reasoning": "",
+            "suggested_action": "",
+        }
 
 
 class TestProductConfigSeed:
