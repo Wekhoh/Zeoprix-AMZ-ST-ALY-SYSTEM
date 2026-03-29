@@ -178,6 +178,33 @@ def _build_workspace_member_management_meta(
     }
 
 
+def _build_workspace_member_removal_meta(
+    current_role: str,
+    members: list[dict],
+) -> dict[str, str | bool | list[dict[str, str | int]]]:
+    """构建工作区成员移除区块文案。"""
+    removable_members = [
+        {
+            "label": f"{(member.get('display_name') or member['email'])} · {member['email']}（{member['role']}）",
+            "user_id": member["user_id"],
+            "email": member["email"],
+            "role": member["role"],
+        }
+        for member in members
+        if member["email"] != "local-owner@workspace.local"
+    ]
+    can_manage = current_role == "admin"
+    return {
+        "title": "移除成员",
+        "description": "删除成员前先确认工作区里还有其他管理员；系统会继续保护最后一个管理员，避免把工作区锁死。",
+        "can_manage": can_manage,
+        "can_remove": can_manage and bool(removable_members),
+        "options": removable_members,
+        "empty_message": "当前还没有可移除的普通成员；系统默认管理员会继续保留在工作区里托底。",
+        "blocked_message": "当前账号还不是管理员，所以这里只展示成员现状；移除成员需要管理员角色。",
+    }
+
+
 def _build_settings_access_meta(current_role: str) -> dict[str, str | list[str]]:
     """构建当前角色在系统设置页的权限摘要。"""
     role = current_role or "viewer"
@@ -340,6 +367,43 @@ def render_settings():
                         f"已将 {member_name} 设置为 {member['role']}。"
                     )
                     st.rerun()
+
+            removal_meta = _build_workspace_member_removal_meta(current_role, members)
+            st.write(f"#### {removal_meta['title']}")
+            st.caption(removal_meta["description"])
+            if removal_meta["can_remove"]:
+                removable_options = removal_meta["options"]
+                removable_labels = [option["label"] for option in removable_options]
+                with st.form("workspace-member-removal-form"):
+                    removable_label = st.selectbox(
+                        "选择要移除的成员",
+                        options=removable_labels,
+                    )
+                    remove_submitted = st.form_submit_button("移除成员", width="stretch")
+
+                if remove_submitted:
+                    selected_member = next(
+                        option
+                        for option in removable_options
+                        if option["label"] == removable_label
+                    )
+                    try:
+                        db.remove_workspace_member(
+                            product_id=product_id,
+                            user_id=selected_member["user_id"],
+                        )
+                    except ValueError as exc:
+                        st.error(str(exc))
+                    except Exception as exc:
+                        logger.error("移除工作区成员失败: %s", exc)
+                        st.error(safe_error(exc))
+                    else:
+                        st.session_state["workspace_member_notice"] = (
+                            f"已移除 {selected_member['label']}。"
+                        )
+                        st.rerun()
+            else:
+                st.info(str(removal_meta["empty_message"]))
         else:
             st.info(str(management_meta["blocked_message"]))
         st.divider()

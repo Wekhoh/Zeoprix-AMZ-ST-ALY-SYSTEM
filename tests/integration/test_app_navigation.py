@@ -40,6 +40,7 @@ from src.ui.pages.settings import (
     _build_settings_access_meta,
     _build_settings_shell_meta,
     _build_workspace_member_management_meta,
+    _build_workspace_member_removal_meta,
     _build_workspace_member_summary,
 )
 from src.ui.pages.settings_data import (
@@ -285,6 +286,40 @@ def test_workspace_member_management_meta_gates_admin_actions():
     assert "管理员角色" in viewer_meta["blocked_message"]
 
 
+def test_workspace_member_removal_meta_filters_out_system_owner():
+    members = [
+        {
+            "user_id": 1,
+            "email": "local-owner@workspace.local",
+            "display_name": "本地工作区管理员",
+            "role": "admin",
+        },
+        {
+            "user_id": 2,
+            "email": "editor@example.com",
+            "display_name": "运营同学",
+            "role": "editor",
+        },
+    ]
+
+    admin_meta = _build_workspace_member_removal_meta("admin", members)
+    viewer_meta = _build_workspace_member_removal_meta("viewer", members)
+
+    assert admin_meta["can_manage"] is True
+    assert admin_meta["can_remove"] is True
+    assert admin_meta["options"] == [
+        {
+            "label": "运营同学 · editor@example.com（editor）",
+            "user_id": 2,
+            "email": "editor@example.com",
+            "role": "editor",
+        }
+    ]
+    assert "最后一个管理员" in admin_meta["description"]
+    assert viewer_meta["can_manage"] is False
+    assert viewer_meta["can_remove"] is False
+
+
 def test_upload_access_meta_distinguishes_admin_editor_and_viewer():
     """上传页权限摘要应稳定区分创建工作区与导入数据的角色边界。"""
     admin_meta = _build_upload_access_meta("admin")
@@ -389,6 +424,32 @@ def test_upsert_workspace_member_by_email_rejects_demoting_last_admin(db, produc
             role="viewer",
             display_name=db.DEFAULT_LOCAL_OWNER_NAME,
         )
+
+
+def test_remove_workspace_member_deletes_non_admin_member(db, product_id):
+    member = db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email="remove-me@example.com",
+        role="viewer",
+        display_name="待移除成员",
+    )
+
+    db.remove_workspace_member(product_id=product_id, user_id=member["user_id"])
+
+    remaining_emails = {
+        workspace_member["email"]
+        for workspace_member in db.get_workspace_members(
+            product_id, include_system_members=True
+        )
+    }
+    assert "remove-me@example.com" not in remaining_emails
+
+
+def test_remove_workspace_member_rejects_deleting_last_admin(db, product_id):
+    local_owner = db.get_or_create_local_owner()
+
+    with pytest.raises(ValueError, match="至少需要保留 1 个管理员"):
+        db.remove_workspace_member(product_id=product_id, user_id=local_owner["id"])
 
 
 def _seed_minimal_search_term(db, campaign_id: int) -> None:

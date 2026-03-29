@@ -390,6 +390,28 @@ class Database:
         if admin_count <= 1:
             raise ValueError("当前工作区至少需要保留 1 个管理员，不能降级最后一个管理员。")
 
+    def remove_workspace_member(self, product_id: int, user_id: int) -> None:
+        """删除工作区成员，并保护最后一个管理员不被移除。"""
+        current_role = self.get_workspace_role(product_id, user_id)
+        if current_role is None:
+            raise ValueError("要删除的成员不存在或不属于当前工作区。")
+        if current_role == "admin":
+            admin_count = self._count_workspace_role_members(product_id, "admin")
+            if admin_count <= 1:
+                raise ValueError("当前工作区至少需要保留 1 个管理员，不能删除最后一个管理员。")
+
+        cursor = self.conn.execute(
+            """
+            DELETE FROM workspace_memberships
+            WHERE product_id = ? AND user_id = ?
+            """,
+            (product_id, user_id),
+        )
+        if cursor.rowcount == 0:
+            self.conn.rollback()
+            raise ValueError("要删除的成员不存在或不属于当前工作区。")
+        self.conn.commit()
+
     def upsert_workspace_member_by_email(
         self,
         product_id: int,
