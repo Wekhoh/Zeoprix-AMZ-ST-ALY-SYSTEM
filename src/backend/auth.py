@@ -1,8 +1,8 @@
 """
 后端认证基础工具。
 
-V1 先提供密码哈希、JWT access token，以及 bootstrap admin 认证逻辑，
-后续再接数据库用户模型与 refresh token。
+V1 提供密码哈希、JWT access token，以及基于数据库用户的最小登录能力。
+bootstrap admin 仍通过环境变量定义，但启动时会先落库，再由认证逻辑统一从数据库读取。
 """
 
 from __future__ import annotations
@@ -13,6 +13,9 @@ from typing import Any
 
 import bcrypt
 import jwt
+from sqlalchemy import func, select
+
+from src.backend.database import SessionFactory
 
 
 JWT_ALGORITHM = 'HS256'
@@ -70,7 +73,7 @@ def _get_bootstrap_user() -> UserPayload | None:
 
 
 def authenticate_bootstrap_user(email: str, password: str) -> UserPayload:
-    """认证 bootstrap admin 用户。"""
+    """兼容保留：直接认证环境变量中的 bootstrap admin。"""
     user = _get_bootstrap_user()
     if user is None:
         raise AuthConfigError('Bootstrap admin is not configured.')
@@ -111,9 +114,64 @@ def decode_access_token(token: str) -> dict[str, Any]:
     return payload
 
 
-def get_current_user_from_token(token: str) -> UserPayload:
+def _build_user_payload(session_factory: SessionFactory, *, user_id: str | None = None, email: str | None = None) -> UserPayload | None:
+    from src.backend.models import User, WorkspaceMembership
+
+    with session_factory() as session:
+        user = None
+        if user_id:
+            user = session.get(User, user_id)
+        elif email:
+            normalized_email = email.strip().lower()
+            user = session.scalar(select(User).where(User.email == normalized_email))
+        if user is None:
+            return None
+
+        membership = session.scalar(
+            select(WorkspaceMembership).where(WorkspaceMembership.user_id == user.id).order_by(WorkspaceMembership.created_at.asc())
+        )
+        role = membership.role if membership is not None else 'viewer'
+        return {
+            'id': user.id,
+            'email': user.email,
+            'name': user.name,
+            'role': role,
+        }
+
+
+def authenticate_user(session_factory: SessionFactory | None, email: str, password: str) -> UserPayload:
+    """优先认证数据库中的用户；无用户时再返回明确配置错误。"""
+    if session_factory is None:
+        return authenticate_bootstrap_user(email, password)
+
+    from src.backend.models import User
+
+    normalized_email = email.strip().lower()
+    with session_factory() as session:
+        user = session.scalar(select(User).where(User.email == normalized_email))
+        user_count = session.scalar(select(func.count()).select_from(User)) or 0
+        if user is None:
+            if user_count == 0:
+                raise AuthConfigError('No backend users are configured yet.')
+            raise AuthenticationError('Incorrect email or password.')
+        if not verify_password(password, user.password_hash):
+            raise AuthenticationError('Incorrect email or password.')
+
+    payload = _build_user_payload(session_factory, user_id=user.id)
+    if payload is None:
+        raise AuthenticationError('unknown user in token')
+    return payload
+
+
+def get_current_user_from_token(token: str, session_factory: SessionFactory | None = None) -> UserPayload:
     """根据 token 返回当前用户。"""
     payload = decode_access_token(token)
+    if session_factory is not None:
+        user = _build_user_payload(session_factory, user_id=payload['sub'])
+        if user is None:
+            raise AuthenticationError('unknown user in token')
+        return user
+
     user = _get_bootstrap_user()
     if user is None:
         raise AuthConfigError('Bootstrap admin is not configured.')

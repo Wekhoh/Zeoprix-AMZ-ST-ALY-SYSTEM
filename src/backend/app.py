@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 
 from src.backend.auth import (
     AuthConfigError,
     AuthenticationError,
-    authenticate_bootstrap_user,
+    authenticate_user,
     get_current_user_from_token,
     issue_access_token_for_user,
 )
@@ -63,9 +63,16 @@ async def lifespan(app: FastAPI):
     runtime_engine.dispose()
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
+def _get_runtime_session_factory(request: Request):
+    session_factory = getattr(request.app.state, 'session_factory', None)
+    if session_factory is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Backend database is not initialized.')
+    return session_factory
+
+
+async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> UserResponse:
     try:
-        user = get_current_user_from_token(token)
+        user = get_current_user_from_token(token, _get_runtime_session_factory(request))
     except AuthConfigError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except AuthenticationError as exc:
@@ -102,9 +109,9 @@ def create_app() -> FastAPI:
         }
 
     @app.post('/auth/login', response_model=LoginResponse, tags=['auth'])
-    async def login(payload: LoginRequest) -> LoginResponse:
+    async def login(payload: LoginRequest, request: Request) -> LoginResponse:
         try:
-            user = authenticate_bootstrap_user(payload.email, payload.password)
+            user = authenticate_user(_get_runtime_session_factory(request), payload.email, payload.password)
             token = issue_access_token_for_user(user)
         except AuthConfigError as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
@@ -125,4 +132,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
