@@ -2,9 +2,11 @@
 AMZ搜索词分析系统 - Streamlit主应用
 """
 
-import sys
+import json
 import os
+import sys
 from html import escape
+from urllib import error, request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -196,6 +198,132 @@ def _set_current_user_context(member_option: dict[str, object]) -> None:
     st.session_state.current_user_name = member_option["display_name"]
 
 
+def _get_backend_base_url() -> str | None:
+    """获取共享后端地址。"""
+    base_url = os.getenv("AMZ_BACKEND_BASE_URL", "").strip().rstrip("/")
+    return base_url or None
+
+
+def _build_backend_auth_shell_meta(base_url: str) -> dict[str, object]:
+    """构建后端登录壳文案。"""
+    return {
+        "title": "团队登录",
+        "description": "当前应用已切到共享后端模式。同事通过同一个公网地址访问时，会先在这里登录，再进入同一个工作区。",
+        "base_url": base_url,
+        "fields": ["邮箱", "密码"],
+    }
+
+
+def _clear_backend_auth_session() -> None:
+    """清除后端登录态。"""
+    for key in (
+        "backend_access_token",
+        "backend_auth_user",
+        "backend_auth_base_url",
+        "current_user_id",
+        "current_user_email",
+        "current_user_name",
+        "current_user_role",
+    ):
+        st.session_state.pop(key, None)
+
+
+def _backend_login_request(base_url: str, email: str, password: str) -> dict:
+    """调用共享后端登录接口。"""
+    payload = json.dumps({"email": email, "password": password}).encode("utf-8")
+    req = request.Request(
+        f"{base_url}/auth/login",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=5) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        detail = "登录失败，请检查邮箱或密码。"
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+            detail = payload.get("detail") or detail
+        except Exception:
+            pass
+        raise RuntimeError(detail) from exc
+    except error.URLError as exc:
+        raise RuntimeError("无法连接共享后端，请检查部署地址或网络。") from exc
+
+
+def _sync_backend_user_to_local_context(db: Database) -> dict | None:
+    """将后端登录用户同步到本地工作区成员上下文。"""
+    backend_user = st.session_state.get("backend_auth_user")
+    if not backend_user:
+        return None
+
+    normalized_email = str(backend_user["email"]).strip().lower()
+    display_name = str(backend_user.get("name") or normalized_email).strip()
+    normalized_role = str(backend_user.get("role") or "viewer").strip().lower()
+
+    products = db.get_all_products()
+    for product in products:
+        db.upsert_workspace_member_by_email(
+            product_id=product["id"],
+            email=normalized_email,
+            role=normalized_role,
+            display_name=display_name,
+        )
+
+    local_user = db.get_user(email=normalized_email)
+    if local_user is None:
+        user_id = db.create_user(email=normalized_email, display_name=display_name)
+        local_user = db.get_user(user_id=user_id)
+
+    st.session_state.current_user_id = local_user["id"]
+    st.session_state.current_user_email = normalized_email
+    st.session_state.current_user_name = display_name
+    st.session_state.current_user_role = normalized_role
+    return local_user
+
+
+def _render_backend_auth_gate(db: Database) -> None:
+    """共享后端模式下，先完成登录再进入工作区。"""
+    base_url = _get_backend_base_url()
+    if not base_url:
+        return
+
+    st.session_state.backend_auth_base_url = base_url
+    if st.session_state.get("backend_access_token") and st.session_state.get("backend_auth_user"):
+        _sync_backend_user_to_local_context(db)
+        return
+
+    meta = _build_backend_auth_shell_meta(base_url)
+    st.title(meta["title"])
+    st.caption(meta["description"])
+    st.info(f"共享后端地址：{base_url}")
+    with st.form("backend-login-form"):
+        st.text_input("邮箱", key="backend_login_email")
+        st.text_input("密码", type="password", key="backend_login_password")
+        submitted = st.form_submit_button("登录并进入工作区", width="stretch")
+
+    if submitted:
+        try:
+            payload = _backend_login_request(
+                base_url,
+                st.session_state.get("backend_login_email", ""),
+                st.session_state.get("backend_login_password", ""),
+            )
+        except RuntimeError as exc:
+            st.error(str(exc))
+            st.stop()
+
+        st.session_state.backend_access_token = payload["access_token"]
+        st.session_state.backend_auth_user = payload["user"]
+        st.session_state.backend_login_password = ""
+        _sync_backend_user_to_local_context(db)
+        st.success("登录成功，正在进入共享工作区…")
+        st.rerun()
+
+    st.stop()
+
+
 def render_sidebar():
     """渲染侧边栏"""
     with st.sidebar:
@@ -219,6 +347,9 @@ def render_sidebar():
             '<div class="sidebar-section-label">导航</div>',
             unsafe_allow_html=True,
         )
+
+        if st.session_state.get("backend_auth_user"):
+            st.caption("当前运行在共享后端登录模式，可直接给同事同一个访问地址。")
 
         st.radio(
             "导航",
@@ -329,6 +460,11 @@ def render_sidebar():
                     """,
                     unsafe_allow_html=True,
                 )
+
+                if st.session_state.get("backend_auth_user"):
+                    if st.button("退出当前账号", key="sidebar-backend-logout", width="stretch"):
+                        _clear_backend_auth_session()
+                        st.rerun()
         else:
             st.info("请先上传数据或创建产品")
 
@@ -829,6 +965,7 @@ def main():
     """主函数"""
     # 初始化
     init_session_state()
+    _render_backend_auth_gate(st.session_state.db)
 
     # 渲染侧边栏并获取当前页面
     current_page = render_sidebar()

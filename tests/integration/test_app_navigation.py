@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 
 from src.config.product_defaults import build_seeded_product_config
@@ -89,6 +90,61 @@ def _get_current_page_heading(app: AppTest) -> str | None:
         if "<h1>" in value and "</h1>" in value:
             return value.split("<h1>", 1)[1].split("</h1>", 1)[0].strip()
     return None
+
+
+def test_backend_auth_shell_meta_describes_shared_login():
+    """共享后端模式应先展示明确的团队登录壳文案。"""
+    from src.app import _build_backend_auth_shell_meta
+
+    meta = _build_backend_auth_shell_meta("https://backend.example.com")
+
+    assert meta == {
+        "title": "团队登录",
+        "description": "当前应用已切到共享后端模式。同事通过同一个公网地址访问时，会先在这里登录，再进入同一个工作区。",
+        "base_url": "https://backend.example.com",
+        "fields": ["邮箱", "密码"],
+    }
+
+
+def test_sync_backend_user_to_local_context_assigns_role_across_products(db):
+    """后端登录用户应被同步到本地所有工作区，确保旧页面权限继续生效。"""
+    from src.app import _clear_backend_auth_session, _sync_backend_user_to_local_context
+
+    st.session_state.clear()
+    product_ids = [
+        db.create_product(name="旅行枕工作区", asin="B0SYNCROLE1"),
+        db.create_product(name="枕套工作区", asin="B0SYNCROLE2"),
+    ]
+    st.session_state.backend_auth_user = {
+        "email": "colleague@example.com",
+        "name": "同事",
+        "role": "editor",
+    }
+
+    local_user = _sync_backend_user_to_local_context(db)
+
+    assert local_user["email"] == "colleague@example.com"
+    assert st.session_state.current_user_email == "colleague@example.com"
+    assert st.session_state.current_user_name == "同事"
+    assert st.session_state.current_user_role == "editor"
+    for product_id in product_ids:
+        assert db.get_workspace_role(product_id, local_user["id"]) == "editor"
+
+    _clear_backend_auth_session()
+
+
+def test_app_requires_backend_login_when_shared_mode_enabled(monkeypatch, tmp_path):
+    """配置共享后端地址后，应用应先停在团队登录壳而不是直接进入工作台。"""
+    monkeypatch.setenv("DEBUG", "true")
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "shared-auth.db"))
+    monkeypatch.setenv("AMZ_BACKEND_BASE_URL", "https://backend.example.com")
+
+    app = AppTest.from_file(str(APP_PATH))
+    app.run(timeout=40)
+
+    assert app.title[0].value == "团队登录"
+    assert any("共享后端地址：https://backend.example.com" in info.value for info in app.info)
+    assert any(button.label == "登录并进入工作区" for button in app.button)
 
 
 def test_sidebar_product_selector_prefers_current_product_id():
