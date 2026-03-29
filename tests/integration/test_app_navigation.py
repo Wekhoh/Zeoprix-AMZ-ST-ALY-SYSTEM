@@ -147,6 +147,78 @@ def test_app_requires_backend_login_when_shared_mode_enabled(monkeypatch, tmp_pa
     assert any(button.label == "登录并进入工作区" for button in app.button)
 
 
+
+def test_backend_get_current_user_reads_auth_me_payload(monkeypatch):
+    """共享登录态恢复时，应通过 auth/me 获取后端最新用户与角色。"""
+    import src.app as app_module
+
+    class DummyResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return (
+                '{"id":"user-1","email":"colleague@example.com","name":"同事","role":"viewer"}'.encode("utf-8")
+            )
+
+    def fake_urlopen(req, timeout):
+        assert req.full_url == "https://backend.example.com/auth/me"
+        assert req.get_method() == "GET"
+        assert req.headers["Authorization"] == "Bearer access-token"
+        assert timeout == 5
+        return DummyResponse()
+
+    monkeypatch.setattr(app_module.request, "urlopen", fake_urlopen)
+
+    payload = app_module._backend_get_current_user("https://backend.example.com", "access-token")
+
+    assert payload == {
+        "id": "user-1",
+        "email": "colleague@example.com",
+        "name": "同事",
+        "role": "viewer",
+    }
+
+
+
+def test_render_backend_auth_gate_refreshes_current_user_from_backend(monkeypatch, db):
+    """共享模式下如果 session 里已有 token，应先用 auth/me 刷新当前用户再同步到本地工作区。"""
+    import src.app as app_module
+
+    st.session_state.clear()
+    product_id = db.create_product(name="共享登录工作区", asin="B0AUTHME01")
+    monkeypatch.setenv("AMZ_BACKEND_BASE_URL", "https://backend.example.com")
+    st.session_state.backend_access_token = "access-token"
+
+    def fake_backend_get_current_user(base_url, access_token):
+        assert base_url == "https://backend.example.com"
+        assert access_token == "access-token"
+        return {
+            "id": "user-2",
+            "email": "viewer@example.com",
+            "name": "观察同事",
+            "role": "viewer",
+        }
+
+    monkeypatch.setattr(app_module, "_backend_get_current_user", fake_backend_get_current_user)
+
+    app_module._render_backend_auth_gate(db)
+
+    assert st.session_state.backend_auth_user["email"] == "viewer@example.com"
+    assert st.session_state.current_user_email == "viewer@example.com"
+    assert st.session_state.current_user_name == "观察同事"
+    assert st.session_state.current_user_role == "viewer"
+
+    local_user = db.get_user(email="viewer@example.com")
+    assert local_user is not None
+    assert db.get_workspace_role(product_id, local_user["id"]) == "viewer"
+
+    app_module._clear_backend_auth_session()
+
+
 def test_sidebar_product_selector_prefers_current_product_id():
     """侧边栏产品选择器应优先定位到当前产品，而不是固定回到第一个。"""
     from src.app import _get_product_selectbox_index
@@ -1505,3 +1577,5 @@ def test_overview_chart_rows_are_sorted_for_custom_rendering():
         "�ֶ���׼-�ؼ���",
     ]
     assert [row["value"] for row in rows] == [154, 24, 9]
+
+

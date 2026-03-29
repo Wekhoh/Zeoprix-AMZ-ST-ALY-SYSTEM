@@ -252,6 +252,32 @@ def _backend_login_request(base_url: str, email: str, password: str) -> dict:
         raise RuntimeError("无法连接共享后端，请检查部署地址或网络。") from exc
 
 
+def _backend_get_current_user(base_url: str, access_token: str) -> dict:
+    """调用共享后端 auth/me，确保当前 token 与角色仍有效。"""
+    req = request.Request(
+        f"{base_url}/auth/me",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    try:
+        with request.urlopen(req, timeout=5) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        detail = "当前登录已失效，请重新登录。"
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+            if exc.code >= 500:
+                detail = payload.get("detail") or "共享后端暂时不可用，请稍后重试。"
+            elif exc.code not in (401, 403):
+                detail = payload.get("detail") or detail
+        except Exception:
+            if exc.code >= 500:
+                detail = "共享后端暂时不可用，请稍后重试。"
+        raise RuntimeError(detail) from exc
+    except error.URLError as exc:
+        raise RuntimeError("无法连接共享后端，请检查部署地址或网络。") from exc
+
+
 def _sync_backend_user_to_local_context(db: Database) -> dict | None:
     """将后端登录用户同步到本地工作区成员上下文。"""
     backend_user = st.session_state.get("backend_auth_user")
@@ -290,14 +316,24 @@ def _render_backend_auth_gate(db: Database) -> None:
         return
 
     st.session_state.backend_auth_base_url = base_url
-    if st.session_state.get("backend_access_token") and st.session_state.get("backend_auth_user"):
-        _sync_backend_user_to_local_context(db)
-        return
+    auth_notice = None
+    access_token = st.session_state.get("backend_access_token")
+    if access_token:
+        try:
+            st.session_state.backend_auth_user = _backend_get_current_user(base_url, access_token)
+        except RuntimeError as exc:
+            _clear_backend_auth_session()
+            auth_notice = str(exc)
+        else:
+            _sync_backend_user_to_local_context(db)
+            return
 
     meta = _build_backend_auth_shell_meta(base_url)
     st.title(meta["title"])
     st.caption(meta["description"])
     st.info(f"共享后端地址：{base_url}")
+    if auth_notice:
+        st.warning(auth_notice)
     with st.form("backend-login-form"):
         st.text_input("邮箱", key="backend_login_email")
         st.text_input("密码", type="password", key="backend_login_password")
