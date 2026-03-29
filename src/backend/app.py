@@ -19,6 +19,12 @@ from src.backend.auth import (
     get_current_user_from_token,
     issue_access_token_for_user,
 )
+from src.backend.database import (
+    create_engine_for_url,
+    create_session_factory,
+    get_backend_database_url,
+    init_backend_schema,
+)
 
 
 APP_TITLE = 'AMZ 搜索词分析系统 Backend'
@@ -46,9 +52,15 @@ class LoginResponse(BaseModel):
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
-    """预留后端资源初始化入口。"""
+async def lifespan(app: FastAPI):
+    """启动时初始化后端 schema 与 bootstrap 数据。"""
+    runtime_engine = create_engine_for_url(get_backend_database_url())
+    runtime_session_factory = create_session_factory(runtime_engine)
+    init_backend_schema(runtime_engine, runtime_session_factory)
+    app.state.engine = runtime_engine
+    app.state.session_factory = runtime_session_factory
     yield
+    runtime_engine.dispose()
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
