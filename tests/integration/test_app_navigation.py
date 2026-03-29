@@ -14,12 +14,15 @@ from src.analysis.truth_replay import (
     get_latest_analysis_run_summary_delta,
 )
 from src.ui.pages.analysis import (
+    _build_analysis_access_meta,
     _build_truth_summary_metrics,
     _get_analysis_mode_meta,
     save_review_changes,
 )
+from src.ui.pages.analysis_asin import _build_asin_analysis_access_meta
+from src.ui.pages.analysis_campaign import _build_campaign_analysis_access_meta
 from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summary_cards
-from src.ui.pages.actions import _build_actions_workbench_meta
+from src.ui.pages.actions import _build_actions_access_meta, _build_actions_workbench_meta
 from src.ui.pages.home import (
     _build_dashboard_metric_cards,
     _build_overview_chart_rows,
@@ -305,6 +308,31 @@ def test_review_access_meta_blocks_viewer_but_allows_editor():
     assert editor_meta["can_review"] is True
     assert viewer_meta["can_review"] is False
     assert "管理员或编辑者权限" in viewer_meta["blocked_message"]
+
+
+def test_campaign_and_asin_analysis_access_meta_gate_viewer_sensitive_actions():
+    campaign_meta = _build_campaign_analysis_access_meta("viewer")
+    asin_meta = _build_asin_analysis_access_meta("viewer")
+
+    assert campaign_meta["can_review"] is False
+    assert campaign_meta["can_export"] is False
+    assert "批量审核" in campaign_meta["review_blocked_message"]
+
+    assert asin_meta["can_export"] is False
+    assert "导出按ASIN分析结果" in asin_meta["blocked_message"]
+
+
+def test_analysis_and_actions_access_meta_gate_viewer_sensitive_actions():
+    analysis_meta = _build_analysis_access_meta("viewer")
+    actions_meta = _build_actions_access_meta("viewer")
+
+    assert analysis_meta["can_calibrate"] is False
+    assert analysis_meta["can_ai"] is False
+    assert analysis_meta["can_export"] is False
+    assert "人工校准" in analysis_meta["calibration_blocked_message"]
+
+    assert actions_meta["can_export"] is False
+    assert "导出执行清单" in actions_meta["blocked_message"]
 
 
 def test_settings_access_meta_maps_editor_and_viewer_permissions():
@@ -594,6 +622,143 @@ def test_review_page_blocks_sensitive_actions_for_viewer(
 
     assert "当前审核权限" in joined
     assert "当前角色只能查看审核概览" in f"{infos}\n{text_joined}"
+
+
+def test_analysis_page_blocks_sensitive_actions_for_viewer(
+    monkeypatch, db, product_id, campaign_id
+):
+    """viewer 进入搜索词分析页时，应只能查看分析结果，不能执行校准、AI 分析与导出。"""
+    _seed_minimal_search_term(db, campaign_id)
+    db.save_analysis_result_by_term(
+        product_id=product_id,
+        term="travel pillow",
+        triggered_rule="样本不足继续观察",
+        suggested_action="观察",
+        action_type="observe",
+    )
+    viewer_member = db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email="viewer-analysis@example.com",
+        role="viewer",
+        display_name="只读分析成员",
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_user_id"] = viewer_member["user_id"]
+    app.session_state["current_user_name"] = viewer_member["display_name"]
+    app.run(timeout=20)
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("搜索词分析").run(timeout=20)
+
+    infos = "\n".join(element.value for element in app.info)
+    captions = "\n".join((element.value or "") for element in app.caption)
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+
+    assert "当前分析权限" in joined
+    assert "当前角色只能查看分析结果" in infos
+    assert "导出已审核结果需要管理员或编辑者权限" in captions
+
+
+def test_campaign_analysis_page_blocks_sensitive_actions_for_viewer(
+    monkeypatch, db, product_id, campaign_id
+):
+    """viewer 进入按活动模式时，应只能查看结果，不暴露批量审核与导出操作。"""
+    _seed_minimal_search_term(db, campaign_id)
+    db.save_analysis_result_by_term(
+        product_id=product_id,
+        term="travel pillow",
+        triggered_rule="样本不足继续观察",
+        suggested_action="观察",
+        action_type="observe",
+    )
+    viewer_member = db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email="viewer-campaign@example.com",
+        role="viewer",
+        display_name="只读活动成员",
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_user_id"] = viewer_member["user_id"]
+    app.session_state["current_user_name"] = viewer_member["display_name"]
+    app.run(timeout=20)
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("搜索词分析").run(timeout=20)
+
+    mode_radio = next(radio for radio in app.radio if radio.label == "分析模式")
+    mode_radio.set_value("按活动模式").run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    infos = "\n".join(element.value for element in app.info)
+    captions = "\n".join((element.value or "") for element in app.caption)
+
+    assert "当前活动分析权限" in joined
+    assert "当前角色只能查看按活动分析结果" in infos
+    assert "导出按活动分析结果需要管理员或编辑者权限" in captions
+
+
+def test_asin_analysis_page_blocks_export_for_viewer(
+    monkeypatch, db, product_id, campaign_id
+):
+    """viewer 进入按ASIN模式时，应只能查看结果，不暴露导出入口。"""
+    _seed_minimal_search_term(db, campaign_id)
+    viewer_member = db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email="viewer-asin@example.com",
+        role="viewer",
+        display_name="只读ASIN成员",
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_user_id"] = viewer_member["user_id"]
+    app.session_state["current_user_name"] = viewer_member["display_name"]
+    app.run(timeout=20)
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("搜索词分析").run(timeout=20)
+
+    mode_radio = next(radio for radio in app.radio if radio.label == "分析模式")
+    mode_radio.set_value("按ASIN模式").run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    infos = "\n".join(element.value for element in app.info)
+
+    assert "当前ASIN分析权限" in joined
+    assert "当前角色只能查看按ASIN分析结果" in infos
+
+
+def test_actions_page_blocks_export_for_viewer(monkeypatch, db, product_id, campaign_id):
+    """viewer 进入操作清单页时，应只能查看建议，不暴露导出执行清单入口。"""
+    _seed_minimal_search_term(db, campaign_id)
+    db.save_analysis_result_by_term(
+        product_id=product_id,
+        term="travel pillow",
+        triggered_rule="高花费低转化否定精准",
+        suggested_action="否定精准",
+        action_type="negative_exact",
+    )
+    viewer_member = db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email="viewer-actions@example.com",
+        role="viewer",
+        display_name="只读操作成员",
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_user_id"] = viewer_member["user_id"]
+    app.session_state["current_user_name"] = viewer_member["display_name"]
+    app.run(timeout=20)
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("操作清单").run(timeout=20)
+
+    infos = "\n".join(element.value for element in app.info)
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+
+    assert "当前执行权限" in joined
+    assert "当前角色只能查看操作建议" in infos
 
 
 def test_analysis_ui_reviews_are_saved_as_ui_calibration(db, product_id, campaign_id):

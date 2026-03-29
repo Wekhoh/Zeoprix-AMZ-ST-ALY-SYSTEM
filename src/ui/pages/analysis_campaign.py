@@ -7,10 +7,34 @@ import pandas as pd
 import streamlit as st
 
 from src.config.logger import get_logger
-from src.ui.pages.analysis import AUTO_ACTION_DISPLAY, save_campaign_review_changes
+from src.ui.pages.analysis import (
+    AUTO_ACTION_DISPLAY,
+    _resolve_analysis_role_context,
+    save_campaign_review_changes,
+)
 
 logger = get_logger(__name__)
 
+
+
+
+def _build_campaign_analysis_access_meta(current_role: str) -> dict[str, object]:
+    """构建按活动分析视图的角色门控摘要。"""
+    can_review = current_role in {"admin", "editor"}
+    can_export = current_role in {"admin", "editor"}
+    return {
+        "title": "当前活动分析权限",
+        "description": "按活动模式会保留广告组差异，适合逐条核对同一搜索词在不同活动里的动作；管理员和编辑者可以批量审核并导出已确认结果，查看者保留只读浏览。",
+        "chips": [
+            f"当前角色：{current_role}",
+            "可批量审核" if can_review else "只读查看活动结果",
+            "可导出按活动结果" if can_export else "不可导出按活动结果",
+        ],
+        "can_review": can_review,
+        "can_export": can_export,
+        "review_blocked_message": "当前角色只能查看按活动分析结果，批量审核与人工确认需要管理员或编辑者权限。",
+        "export_blocked_message": "当前角色只能查看按活动分析结果，导出按活动分析结果需要管理员或编辑者权限。",
+    }
 
 def _matches_campaign_action_filter(action_type: str, filters: list[str]) -> bool:
     if not filters:
@@ -28,6 +52,15 @@ def render_campaign_analysis(db, product_id: int):
     """渲染按活动分析模式页面"""
     from src.rules.engine import analyze_search_terms_by_campaign
     from src.analysis.truth_replay import get_truth_first_campaign_rows
+
+    access_context = _resolve_analysis_role_context(db, product_id)
+    access_meta = _build_campaign_analysis_access_meta(access_context["current_role"])
+    st.markdown(f"#### {access_meta['title']}")
+    st.caption(str(access_meta["description"]))
+    if not access_meta["can_review"]:
+        st.info(str(access_meta["review_blocked_message"]))
+    if not access_meta["can_export"]:
+        st.caption(str(access_meta["export_blocked_message"]))
 
     truth_rows = get_truth_first_campaign_rows(db, product_id)
     if truth_rows is not None:
@@ -251,22 +284,26 @@ def render_campaign_analysis(db, product_id: int):
     )
 
     # 使用 data_editor 支持勾选
+    disabled_columns = [
+        "搜索词",
+        "广告活动",
+        "活动ID",
+        "类型",
+        "触发规则",
+        "主动作",
+        "自动处理",
+        "点击",
+        "订单",
+        "CVR",
+    ]
+    if not access_meta["can_review"]:
+        disabled_columns = ["已审核", *disabled_columns]
+
     edited_df = st.data_editor(
         display_df,
         width="stretch",
         hide_index=True,
-        disabled=[
-            "搜索词",
-            "广告活动",
-            "活动ID",
-            "类型",
-            "触发规则",
-            "主动作",
-            "自动处理",
-            "点击",
-            "订单",
-            "CVR",
-        ],
+        disabled=disabled_columns,
         column_config={
             "已审核": st.column_config.CheckboxColumn(
                 "已审核",
@@ -300,9 +337,10 @@ def render_campaign_analysis(db, product_id: int):
     )
 
     # 保存审核状态变更（按活动模式）
-    save_campaign_review_changes(
-        db, product_id, display_df, edited_df, filtered_results
-    )
+    if access_meta["can_review"]:
+        save_campaign_review_changes(
+            db, product_id, display_df, edited_df, filtered_results
+        )
 
     st.divider()
 
@@ -361,7 +399,7 @@ def render_campaign_analysis(db, product_id: int):
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("全部标记为已审核", key="campaign_mark_all_reviewed"):
+        if st.button("全部标记为已审核", key="campaign_mark_all_reviewed", disabled=not access_meta["can_review"]):
             count = 0
             for r in filtered_results:
                 try:
@@ -382,7 +420,7 @@ def render_campaign_analysis(db, product_id: int):
                 st.rerun()
 
     with col2:
-        if st.button("清除所有审核标记", key="campaign_clear_all_reviewed"):
+        if st.button("清除所有审核标记", key="campaign_clear_all_reviewed", disabled=not access_meta["can_review"]):
             count = 0
             for r in filtered_results:
                 try:
@@ -411,11 +449,11 @@ def render_campaign_analysis(db, product_id: int):
     col4, col5 = st.columns(2)
 
     with col4:
-        if st.button("导出按活动分析结果", key="export_campaign_results"):
+        if st.button("导出按活动分析结果", key="export_campaign_results", disabled=not access_meta["can_export"]):
             export_campaign_reviewed_results(filtered_results, existing_reviews)
 
     with col5:
-        if st.button("导出否定清单（按活动）", key="export_campaign_negatives"):
+        if st.button("导出否定清单（按活动）", key="export_campaign_negatives", disabled=not access_meta["can_export"]):
             export_campaign_reviewed_negatives(filtered_results, existing_reviews)
 
 

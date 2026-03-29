@@ -7,10 +7,26 @@ import pandas as pd
 import streamlit as st
 
 from src.config.logger import get_logger
-from src.ui.pages.analysis import AUTO_ACTION_DISPLAY
+from src.ui.pages.analysis import AUTO_ACTION_DISPLAY, _resolve_analysis_role_context
 
 logger = get_logger(__name__)
 
+
+
+
+def _build_asin_analysis_access_meta(current_role: str) -> dict[str, object]:
+    """构建按ASIN分析视图的角色门控摘要。"""
+    can_export = current_role in {"admin", "editor"}
+    return {
+        "title": "当前ASIN分析权限",
+        "description": "按ASIN模式更适合看变体差异与跨ASIN分歧，管理员和编辑者可以导出确认后的结果，查看者保留只读浏览。",
+        "chips": [
+            f"当前角色：{current_role}",
+            "可导出按ASIN结果" if can_export else "只读查看ASIN差异",
+        ],
+        "can_export": can_export,
+        "blocked_message": "当前角色只能查看按ASIN分析结果，导出按ASIN分析结果需要管理员或编辑者权限。",
+    }
 
 def build_asin_export_payload(results: list[dict], export_kind: str):
     """构建按ASIN分析页面的直接下载载荷。"""
@@ -78,6 +94,13 @@ def build_asin_export_payload(results: list[dict], export_kind: str):
 def render_asin_analysis(db, product_id: int):
     """渲染按ASIN分析模式页面（ASIN级别聚合，如BLK、DBL）"""
     from src.rules.engine import analyze_search_terms_by_asin
+
+    access_context = _resolve_analysis_role_context(db, product_id)
+    access_meta = _build_asin_analysis_access_meta(access_context["current_role"])
+    st.markdown(f"#### {access_meta['title']}")
+    st.caption(str(access_meta["description"]))
+    if not access_meta["can_export"]:
+        st.info(str(access_meta["blocked_message"]))
 
     # 筛选面板
     with st.expander("筛选条件", expanded=True):
@@ -375,6 +398,7 @@ def render_asin_analysis(db, product_id: int):
                 file_name=results_payload["file_name"],
                 mime=results_payload["mime"],
                 key="download_asin_results",
+                disabled=not access_meta["can_export"],
             )
         else:
             st.button("导出按ASIN分析结果", disabled=True, width="stretch")
@@ -387,6 +411,7 @@ def render_asin_analysis(db, product_id: int):
                 file_name=negatives_payload["file_name"],
                 mime=negatives_payload["mime"],
                 key="download_asin_negatives",
+                disabled=not access_meta["can_export"],
             )
         else:
             st.button("导出否定清单（按ASIN）", disabled=True, width="stretch")

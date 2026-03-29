@@ -125,6 +125,44 @@ ANALYSIS_PAGE_CSS = """
 """
 
 
+def _resolve_analysis_role_context(db, product_id: int) -> dict[str, str | int]:
+    """解析搜索词分析页当前用户与工作区角色上下文。"""
+    current_user_id = st.session_state.get("current_user_id")
+    current_user = (
+        db.get_user(user_id=current_user_id) if current_user_id is not None else None
+    )
+    if current_user is None:
+        current_user = db.get_or_create_local_owner()
+
+    current_role = db.get_workspace_role(product_id, current_user["id"]) or "viewer"
+    return {
+        "current_user_name": current_user.get("display_name") or current_user["email"],
+        "current_role": current_role,
+        "current_user_id": current_user["id"],
+    }
+
+
+def _build_analysis_access_meta(current_role: str) -> dict[str, object]:
+    """构建搜索词分析页角色门控摘要。"""
+    can_calibrate = current_role in {"admin", "editor"}
+    can_ai = current_role in {"admin", "editor"}
+    can_export = current_role in {"admin", "editor"}
+    return {
+        "title": "当前分析权限",
+        "description": "搜索词分析既承载人工校准，也承载 AI 辅助判断与结果导出。管理员和编辑者可以推进动作闭环，查看者保留只读浏览与结果核对。",
+        "chips": [
+            f"当前角色：{current_role}",
+            "可人工校准" if can_calibrate else "仅查看结论",
+            "可导出结果" if can_export else "不可导出",
+        ],
+        "can_calibrate": can_calibrate,
+        "can_ai": can_ai,
+        "can_export": can_export,
+        "calibration_blocked_message": "当前角色只能查看分析结果，人工校准、批量审核与 AI 辅助分析需要管理员或编辑者权限。",
+        "export_blocked_message": "当前角色只能查看分析结果，导出已审核结果需要管理员或编辑者权限。",
+    }
+
+
 def _get_analysis_mode_meta(mode: str) -> dict[str, str]:
     """为分析模式切换提供稳定的说明文案。"""
     return {
@@ -402,8 +440,14 @@ def render_analysis():
         st.warning("请先选择产品")
         return
 
+    access_context = _resolve_analysis_role_context(db, product_id)
+    access_meta = _build_analysis_access_meta(access_context["current_role"])
     current_mode = st.session_state.get("analysis_mode_selector", "汇总模式")
     mode_meta = _get_analysis_mode_meta(current_mode)
+    access_chips_html = "".join(
+        f'<span class="analysis-hero__chip">{escape(str(chip))}</span>'
+        for chip in access_meta["chips"]
+    )
 
     st.markdown(
         f"""
@@ -431,6 +475,20 @@ def render_analysis():
         """,
         unsafe_allow_html=True,
     )
+    st.markdown(
+        f"""
+        <div class="analysis-mode-shell">
+            <small>{escape(str(access_meta["title"]))}</small>
+            <strong>{escape(str(access_meta["description"]))}</strong>
+            <div class="analysis-hero__chips" style="margin-top:0.75rem;">{access_chips_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if not access_meta["can_calibrate"]:
+        st.info(str(access_meta["calibration_blocked_message"]))
+    if not access_meta["can_export"]:
+        st.caption(str(access_meta["export_blocked_message"]))
 
     analysis_mode = st.radio(
         "分析模式",
@@ -453,10 +511,10 @@ def render_analysis():
 
         render_asin_analysis(db, product_id)
     else:
-        render_summary_analysis(db, product_id)
+        render_summary_analysis(db, product_id, access_meta)
 
 
-def render_summary_analysis(db, product_id: int):
+def render_summary_analysis(db, product_id: int, access_meta: dict[str, object] | None = None):
     """渲染汇总模式分析页面（使用实时计算避免数据重复）"""
     from src.analysis.truth_replay import (
         get_latest_analysis_run_diff_preview,
@@ -650,13 +708,20 @@ def render_summary_analysis(db, product_id: int):
     display_df["已审核"] = display_df["搜索词"].apply(
         lambda term: existing_reviews.get((term, None), {}).get("reviewed", 0) == 1
     )
+    can_calibrate = bool((access_meta or {}).get("can_calibrate", True))
+    can_ai = bool((access_meta or {}).get("can_ai", True))
+    can_export = bool((access_meta or {}).get("can_export", True))
 
     # 使用 data_editor 支持勾选
     edited_df = st.data_editor(
         display_df,
         width="stretch",
         hide_index=True,
-        disabled=["搜索词", "类型", "触发规则", "建议操作", "动作类型", "置信度"],
+        disabled=(
+            ["搜索词", "类型", "触发规则", "建议操作", "动作类型", "置信度"]
+            if can_calibrate
+            else True
+        ),
         column_config={
             "已审核": st.column_config.CheckboxColumn(
                 "已审核",
@@ -683,7 +748,8 @@ def render_summary_analysis(db, product_id: int):
     )
 
     # 保存审核状态变更
-    save_review_changes(db, product_id, display_df, edited_df, results)
+    if can_calibrate:
+        save_review_changes(db, product_id, display_df, edited_df, results)
 
     st.divider()
 
@@ -701,7 +767,7 @@ def render_summary_analysis(db, product_id: int):
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("全部标记为已审核", key="mark_all_reviewed"):
+        if st.button("全部标记为已审核", key="mark_all_reviewed", disabled=not can_calibrate):
             # 将当前筛选结果中所有项标记为已审核
             count = 0
             for r in results:
@@ -725,7 +791,7 @@ def render_summary_analysis(db, product_id: int):
                 st.info("没有可标记的项目")
 
     with col2:
-        if st.button("清除所有审核标记", key="clear_all_reviewed"):
+        if st.button("清除所有审核标记", key="clear_all_reviewed", disabled=not can_calibrate):
             # 清除当前筛选结果中所有项的审核标记
             count = 0
             for r in results:
@@ -748,7 +814,7 @@ def render_summary_analysis(db, product_id: int):
                 st.info("没有可清除的项目")
 
     with col3:
-        if st.button("AI分析待确认项", key="ai_analyze"):
+        if st.button("AI分析待确认项", key="ai_analyze", disabled=not can_ai):
             # need_ai_judgment 列不存在，用 confidence < 1.0 判断
             ai_pending_items = [r for r in results if r.get("confidence", 1.0) < 1.0]
             if ai_pending_items:
@@ -779,7 +845,7 @@ def render_summary_analysis(db, product_id: int):
     )
 
     with col4:
-        if negative_payload:
+        if negative_payload and can_export:
             st.download_button(
                 "导出否词表",
                 data=negative_payload["data"],
@@ -792,7 +858,7 @@ def render_summary_analysis(db, product_id: int):
             st.button("导出否词表", key="export_negative", disabled=True, width="stretch")
 
     with col5:
-        if manual_payload:
+        if manual_payload and can_export:
             st.download_button(
                 "导出手动词表",
                 data=manual_payload["data"],
@@ -805,7 +871,7 @@ def render_summary_analysis(db, product_id: int):
             st.button("导出手动词表", key="export_manual", disabled=True, width="stretch")
 
     with col6:
-        if all_payload:
+        if all_payload and can_export:
             st.download_button(
                 "导出全部结果",
                 data=all_payload["data"],
@@ -816,6 +882,8 @@ def render_summary_analysis(db, product_id: int):
             )
         else:
             st.button("导出全部结果", key="export_all", disabled=True, width="stretch")
+    if not can_export:
+        st.caption(str((access_meta or {}).get("export_blocked_message", "")))
 
     # 详情面板
     st.divider()

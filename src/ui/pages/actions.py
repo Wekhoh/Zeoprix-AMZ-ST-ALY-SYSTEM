@@ -113,6 +113,38 @@ ACTIONS_PAGE_CSS = """
 """
 
 
+def _resolve_actions_role_context(db, product_id: int) -> dict[str, str | int]:
+    """解析操作清单页当前用户与工作区角色上下文。"""
+    current_user_id = st.session_state.get("current_user_id")
+    current_user = (
+        db.get_user(user_id=current_user_id) if current_user_id is not None else None
+    )
+    if current_user is None:
+        current_user = db.get_or_create_local_owner()
+
+    current_role = db.get_workspace_role(product_id, current_user["id"]) or "viewer"
+    return {
+        "current_user_name": current_user.get("display_name") or current_user["email"],
+        "current_role": current_role,
+        "current_user_id": current_user["id"],
+    }
+
+
+def _build_actions_access_meta(current_role: str) -> dict[str, object]:
+    """构建操作清单页角色门控摘要。"""
+    can_export = current_role in {"admin", "editor"}
+    return {
+        "title": "当前执行权限",
+        "description": "操作清单会沉淀成实际执行素材。管理员和编辑者可以导出否词与手动投放清单，查看者保留只读浏览，避免把未确认动作直接带出工作区。",
+        "chips": [
+            f"当前角色：{current_role}",
+            "可导出执行清单" if can_export else "只读查看执行建议",
+        ],
+        "can_export": can_export,
+        "blocked_message": "当前角色只能查看操作建议，导出执行清单需要管理员或编辑者权限。",
+    }
+
+
 def _build_actions_workbench_meta(
     product_name: str,
     truth_buckets: dict | None,
@@ -242,6 +274,8 @@ def render_actions():
     truth_buckets = get_truth_first_action_buckets(db, product_id) or {}
     pending_stats = get_truth_first_pending_stats(db, product_id)
     meta = _build_actions_workbench_meta(product_name, truth_buckets, pending_stats)
+    access_context = _resolve_actions_role_context(db, product_id)
+    access_meta = _build_actions_access_meta(access_context["current_role"])
 
     st.markdown(ACTIONS_PAGE_CSS, unsafe_allow_html=True)
     chips_html = "".join(
@@ -258,21 +292,37 @@ def render_actions():
         """,
         unsafe_allow_html=True,
     )
+    access_chips_html = "".join(
+        f'<div class="actions-hero__chip">{escape(str(chip))}</div>'
+        for chip in access_meta["chips"]
+    )
+    st.markdown(
+        f"""
+        <section class="actions-hero" style="padding: 1rem 1.1rem; margin-top: -0.3rem;">
+            <div class="actions-hero__eyebrow">{escape(str(access_meta["title"]))}</div>
+            <p>{escape(str(access_meta["description"]))}</p>
+            <div class="actions-hero__chips">{access_chips_html}</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+    if not access_meta["can_export"]:
+        st.info(str(access_meta["blocked_message"]))
 
     # 标签页切换
     tab1, tab2, tab3 = st.tabs(["否词操作", "手动投放", "操作历史"])
 
     with tab1:
-        render_negative_actions(db, product_id)
+        render_negative_actions(db, product_id, can_export=bool(access_meta["can_export"]))
 
     with tab2:
-        render_manual_actions(db, product_id)
+        render_manual_actions(db, product_id, can_export=bool(access_meta["can_export"]))
 
     with tab3:
         render_action_history(db, product_id)
 
 
-def render_negative_actions(db, product_id: int):
+def render_negative_actions(db, product_id: int, *, can_export: bool = True):
     """渲染否词操作清单"""
     st.write("### 待否定关键词")
     st.markdown(
@@ -416,7 +466,7 @@ def render_negative_actions(db, product_id: int):
     negative_csv_payload = _get_export_payload(db, product_id, "negative", "csv")
 
     with col1:
-        if negative_excel_payload:
+        if negative_excel_payload and can_export:
             st.download_button(
                 label="导出否词Excel",
                 data=negative_excel_payload["data"],
@@ -428,7 +478,7 @@ def render_negative_actions(db, product_id: int):
             st.button("导出否词Excel", disabled=True, width="stretch")
 
     with col2:
-        if negative_csv_payload:
+        if negative_csv_payload and can_export:
             st.download_button(
                 label="导出否词CSV（批量上传格式）",
                 data=negative_csv_payload["data"],
@@ -440,7 +490,7 @@ def render_negative_actions(db, product_id: int):
             st.button("导出否词CSV（批量上传格式）", disabled=True, width="stretch")
 
 
-def render_manual_actions(db, product_id: int):
+def render_manual_actions(db, product_id: int, *, can_export: bool = True):
     """渲染手动投放操作清单"""
     st.write("### 推荐手动投放")
     st.markdown(
@@ -580,7 +630,7 @@ def render_manual_actions(db, product_id: int):
 
     # 导出按钮
     manual_excel_payload = _get_export_payload(db, product_id, "manual", "xlsx")
-    if manual_excel_payload:
+    if manual_excel_payload and can_export:
         st.download_button(
             label="导出手动词Excel",
             data=manual_excel_payload["data"],
