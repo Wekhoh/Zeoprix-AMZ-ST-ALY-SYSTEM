@@ -196,6 +196,7 @@ def _set_current_user_context(member_option: dict[str, object]) -> None:
     st.session_state.current_user_id = member_option["user_id"]
     st.session_state.current_user_email = member_option["email"]
     st.session_state.current_user_name = member_option["display_name"]
+    st.session_state.current_user_role = member_option.get("role") or "viewer"
 
 
 def _get_backend_base_url() -> str | None:
@@ -220,6 +221,8 @@ def _clear_backend_auth_session() -> None:
         "backend_access_token",
         "backend_auth_user",
         "backend_auth_base_url",
+        "backend_workspace",
+        "backend_workspace_members",
         "current_user_id",
         "current_user_email",
         "current_user_name",
@@ -278,6 +281,157 @@ def _backend_get_current_user(base_url: str, access_token: str) -> dict:
         raise RuntimeError("无法连接共享后端，请检查部署地址或网络。") from exc
 
 
+def _backend_get_default_workspace(base_url: str, access_token: str) -> dict:
+    """读取共享后端默认工作区元信息。"""
+    req = request.Request(
+        f"{base_url}/workspaces/default",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    try:
+        with request.urlopen(req, timeout=5) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        detail = "无法读取共享工作区信息，请稍后重试。"
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+            if exc.code in (401, 403):
+                detail = payload.get("detail") or "当前登录已失效，请重新登录。"
+            elif exc.code >= 500:
+                detail = payload.get("detail") or "共享后端暂时不可用，请稍后重试。"
+            else:
+                detail = payload.get("detail") or detail
+        except Exception:
+            if exc.code in (401, 403):
+                detail = "当前登录已失效，请重新登录。"
+            elif exc.code >= 500:
+                detail = "共享后端暂时不可用，请稍后重试。"
+        raise RuntimeError(detail) from exc
+    except error.URLError as exc:
+        raise RuntimeError("无法连接共享后端，请检查部署地址或网络。") from exc
+
+
+def _backend_get_default_workspace_members(base_url: str, access_token: str) -> list[dict]:
+    """读取共享后端默认工作区成员列表。"""
+    req = request.Request(
+        f"{base_url}/workspaces/default/members",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    try:
+        with request.urlopen(req, timeout=5) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        detail = "无法读取共享工作区成员，请稍后重试。"
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+            if exc.code in (401, 403):
+                detail = payload.get("detail") or "当前登录已失效，请重新登录。"
+            elif exc.code >= 500:
+                detail = payload.get("detail") or "共享后端暂时不可用，请稍后重试。"
+            else:
+                detail = payload.get("detail") or detail
+        except Exception:
+            if exc.code in (401, 403):
+                detail = "当前登录已失效，请重新登录。"
+            elif exc.code >= 500:
+                detail = "共享后端暂时不可用，请稍后重试。"
+        raise RuntimeError(detail) from exc
+    except error.URLError as exc:
+        raise RuntimeError("无法连接共享后端，请检查部署地址或网络。") from exc
+
+
+def _refresh_backend_workspace_context(base_url: str, access_token: str) -> dict[str, object]:
+    """刷新共享模式下的工作区与成员上下文。"""
+    workspace = _backend_get_default_workspace(base_url, access_token)
+    members = _backend_get_default_workspace_members(base_url, access_token)
+    st.session_state.backend_workspace = workspace
+    st.session_state.backend_workspace_members = members
+    return {"workspace": workspace, "members": members}
+
+
+def _normalize_backend_workspace_members(members: list[dict]) -> list[dict]:
+    """将后端成员结构转换为侧边栏可复用的统一格式。"""
+    return [
+        {
+            "user_id": member["id"],
+            "email": member["email"],
+            "display_name": member.get("name") or member["email"],
+            "role": member.get("role") or "viewer",
+        }
+        for member in members
+    ]
+
+
+def _build_sidebar_collaboration_state(
+    db: Database,
+    current_product_id: int,
+    current_product_name: str,
+) -> dict[str, object]:
+    """统一构建侧边栏协作上下文，优先使用共享后端工作区数据。"""
+    backend_user = st.session_state.get("backend_auth_user")
+    backend_workspace = st.session_state.get("backend_workspace")
+    backend_members = st.session_state.get("backend_workspace_members") or []
+    if backend_user and backend_workspace:
+        normalized_members = _normalize_backend_workspace_members(backend_members)
+        selected_member = {
+            "user_id": backend_user["id"],
+            "email": backend_user["email"],
+            "display_name": backend_user.get("name") or backend_user["email"],
+            "role": backend_user.get("role") or backend_workspace.get("role") or "viewer",
+        }
+        return {
+            "workspace_name": backend_workspace.get("name") or current_product_name,
+            "member_count": int(backend_workspace.get("member_count") or len(normalized_members)),
+            "selected_member": selected_member,
+            "workspace_members": normalized_members,
+            "show_identity_switcher": False,
+            "identity_hint": "共享模式下当前身份由团队登录决定；如需切换账号，请先退出当前账号。",
+        }
+
+    current_user = _ensure_current_user_context(db)
+    workspace_members = db.get_workspace_members(
+        current_product_id,
+        include_system_members=True,
+    )
+    workspace_role = (
+        db.get_workspace_role(current_product_id, current_user["id"])
+        or st.session_state.get("current_user_role")
+        or "viewer"
+    )
+    selected_member = {
+        "user_id": current_user["id"],
+        "email": current_user["email"],
+        "display_name": current_user.get("display_name") or current_user["email"],
+        "role": workspace_role,
+    }
+    st.session_state.current_user_role = workspace_role
+    selector_meta = _build_workspace_user_selector_meta(
+        workspace_members,
+        current_user_id=current_user["id"],
+    )
+    selector_options = {
+        option["label"]: option for option in selector_meta["options"]
+    }
+    selector_key = f"workspace-user-selector-{current_product_id}"
+    if selector_meta["selected_label"] is not None and (
+        st.session_state.get(selector_key) not in selector_options
+    ):
+        st.session_state[selector_key] = selector_meta["selected_label"]
+
+    return {
+        "workspace_name": current_product_name,
+        "member_count": len(workspace_members),
+        "selected_member": selected_member,
+        "workspace_members": workspace_members,
+        "show_identity_switcher": True,
+        "identity_hint": selector_meta["description"],
+        "selector_meta": selector_meta,
+        "selector_options": selector_options,
+        "selector_key": selector_key,
+    }
+
+
 def _sync_backend_user_to_local_context(db: Database) -> dict | None:
     """将后端登录用户同步到本地工作区成员上下文。"""
     backend_user = st.session_state.get("backend_auth_user")
@@ -321,6 +475,7 @@ def _render_backend_auth_gate(db: Database) -> None:
     if access_token:
         try:
             st.session_state.backend_auth_user = _backend_get_current_user(base_url, access_token)
+            _refresh_backend_workspace_context(base_url, access_token)
         except RuntimeError as exc:
             _clear_backend_auth_session()
             auth_notice = str(exc)
@@ -353,6 +508,12 @@ def _render_backend_auth_gate(db: Database) -> None:
         st.session_state.backend_access_token = payload["access_token"]
         st.session_state.backend_auth_user = payload["user"]
         st.session_state.backend_login_password = ""
+        try:
+            _refresh_backend_workspace_context(base_url, payload["access_token"])
+        except RuntimeError as exc:
+            _clear_backend_auth_session()
+            st.error(str(exc))
+            st.stop()
         _sync_backend_user_to_local_context(db)
         st.success("登录成功，正在进入共享工作区…")
         st.rerun()
@@ -428,49 +589,36 @@ def render_sidebar():
                     unsafe_allow_html=True,
                 )
 
-                current_user = _ensure_current_user_context(db)
-                workspace_members = db.get_workspace_members(
+                collaboration_state = _build_sidebar_collaboration_state(
+                    db,
                     st.session_state.current_product_id,
-                    include_system_members=True,
+                    current_product_name,
                 )
-                selector_meta = _build_workspace_user_selector_meta(
-                    workspace_members,
-                    current_user_id=current_user["id"],
-                )
-                selector_options = {
-                    option["label"]: option for option in selector_meta["options"]
-                }
-                selector_key = (
-                    f"workspace-user-selector-{st.session_state.current_product_id}"
-                )
-                if selector_meta["selected_label"] is not None and (
-                    st.session_state.get(selector_key) not in selector_options
-                ):
-                    st.session_state[selector_key] = selector_meta["selected_label"]
-
-                if selector_meta["options"]:
-                    st.caption(selector_meta["description"])
-                    selected_label = st.selectbox(
-                        selector_meta["title"],
-                        options=list(selector_options.keys()),
-                        key=selector_key,
-                    )
-                    selected_member = selector_options[selected_label]
-                    if selected_member["user_id"] != st.session_state.get(
-                        "current_user_id"
-                    ):
-                        _set_current_user_context(selected_member)
-                        st.rerun()
-                else:
-                    selected_member = {
-                        "display_name": st.session_state.current_user_name,
-                        "role": "viewer",
-                    }
-
+                selected_member = collaboration_state["selected_member"]
                 workspace_role = selected_member["role"]
-                member_count = len(workspace_members)
+                member_count = collaboration_state["member_count"]
+                if collaboration_state["show_identity_switcher"]:
+                    selector_meta = collaboration_state["selector_meta"]
+                    selector_options = collaboration_state["selector_options"]
+                    selector_key = collaboration_state["selector_key"]
+                    if selector_meta["options"]:
+                        st.caption(collaboration_state["identity_hint"])
+                        selected_label = st.selectbox(
+                            selector_meta["title"],
+                            options=list(selector_options.keys()),
+                            key=selector_key,
+                        )
+                        selected_member = selector_options[selected_label]
+                        if selected_member["user_id"] != st.session_state.get(
+                            "current_user_id"
+                        ):
+                            _set_current_user_context(selected_member)
+                            st.rerun()
+                else:
+                    st.caption(collaboration_state["identity_hint"])
+
                 workspace_meta = _build_sidebar_workspace_context_meta(
-                    workspace_name=current_product_name,
+                    workspace_name=collaboration_state["workspace_name"],
                     current_user_name=selected_member["display_name"],
                     member_count=member_count,
                     current_role=workspace_role,

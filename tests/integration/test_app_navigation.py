@@ -184,8 +184,45 @@ def test_backend_get_current_user_reads_auth_me_payload(monkeypatch):
 
 
 
+def test_backend_get_default_workspace_members_reads_member_payload(monkeypatch):
+    """共享模式应从后端读取当前工作区成员列表，而不是继续依赖本地数据库直连。"""
+    import src.app as app_module
+
+    class DummyResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return (
+                '[{"id":"user-1","email":"owner@example.com","name":"管理员","role":"admin"},'
+                '{"id":"user-2","email":"viewer@example.com","name":"观察同事","role":"viewer"}]'.encode("utf-8")
+            )
+
+    def fake_urlopen(req, timeout):
+        assert req.full_url == "https://backend.example.com/workspaces/default/members"
+        assert req.get_method() == "GET"
+        assert req.headers["Authorization"] == "Bearer access-token"
+        assert timeout == 5
+        return DummyResponse()
+
+    monkeypatch.setattr(app_module.request, "urlopen", fake_urlopen)
+
+    members = app_module._backend_get_default_workspace_members(
+        "https://backend.example.com", "access-token"
+    )
+
+    assert members == [
+        {"id": "user-1", "email": "owner@example.com", "name": "管理员", "role": "admin"},
+        {"id": "user-2", "email": "viewer@example.com", "name": "观察同事", "role": "viewer"},
+    ]
+
+
+
 def test_render_backend_auth_gate_refreshes_current_user_from_backend(monkeypatch, db):
-    """共享模式下如果 session 里已有 token，应先用 auth/me 刷新当前用户再同步到本地工作区。"""
+    """共享模式下如果 session 里已有 token，应先用 auth/me 刷新当前用户和工作区上下文再同步到本地工作区。"""
     import src.app as app_module
 
     st.session_state.clear()
@@ -203,11 +240,46 @@ def test_render_backend_auth_gate_refreshes_current_user_from_backend(monkeypatc
             "role": "viewer",
         }
 
+    def fake_refresh_backend_workspace_context(base_url, access_token):
+        assert base_url == "https://backend.example.com"
+        assert access_token == "access-token"
+        st.session_state.backend_workspace = {
+            "id": "default-workspace",
+            "name": "共享团队工作区",
+            "role": "viewer",
+            "member_count": 2,
+        }
+        st.session_state.backend_workspace_members = [
+            {
+                "id": "user-1",
+                "email": "owner@example.com",
+                "name": "管理员",
+                "role": "admin",
+            },
+            {
+                "id": "user-2",
+                "email": "viewer@example.com",
+                "name": "观察同事",
+                "role": "viewer",
+            },
+        ]
+        return {
+            "workspace": st.session_state.backend_workspace,
+            "members": st.session_state.backend_workspace_members,
+        }
+
     monkeypatch.setattr(app_module, "_backend_get_current_user", fake_backend_get_current_user)
+    monkeypatch.setattr(
+        app_module,
+        "_refresh_backend_workspace_context",
+        fake_refresh_backend_workspace_context,
+    )
 
     app_module._render_backend_auth_gate(db)
 
     assert st.session_state.backend_auth_user["email"] == "viewer@example.com"
+    assert st.session_state.backend_workspace["name"] == "共享团队工作区"
+    assert len(st.session_state.backend_workspace_members) == 2
     assert st.session_state.current_user_email == "viewer@example.com"
     assert st.session_state.current_user_name == "观察同事"
     assert st.session_state.current_user_role == "viewer"
@@ -247,6 +319,47 @@ def test_sidebar_current_product_name_prefers_selected_product():
     assert _get_current_product_name(products, 202) == "第二个产品"
     assert _get_current_product_name(products, 999) == "第一个产品"
     assert _get_current_product_name([], 202) is None
+
+
+def test_build_sidebar_collaboration_state_prefers_backend_workspace_context(db):
+    """共享模式下，侧边栏应优先使用后端工作区与成员上下文，并关闭本地身份切换。"""
+    import src.app as app_module
+
+    st.session_state.clear()
+    product_id = db.create_product(name="本地旅行枕工作区", asin="B0BACKSID1")
+    st.session_state.backend_auth_user = {
+        "id": "user-2",
+        "email": "viewer@example.com",
+        "name": "观察同事",
+        "role": "viewer",
+    }
+    st.session_state.backend_workspace = {
+        "id": "default-workspace",
+        "name": "后端共享工作区",
+        "role": "viewer",
+        "member_count": 2,
+    }
+    st.session_state.backend_workspace_members = [
+        {"id": "user-1", "email": "owner@example.com", "name": "管理员", "role": "admin"},
+        {"id": "user-2", "email": "viewer@example.com", "name": "观察同事", "role": "viewer"},
+    ]
+
+    state = app_module._build_sidebar_collaboration_state(
+        db,
+        product_id,
+        "本地旅行枕工作区",
+    )
+
+    assert state["workspace_name"] == "后端共享工作区"
+    assert state["member_count"] == 2
+    assert state["selected_member"] == {
+        "user_id": "user-2",
+        "email": "viewer@example.com",
+        "display_name": "观察同事",
+        "role": "viewer",
+    }
+    assert state["show_identity_switcher"] is False
+    assert "团队登录决定" in state["identity_hint"]
 
 
 def test_sidebar_workspace_context_meta_surfaces_current_user_and_role():
