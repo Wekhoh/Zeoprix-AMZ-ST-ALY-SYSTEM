@@ -34,3 +34,6 @@
   - 分析页 / 操作清单仍需进一步统一到最近一次有效分析结果
   - 上传与分析结果的单一可信来源仍在持续收口
   - sidebar theme warning 仍是已知未解问题
+
+- 2026-03-30: 已完成汇总页优先读取最近一次有效分析快照，并统一 truth-first / snapshot / realtime 的渲染入口。
+- 2026-03-30: 验证补充：快照汇总回归 5 passed；全量 pytest 326 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。

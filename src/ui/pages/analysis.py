@@ -515,7 +515,7 @@ def render_analysis():
 
 
 def render_summary_analysis(db, product_id: int, access_meta: dict[str, object] | None = None):
-    """渲染汇总模式分析页面（使用实时计算避免数据重复）"""
+    """渲染汇总模式分析页面（优先读取最近一次有效分析结果）。"""
     from src.analysis.truth_replay import (
         get_latest_analysis_run_diff_preview,
         get_latest_analysis_run_summary_delta,
@@ -523,11 +523,21 @@ def render_summary_analysis(db, product_id: int, access_meta: dict[str, object] 
     )
     from src.rules.engine import analyze_search_terms
 
+    diff_preview = get_latest_analysis_run_diff_preview(db, product_id)
+    summary_delta = get_latest_analysis_run_summary_delta(db, product_id)
+
     truth_rows = get_truth_first_summary_rows(db, product_id)
     if truth_rows is not None:
-        diff_preview = get_latest_analysis_run_diff_preview(db, product_id)
-        summary_delta = get_latest_analysis_run_summary_delta(db, product_id)
         _render_truth_first_summary_analysis(truth_rows, diff_preview, summary_delta)
+        return
+
+    latest_snapshot_rows = _build_latest_snapshot_summary_rows(db, product_id)
+    if latest_snapshot_rows:
+        _render_latest_snapshot_summary_analysis(
+            latest_snapshot_rows,
+            diff_preview,
+            summary_delta,
+        )
         return
 
     # 筛选面板
@@ -1195,12 +1205,131 @@ def export_results(db, product_id: int, result_type: str):
         safe_error("导出", e)
 
 
+def _build_snapshot_summary_rows(snapshot_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """将最近一次有效分析快照转换为汇总结论页可直接渲染的数据结构。"""
+    from src.analysis.truth_replay import action_type_to_label
+
+    grouped_rows: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in snapshot_rows:
+        normalized_term = str(row.get("normalized_term") or "").strip().lower()
+        term_type = str(row.get("term_type") or "keyword").strip() or "keyword"
+        if not normalized_term:
+            continue
+        grouped_rows.setdefault((term_type, normalized_term), []).append(row)
+
+    summary_rows: list[dict[str, Any]] = []
+    for items in grouped_rows.values():
+        primary = max(
+            items,
+            key=lambda item: (
+                float(item.get("orders") or 0),
+                float(item.get("clicks") or 0),
+                str(item.get("term") or ""),
+            ),
+        )
+        action_types = {str(item.get("action_type") or "") for item in items}
+        has_conflict = len(action_types) > 1
+        total_clicks = sum(float(item.get("clicks") or 0) for item in items)
+        total_orders = sum(float(item.get("orders") or 0) for item in items)
+        total_spend = sum(float(item.get("spend") or 0) for item in items)
+        total_sales = sum(float(item.get("sales") or 0) for item in items)
+        cvr = total_orders / total_clicks if total_clicks > 0 else 0.0
+        acos = total_spend / total_sales if total_sales > 0 else 0.0
+
+        if has_conflict:
+            action_type = "conflict"
+            suggested_action = "跨快照分歧"
+            triggered_rule = "最近一次有效分析（跨快照分歧）"
+            action_detail = "同一搜索词在最近一次有效分析快照中存在多种动作结论。"
+        else:
+            action_type = str(primary.get("action_type") or "")
+            suggested_action = str(primary.get("suggested_action") or "")
+            triggered_rule = str(primary.get("triggered_rule") or "")
+            action_detail = action_type_to_label(action_type) if action_type else "-"
+
+        summary_rows.append(
+            {
+                "term": primary.get("term") or primary.get("normalized_term") or "",
+                "term_type": primary.get("term_type") or "keyword",
+                "asin_identifiers": [],
+                "asin_count": 0,
+                "triggered_rule": triggered_rule,
+                "suggested_action": suggested_action,
+                "action_type": action_type,
+                "action_detail": action_detail,
+                "confidence": 1.0,
+                "reviewed": str(primary.get("decision_source") or "") != "auto_suggestion",
+                "has_conflict": has_conflict,
+                "clicks": int(total_clicks),
+                "orders": int(total_orders),
+                "spend": total_spend,
+                "sales": total_sales,
+                "cvr": cvr,
+                "acos": acos,
+            }
+        )
+
+    return sorted(
+        summary_rows,
+        key=lambda item: (
+            item["has_conflict"] is False,
+            item["term_type"] != "asin",
+            item["term"],
+        ),
+    )
+
+
+def _build_latest_snapshot_summary_rows(db, product_id: int) -> list[dict[str, Any]]:
+    """优先使用最近一次成功分析快照生成汇总页数据。"""
+    latest_snapshots = db.list_analysis_run_snapshots(product_id, limit=1)
+    if not latest_snapshots:
+        return []
+    latest_rows = latest_snapshots[0].get("rows") or []
+    return _build_snapshot_summary_rows(latest_rows)
+
+
 def _render_truth_first_summary_analysis(
     rows: list[dict],
     diff_preview: dict[str, Any] | None = None,
     summary_delta: dict[str, Any] | None = None,
 ) -> None:
     """渲染 truth-first 汇总模式（按唯一搜索词折叠后的最终视图）。"""
+    _render_summary_rows_analysis(
+        rows,
+        diff_preview=diff_preview,
+        summary_delta=summary_delta,
+        banner_html='<div class="analysis-truth-banner">已检测到人工校准结果，当前展示已切换为最终结论汇总视图。</div>',
+        title="汇总结论视图",
+        key_prefix="summary_truth",
+    )
+
+
+def _render_latest_snapshot_summary_analysis(
+    rows: list[dict],
+    diff_preview: dict[str, Any] | None = None,
+    summary_delta: dict[str, Any] | None = None,
+) -> None:
+    """渲染基于最近一次有效分析快照的汇总结论视图。"""
+    _render_summary_rows_analysis(
+        rows,
+        diff_preview=diff_preview,
+        summary_delta=summary_delta,
+        banner_html='<div class="analysis-truth-banner">当前展示最近一次有效分析快照生成的汇总结论视图，便于跨页面保持一致口径。</div>',
+        title="最近一次有效分析结果",
+        key_prefix="summary_snapshot",
+    )
+
+
+def _render_summary_rows_analysis(
+    rows: list[dict],
+    diff_preview: dict[str, Any] | None,
+    summary_delta: dict[str, Any] | None,
+    *,
+    banner_html: str,
+    title: str,
+    key_prefix: str,
+) -> None:
+    """渲染统一的汇总结论结果表。"""
     st.markdown(
         """
         <div class="analysis-filter-shell">
@@ -1224,7 +1353,7 @@ def _render_truth_first_summary_analysis(
                 "observe": "继续观察",
                 "conflict": "跨ASIN分歧",
             }.get(x, x),
-            key="summary_truth_action_filter",
+            key=f"{key_prefix}_action_filter",
         )
 
     with col2:
@@ -1233,14 +1362,14 @@ def _render_truth_first_summary_analysis(
             options=["keyword", "asin"],
             default=[],
             format_func=lambda x: {"keyword": "关键词", "asin": "ASIN"}.get(x, x),
-            key="summary_truth_term_type_filter",
+            key=f"{key_prefix}_term_type_filter",
         )
 
     with col3:
         search_term = st.text_input(
             "搜索关键词",
             placeholder="输入搜索...",
-            key="summary_truth_search_term",
+            key=f"{key_prefix}_search_term",
         )
 
     filtered_rows = rows
@@ -1273,11 +1402,8 @@ def _render_truth_first_summary_analysis(
             or search_lower in " ".join(row.get("asin_identifiers", [])).lower()
         ]
 
-    st.markdown(
-        '<div class="analysis-truth-banner">已检测到人工校准结果，当前展示已切换为最终结论汇总视图。</div>',
-        unsafe_allow_html=True,
-    )
-    st.subheader(f"汇总结论视图 ({len(filtered_rows)} 条)")
+    st.markdown(banner_html, unsafe_allow_html=True)
+    st.subheader(f"{title} ({len(filtered_rows)} 条)")
 
     if not filtered_rows:
         st.warning("筛选后无数据")
@@ -1387,7 +1513,6 @@ def _render_truth_first_summary_analysis(
             "CVR": st.column_config.TextColumn("CVR", width="small"),
         },
     )
-
 
 def _render_ai_insights(results: list, product_name: str = ""):
     """渲染AI洞察报告区块"""

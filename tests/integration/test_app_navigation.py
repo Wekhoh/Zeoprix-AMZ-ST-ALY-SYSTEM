@@ -19,6 +19,8 @@ from src.analysis.truth_replay import (
 )
 from src.ui.pages.analysis import (
     _build_analysis_access_meta,
+    _build_latest_snapshot_summary_rows,
+    _build_snapshot_summary_rows,
     _build_truth_summary_metrics,
     _get_analysis_mode_meta,
     save_review_changes,
@@ -1718,6 +1720,8 @@ def test_run_analysis_warning_does_not_persist_snapshot(monkeypatch, db, product
 
     assert state["status"] == "warning"
     assert db.list_analysis_run_snapshots(product_id, limit=5) == []
+
+
 def test_seeded_product_config_defaults_to_generic_workspace_template():
     """新建产品工作区默认应使用通用模板，而不是旅行枕验收模板。"""
     config = build_seeded_product_config(product_asin="B0TEST1234")
@@ -1772,6 +1776,132 @@ def test_truth_summary_metrics_keep_conflicts_out_of_action_counts():
         "conflict_count": 1,
         "reviewed_label": "5/5",
     }
+
+
+def test_build_snapshot_summary_rows_formats_latest_snapshot_for_summary_view():
+    """最近一次有效分析快照应转换为汇总页可直接展示的数据结构。"""
+    rows = _build_snapshot_summary_rows(
+        [
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "decision_source": "auto_suggestion",
+                "clicks": 12.0,
+                "orders": 2.0,
+                "spend": 8.5,
+                "sales": 40.0,
+            }
+        ]
+    )
+
+    assert rows == [
+        {
+            "term": "travel pillow",
+            "term_type": "keyword",
+            "asin_identifiers": [],
+            "asin_count": 0,
+            "triggered_rule": "高点击无转化",
+            "suggested_action": "否定精准",
+            "action_type": "negative_exact",
+            "action_detail": "否定精准",
+            "confidence": 1.0,
+            "reviewed": False,
+            "has_conflict": False,
+            "clicks": 12,
+            "orders": 2,
+            "spend": 8.5,
+            "sales": 40.0,
+            "cvr": 2 / 12,
+            "acos": 8.5 / 40.0,
+        }
+    ]
+
+
+def test_build_snapshot_summary_rows_collapses_conflicts_into_single_summary_row():
+    """同一搜索词在最近一次快照中存在多种动作时，应折叠为单条冲突结论。"""
+    rows = _build_snapshot_summary_rows(
+        [
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "规则A",
+                "decision_source": "auto_suggestion",
+                "clicks": 9.0,
+                "orders": 0.0,
+                "spend": 4.0,
+                "sales": 0.0,
+            },
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "manual_keyword",
+                "suggested_action": "加入手动精准",
+                "triggered_rule": "规则B",
+                "decision_source": "manual_review",
+                "clicks": 5.0,
+                "orders": 1.0,
+                "spend": 3.0,
+                "sales": 18.0,
+            },
+        ]
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["term"] == "travel pillow"
+    assert rows[0]["action_type"] == "conflict"
+    assert rows[0]["suggested_action"] == "跨快照分歧"
+    assert rows[0]["triggered_rule"] == "最近一次有效分析（跨快照分歧）"
+    assert rows[0]["has_conflict"] is True
+    assert rows[0]["reviewed"] is True
+    assert rows[0]["clicks"] == 14
+    assert rows[0]["orders"] == 1
+
+
+def test_build_latest_snapshot_summary_rows_reads_latest_saved_snapshot(db, product_id):
+    """汇总页应优先读取最近一次已保存的有效分析快照。"""
+    db.save_analysis_run_snapshot(
+        product_id,
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "observe",
+                "suggested_action": "继续观察",
+                "triggered_rule": "观察规则",
+                "decision_source": "manual_review",
+                "clicks": 7.0,
+                "orders": 1.0,
+                "spend": 6.0,
+                "sales": 25.0,
+            }
+        ],
+        run_source="manual",
+        summary={
+            "negative_count": 0,
+            "manual_count": 0,
+            "observe_count": 1,
+            "conflict_count": 0,
+        },
+    )
+
+    rows = _build_latest_snapshot_summary_rows(db, product_id)
+
+    assert len(rows) == 1
+    assert rows[0]["term"] == "travel pillow"
+    assert rows[0]["action_type"] == "observe"
+    assert rows[0]["action_detail"] == "观察"
+    assert rows[0]["reviewed"] is True
+    assert rows[0]["clicks"] == 7
+    assert rows[0]["orders"] == 1
 
 
 def test_asin_analysis_hero_meta_matches_workbench_copy():
