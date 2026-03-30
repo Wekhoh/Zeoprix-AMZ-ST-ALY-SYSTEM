@@ -207,6 +207,54 @@ def _build_truth_import_guidance(
     )
 
 
+def _build_analysis_run_state(
+    status: str,
+    message: str,
+    *,
+    terms_analyzed: int = 0,
+    results_saved: int = 0,
+    pending_reviews: int = 0,
+    can_retry: bool = False,
+) -> dict[str, object]:
+    """统一分析运行状态，区分上传成功与分析结果是否真正生成。"""
+    return {
+        "status": status,
+        "message": message,
+        "terms_analyzed": int(terms_analyzed),
+        "results_saved": int(results_saved),
+        "pending_reviews": int(pending_reviews),
+        "can_retry": can_retry,
+    }
+
+
+def _render_analysis_run_feedback(state: dict[str, object]) -> None:
+    """根据分析运行状态展示成功/警告/失败反馈。"""
+    message = str(state.get("message") or "分析完成")
+    status = str(state.get("status") or "warning")
+
+    metrics = []
+    terms_analyzed = int(state.get("terms_analyzed") or 0)
+    results_saved = int(state.get("results_saved") or 0)
+    pending_reviews = int(state.get("pending_reviews") or 0)
+
+    if terms_analyzed:
+        metrics.append(f"分析词数 {terms_analyzed}")
+    if results_saved:
+        metrics.append(f"建议 {results_saved} 条")
+    if pending_reviews:
+        metrics.append(f"待审核 {pending_reviews} 条")
+
+    if metrics:
+        message = f"{message}（{'，'.join(metrics)}）"
+
+    if status == "success":
+        st.success(message)
+    elif status == "error":
+        st.error(message)
+    else:
+        st.warning(message)
+
+
 def _persist_uploaded_file(uploaded_file, target_dir: Path) -> Path:
     """将 Streamlit 上传文件持久化到临时目录，供现有导入逻辑复用。"""
     suffix = Path(uploaded_file.name).suffix or ".xlsx"
@@ -639,8 +687,8 @@ def render_upload():
                     # 自动运行分析
                     if auto_analyze and success_count > 0:
                         with st.spinner("正在运行规则分析..."):
-                            run_analysis(db, product_id)
-                            st.success("分析完成")
+                            analysis_state = run_analysis(db, product_id)
+                        _render_analysis_run_feedback(analysis_state)
 
         else:
             st.error("所有文件解析失败")
@@ -674,47 +722,72 @@ def render_upload():
         """)
 
 
-def run_analysis(db, product_id: int):
-    """运行规则分析"""
+def run_analysis(db, product_id: int) -> dict[str, object]:
+    """运行规则分析，并显式返回分析状态。"""
     from src.data.aggregator import DataAggregator
     from src.rules.engine import RuleEngine
 
-    # 聚合数据
-    aggregator = DataAggregator(db)
-    df = aggregator.aggregate_by_term(product_id)
+    try:
+        aggregator = DataAggregator(db)
+        df = aggregator.aggregate_by_term(product_id)
 
-    if df.empty:
-        return
+        if df.empty:
+            return _build_analysis_run_state(
+                "warning",
+                "当前导入数据暂时不足以生成搜索词分析结果，请先确认原始报表内容。",
+            )
 
-    # 规则分析
-    engine = RuleEngine(db, product_id)
-    results = engine.analyze(df)
+        engine = RuleEngine(db, product_id)
+        results = engine.analyze(df)
 
-    # 保存结果
-    for result in results:
-        db.save_analysis_result_by_term(
-            product_id=product_id,
-            term=result.term,
-            triggered_rule=result.triggered_rule,
-            suggested_action=result.suggested_action,
-            action_type=result.action_type,
-            confidence=result.confidence,
-            ai_reasoning=result.ai_reasoning,
-        )
+        if not results:
+            return _build_analysis_run_state(
+                "warning",
+                "规则分析已运行，但当前没有生成可保存的建议。",
+                terms_analyzed=len(df),
+            )
 
-    # v2.0: 为新词创建待审核的manual_reviews记录
-    for result in results:
-        # 检查是否需要人工审核相关性
-        needs_review = getattr(result, "needs_review", False)
-        relevance = getattr(result, "relevance", None)
+        results_saved = 0
+        pending_reviews = 0
 
-        # 如果需要审核或相关性为pending/None，创建待审核记录
-        if needs_review or relevance in (None, "pending"):
-            db.upsert_manual_review(
+        for result in results:
+            db.save_analysis_result_by_term(
                 product_id=product_id,
                 term=result.term,
-                term_type=result.term_type,
-                system_action=result.suggested_action,
-                relevance="pending",  # 标记为待审核
-                reviewed=False,
+                triggered_rule=result.triggered_rule,
+                suggested_action=result.suggested_action,
+                action_type=result.action_type,
+                confidence=result.confidence,
+                ai_reasoning=result.ai_reasoning,
             )
+            results_saved += 1
+
+        for result in results:
+            needs_review = getattr(result, "needs_review", False)
+            relevance = getattr(result, "relevance", None)
+
+            if needs_review or relevance in (None, "pending"):
+                db.upsert_manual_review(
+                    product_id=product_id,
+                    term=result.term,
+                    term_type=result.term_type,
+                    system_action=result.suggested_action,
+                    relevance="pending",
+                    reviewed=False,
+                )
+                pending_reviews += 1
+
+        return _build_analysis_run_state(
+            "success",
+            "分析完成。",
+            terms_analyzed=len(df),
+            results_saved=results_saved,
+            pending_reviews=pending_reviews,
+        )
+    except Exception:
+        logger.exception("规则分析失败", extra={"product_id": product_id})
+        return _build_analysis_run_state(
+            "error",
+            "规则分析失败，请稍后重试。",
+            can_retry=True,
+        )

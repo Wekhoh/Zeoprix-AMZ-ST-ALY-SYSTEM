@@ -58,8 +58,10 @@ from src.ui.pages.settings_rules import (
     _build_rule_section_meta,
     _build_rule_settings_summary,
 )
+from src.ui.pages.upload import _build_analysis_run_state
 from src.ui.pages.upload import _build_truth_import_guidance
 from src.ui.pages.upload import _build_upload_access_meta
+from src.ui.pages.upload import run_analysis
 
 
 APP_PATH = Path(__file__).resolve().parents[2] / "src" / "app.py"
@@ -1536,6 +1538,89 @@ def test_truth_import_guidance_matches_upload_sequence_rules():
     )
 
 
+
+
+def test_analysis_run_state_tracks_counts_and_retry_flags():
+    """上传后分析状态应显式区分结果规模与是否可重试。"""
+    state = _build_analysis_run_state(
+        "success",
+        "分析完成",
+        terms_analyzed=12,
+        results_saved=9,
+        pending_reviews=3,
+    )
+
+    assert state == {
+        "status": "success",
+        "message": "分析完成",
+        "terms_analyzed": 12,
+        "results_saved": 9,
+        "pending_reviews": 3,
+        "can_retry": False,
+    }
+
+
+def test_run_analysis_returns_warning_when_no_aggregated_terms(monkeypatch, db, product_id):
+    """上传成功但没有可聚合词时，不能伪装成“分析完成”。"""
+    import src.data.aggregator as aggregator_module
+    import src.rules.engine as engine_module
+
+    class EmptyAggregator:
+        def __init__(self, _db):
+            pass
+
+        def aggregate_by_term(self, _product_id):
+            return pd.DataFrame()
+
+    class UnexpectedEngine:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("没有聚合结果时不应继续进入规则分析")
+
+    monkeypatch.setattr(aggregator_module, "DataAggregator", EmptyAggregator)
+    monkeypatch.setattr(engine_module, "RuleEngine", UnexpectedEngine)
+
+    state = run_analysis(db, product_id)
+
+    assert state["status"] == "warning"
+    assert "不足以生成搜索词分析结果" in state["message"]
+    assert state["terms_analyzed"] == 0
+    assert state["results_saved"] == 0
+    assert state["pending_reviews"] == 0
+    assert state["can_retry"] is False
+
+
+def test_run_analysis_returns_warning_when_engine_produces_no_suggestions(monkeypatch, db, product_id):
+    """规则分析空跑时应返回 warning，而不是伪装成成功。"""
+    import src.data.aggregator as aggregator_module
+    import src.rules.engine as engine_module
+
+    class NonEmptyAggregator:
+        def __init__(self, _db):
+            pass
+
+        def aggregate_by_term(self, _product_id):
+            return pd.DataFrame([
+                {"term": "travel pillow", "clicks": 12, "spend": 8.5, "orders": 0}
+            ])
+
+    class EmptyEngine:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def analyze(self, _df):
+            return []
+
+    monkeypatch.setattr(aggregator_module, "DataAggregator", NonEmptyAggregator)
+    monkeypatch.setattr(engine_module, "RuleEngine", EmptyEngine)
+
+    state = run_analysis(db, product_id)
+
+    assert state["status"] == "warning"
+    assert "没有生成可保存的建议" in state["message"]
+    assert state["terms_analyzed"] == 1
+    assert state["results_saved"] == 0
+    assert state["pending_reviews"] == 0
+    assert state["can_retry"] is False
 def test_seeded_product_config_defaults_to_generic_workspace_template():
     """新建产品工作区默认应使用通用模板，而不是旅行枕验收模板。"""
     config = build_seeded_product_config(product_asin="B0TEST1234")

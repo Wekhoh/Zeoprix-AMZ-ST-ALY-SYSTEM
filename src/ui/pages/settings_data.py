@@ -363,7 +363,10 @@ def render_data_management(db, product_id: int):
             if st.button("重新运行分析", width="stretch"):
                 with st.spinner("正在分析..."):
                     try:
-                        from src.ui.pages.upload import run_analysis
+                        from src.ui.pages.upload import (
+                            _render_analysis_run_feedback,
+                            run_analysis,
+                        )
 
                         # 清除旧结果 - 通过 search_term_id 关联删除
                         db.execute(
@@ -379,8 +382,8 @@ def render_data_management(db, product_id: int):
                         )
                         db.commit()
 
-                        run_analysis(db, product_id)
-                        st.success("分析完成")
+                        analysis_state = run_analysis(db, product_id)
+                        _render_analysis_run_feedback(analysis_state)
                     except Exception as e:
                         safe_error("数据分析", e)
 
