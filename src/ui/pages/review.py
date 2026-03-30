@@ -8,7 +8,7 @@ from html import escape
 
 import streamlit as st
 
-from src.ai.analyzer import AIAnalyzer
+from src.ai.analyzer import AIAnalyzer, RelevanceSuggestion
 from src.config.logger import get_logger
 from src.ui.pages.actions import ACTIONS_PAGE_CSS
 
@@ -805,14 +805,11 @@ def _request_ai_suggestion(db, product_id: int, term: str, item: dict):
                 performance_data=performance_data,
             )
 
+        request_state = _build_ai_request_state(suggestion=suggestion)
+
         # 保存到session state
         ai_suggestion_key = f"ai_suggestion_{term}"
-        st.session_state[ai_suggestion_key] = {
-            "relevance": suggestion.suggested_relevance,
-            "confidence": suggestion.confidence,
-            "reasoning": suggestion.reasoning,
-            "suggested_action": suggestion.suggested_action,
-        }
+        st.session_state[ai_suggestion_key] = request_state
 
         # 同时保存到数据库（用于后续参考）
         try:
@@ -820,10 +817,13 @@ def _request_ai_suggestion(db, product_id: int, term: str, item: dict):
                 product_id=product_id,
                 term=term,
                 term_type=item.get("term_type", "keyword"),
-                ai_suggestion=suggestion.suggested_relevance,
-                ai_confidence=suggestion.confidence,
-                ai_reasoning=suggestion.reasoning,
-                ai_suggested_action=suggestion.suggested_action,
+                ai_suggestion=request_state["relevance"],
+                ai_confidence=request_state["confidence"],
+                ai_reasoning=request_state["reasoning"],
+                ai_suggested_action=request_state["suggested_action"],
+                ai_status=request_state["status"],
+                ai_status_message=request_state["status_message"],
+                ai_can_retry=request_state["can_retry"],
                 campaign_id=item.get("campaign_id"),
                 asin_identifier=item.get("asin_identifier"),
             )
@@ -834,7 +834,100 @@ def _request_ai_suggestion(db, product_id: int, term: str, item: dict):
 
     except Exception as e:
         logger.error(f"获取AI建议失败: {e}")
-        st.error(f"获取AI建议失败: {e}")
+        request_state = _build_ai_request_state(error=e)
+        st.session_state[f"ai_suggestion_{term}"] = request_state
+        try:
+            db.save_manual_review_ai_suggestion(
+                product_id=product_id,
+                term=term,
+                term_type=item.get("term_type", "keyword"),
+                ai_suggestion=request_state["relevance"],
+                ai_confidence=request_state["confidence"],
+                ai_reasoning=request_state["reasoning"],
+                ai_suggested_action=request_state["suggested_action"],
+                ai_status=request_state["status"],
+                ai_status_message=request_state["status_message"],
+                ai_can_retry=request_state["can_retry"],
+                campaign_id=item.get("campaign_id"),
+                asin_identifier=item.get("asin_identifier"),
+            )
+        except Exception as persist_error:
+            logger.warning(f"保存AI失败状态到数据库失败: {persist_error}")
+
+        st.rerun()
+
+
+def _build_ai_request_state(
+    suggestion: RelevanceSuggestion | None = None,
+    error: Exception | None = None,
+) -> dict:
+    """构建可持久化的 AI 建议/失败状态。"""
+    if error is not None:
+        error_message = str(error)
+        lowered = error_message.lower()
+        if "gemini_api_key" in lowered:
+            return {
+                "relevance": "pending",
+                "confidence": 0.0,
+                "reasoning": "未配置 GEMINI_API_KEY",
+                "suggested_action": "请先配置 AI 密钥后重试",
+                "status": "error",
+                "status_message": "未配置 GEMINI_API_KEY，暂时无法使用 AI 建议。",
+                "can_retry": False,
+            }
+        if "timeout" in lowered or "超时" in error_message:
+            return {
+                "relevance": "pending",
+                "confidence": 0.0,
+                "reasoning": error_message,
+                "suggested_action": "请稍后重试",
+                "status": "warning",
+                "status_message": "AI 请求超时，请稍后重试。",
+                "can_retry": True,
+            }
+        return {
+            "relevance": "pending",
+            "confidence": 0.0,
+            "reasoning": error_message,
+            "suggested_action": "请稍后重试",
+            "status": "error",
+            "status_message": "获取AI建议失败，请稍后重试。",
+            "can_retry": True,
+        }
+
+    if suggestion is None:
+        return {
+            "relevance": "pending",
+            "confidence": 0.0,
+            "reasoning": "",
+            "suggested_action": "",
+            "status": "warning",
+            "status_message": "AI 本次未返回有效建议。",
+            "can_retry": True,
+        }
+
+    reasoning = suggestion.reasoning or ""
+    state = {
+        "relevance": suggestion.suggested_relevance,
+        "confidence": suggestion.confidence,
+        "reasoning": reasoning,
+        "suggested_action": suggestion.suggested_action or "",
+        "status": "success",
+        "status_message": "",
+        "can_retry": False,
+    }
+
+    if suggestion.suggested_relevance == "pending" and suggestion.confidence <= 0:
+        state["status"] = "warning"
+        state["can_retry"] = True
+        if "限流" in reasoning:
+            state["status_message"] = "AI 当前请求较多，请稍后重试。"
+        elif "失败" in reasoning:
+            state["status_message"] = "AI 本次未返回有效建议，请稍后重试。"
+        else:
+            state["status_message"] = "AI 建议暂时不可用，请稍后重试。"
+
+    return state
 
 
 def _build_ai_suggestion_state(item: dict | None) -> dict | None:
@@ -857,6 +950,9 @@ def _build_ai_suggestion_state(item: dict | None) -> dict | None:
         "confidence": item.get("ai_confidence", 0) or 0,
         "reasoning": payload.get("ai_reasoning", ""),
         "suggested_action": payload.get("ai_suggested_action", ""),
+        "status": payload.get("ai_status", "success"),
+        "status_message": payload.get("ai_status_message", ""),
+        "can_retry": bool(payload.get("ai_can_retry", False)),
     }
 
 
@@ -891,7 +987,12 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
         col_ai_btn, col_ai_result = st.columns([1, 3])
 
         with col_ai_btn:
-            if st.button("获取AI建议", key=f"ai_btn_{term}"):
+            button_label = (
+                "重试AI建议"
+                if ai_suggestion and ai_suggestion.get("can_retry")
+                else "获取AI建议"
+            )
+            if st.button(button_label, key=f"ai_btn_{term}"):
                 _request_ai_suggestion(db, product_id, term, item)
 
         with col_ai_result:
@@ -903,9 +1004,15 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
                 confidence = ai_suggestion.get("confidence", 0)
                 reasoning = ai_suggestion.get("reasoning", "")
                 suggested_action = ai_suggestion.get("suggested_action", "")
+                status = ai_suggestion.get("status", "success")
+                status_message = ai_suggestion.get("status_message", "")
 
                 # 根据置信度显示不同颜色
-                if confidence >= 0.8:
+                if status == "error":
+                    st.error(status_message or "AI 建议暂时不可用。")
+                elif status == "warning":
+                    st.warning(status_message or "AI 本次未返回有效建议。")
+                elif confidence >= 0.8:
                     st.success(
                         f"AI建议: **{relevance_label}** (置信度: {confidence:.0%})"
                     )
@@ -1111,3 +1218,4 @@ def _go_to_next(pending_list: list):
     else:
         st.session_state.review_current_index = 0
     st.rerun()
+

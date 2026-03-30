@@ -1943,6 +1943,9 @@ class Database:
         ai_confidence: float,
         ai_reasoning: str = None,
         ai_suggested_action: str = None,
+        ai_status: str = None,
+        ai_status_message: str = None,
+        ai_can_retry: bool | None = None,
         campaign_id: int = None,
         asin_identifier: str = None,
     ) -> int:
@@ -1956,6 +1959,9 @@ class Database:
         evidence_payload = {
             "ai_reasoning": ai_reasoning or "",
             "ai_suggested_action": ai_suggested_action or "",
+            "ai_status": ai_status or "success",
+            "ai_status_message": ai_status_message or "",
+            "ai_can_retry": bool(ai_can_retry) if ai_can_retry is not None else False,
         }
         return self.upsert_manual_review(
             product_id=product_id,

@@ -19,7 +19,8 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.data.db import Database
-from src.ui.pages.review import _build_ai_suggestion_state
+from src.ai.analyzer import RelevanceSuggestion
+from src.ui.pages.review import _build_ai_request_state, _build_ai_suggestion_state
 
 
 @pytest.fixture
@@ -216,6 +217,36 @@ class TestUpsertManualReview:
         assert '"ai_reasoning": "搜索词直接命中产品核心用途"' in row["evidence_payload"]
         assert '"ai_suggested_action": "建议保留并手动精准投放"' in row["evidence_payload"]
 
+    def test_save_manual_review_ai_suggestion_persists_status_payload(self, test_db):
+        test_db.upsert_manual_review(
+            product_id=1,
+            term="ai_retry_term",
+            term_type="keyword",
+            reviewed=False,
+        )
+
+        test_db.save_manual_review_ai_suggestion(
+            product_id=1,
+            term="ai_retry_term",
+            term_type="keyword",
+            ai_suggestion="pending",
+            ai_confidence=0.0,
+            ai_reasoning="AI分析失败",
+            ai_suggested_action="需人工判断",
+            ai_status="warning",
+            ai_status_message="AI 本次未返回有效建议，请稍后重试。",
+            ai_can_retry=True,
+        )
+
+        row = test_db.conn.execute(
+            "SELECT evidence_payload FROM manual_reviews WHERE term = ?",
+            ("ai_retry_term",),
+        ).fetchone()
+
+        assert '"ai_status": "warning"' in row["evidence_payload"]
+        assert '"ai_status_message": "AI 本次未返回有效建议，请稍后重试。"' in row["evidence_payload"]
+        assert '"ai_can_retry": true' in row["evidence_payload"]
+
 
 class TestReviewAiSuggestionState:
     def test_build_ai_suggestion_state_reads_reasoning_from_evidence_payload(self):
@@ -232,6 +263,9 @@ class TestReviewAiSuggestionState:
             "confidence": 0.88,
             "reasoning": "命中核心词",
             "suggested_action": "保留",
+            "status": "success",
+            "status_message": "",
+            "can_retry": False,
         }
 
     def test_build_ai_suggestion_state_tolerates_invalid_evidence_payload(self):
@@ -248,6 +282,64 @@ class TestReviewAiSuggestionState:
             "confidence": 0.51,
             "reasoning": "",
             "suggested_action": "",
+            "status": "success",
+            "status_message": "",
+            "can_retry": False,
+        }
+
+    def test_build_ai_suggestion_state_reads_retry_metadata_from_evidence_payload(self):
+        state = _build_ai_suggestion_state(
+            {
+                "ai_suggestion": "pending",
+                "ai_confidence": 0.0,
+                "evidence_payload": '{"ai_reasoning":"AI分析失败","ai_suggested_action":"需人工判断","ai_status":"warning","ai_status_message":"AI 本次未返回有效建议，请稍后重试。","ai_can_retry":true}',
+            }
+        )
+
+        assert state == {
+            "relevance": "pending",
+            "confidence": 0,
+            "reasoning": "AI分析失败",
+            "suggested_action": "需人工判断",
+            "status": "warning",
+            "status_message": "AI 本次未返回有效建议，请稍后重试。",
+            "can_retry": True,
+        }
+
+
+class TestReviewAiRequestState:
+    def test_build_ai_request_state_marks_successful_suggestion(self):
+        state = _build_ai_request_state(
+            suggestion=RelevanceSuggestion(
+                term="travel pillow",
+                suggested_relevance="strong_core",
+                confidence=0.91,
+                reasoning="直接命中产品核心用途",
+                suggested_action="建议保留并精准投放",
+            )
+        )
+
+        assert state == {
+            "relevance": "strong_core",
+            "confidence": 0.91,
+            "reasoning": "直接命中产品核心用途",
+            "suggested_action": "建议保留并精准投放",
+            "status": "success",
+            "status_message": "",
+            "can_retry": False,
+        }
+
+    def test_build_ai_request_state_classifies_missing_api_key_error(self):
+        state = _build_ai_request_state(error=ValueError("未配置 GEMINI_API_KEY"))
+
+        assert state == {
+            "relevance": "pending",
+            "confidence": 0.0,
+            "reasoning": "未配置 GEMINI_API_KEY",
+            "suggested_action": "请先配置 AI 密钥后重试",
+            "status": "error",
+            "status_message": "未配置 GEMINI_API_KEY，暂时无法使用 AI 建议。",
+            "can_retry": False,
         }
 
 
