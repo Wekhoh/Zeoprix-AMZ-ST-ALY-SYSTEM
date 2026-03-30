@@ -10,6 +10,9 @@ import pandas as pd
 import streamlit as st
 
 from src.analysis.truth_replay import (
+    apply_reviewed_truth,
+    build_analysis_run_snapshot_rows,
+    build_analysis_run_snapshot_summary,
     inspect_aggregate_truth_workbook,
     inspect_campaign_truth_workbook,
     seed_truth_workbooks,
@@ -747,10 +750,21 @@ def run_analysis(db, product_id: int) -> dict[str, object]:
                 terms_analyzed=len(df),
             )
 
+        effective_results = apply_reviewed_truth(db, product_id, results)
+        snapshot_rows = build_analysis_run_snapshot_rows(effective_results)
+
+        if snapshot_rows:
+            db.save_analysis_run_snapshot(
+                product_id,
+                snapshot_rows,
+                run_source="manual",
+                summary=build_analysis_run_snapshot_summary(snapshot_rows),
+            )
+
         results_saved = 0
         pending_reviews = 0
 
-        for result in results:
+        for result in effective_results:
             db.save_analysis_result_by_term(
                 product_id=product_id,
                 term=result.term,
@@ -762,7 +776,7 @@ def run_analysis(db, product_id: int) -> dict[str, object]:
             )
             results_saved += 1
 
-        for result in results:
+        for result in effective_results:
             needs_review = getattr(result, "needs_review", False)
             relevance = getattr(result, "relevance", None)
 

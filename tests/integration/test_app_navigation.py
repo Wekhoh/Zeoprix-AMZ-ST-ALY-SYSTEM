@@ -12,6 +12,7 @@ from streamlit.testing.v1 import AppTest
 
 from src.backend.app import create_app
 from src.config.product_defaults import build_seeded_product_config
+from src.rules.engine import AnalysisResult
 from src.analysis.truth_replay import (
     get_latest_analysis_run_diff_preview,
     get_latest_analysis_run_summary_delta,
@@ -1621,6 +1622,102 @@ def test_run_analysis_returns_warning_when_engine_produces_no_suggestions(monkey
     assert state["results_saved"] == 0
     assert state["pending_reviews"] == 0
     assert state["can_retry"] is False
+
+
+def test_run_analysis_persists_snapshot_on_success(monkeypatch, db, product_id):
+    """成功分析后应保存快照，供汇总页读取最近一次有效分析结果。"""
+    import src.data.aggregator as aggregator_module
+    import src.rules.engine as engine_module
+
+    class NonEmptyAggregator:
+        def __init__(self, _db):
+            pass
+
+        def aggregate_by_term(self, _product_id):
+            return pd.DataFrame([
+                {"term": "travel pillow", "clicks": 12, "spend": 8.5, "orders": 0, "sales": 0}
+            ])
+
+    class SnapshotEngine:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def analyze(self, _df):
+            return [
+                AnalysisResult(
+                    term="travel pillow",
+                    term_type="keyword",
+                    triggered_rule="高花费无订单",
+                    suggested_action="否定精准",
+                    action_type="negative_exact",
+                    confidence=0.92,
+                    needs_review=True,
+                    data={"total_clicks": 12, "total_spend": 8.5, "total_orders": 0, "total_sales": 0},
+                )
+            ]
+
+    monkeypatch.setattr(aggregator_module, "DataAggregator", NonEmptyAggregator)
+    monkeypatch.setattr(engine_module, "RuleEngine", SnapshotEngine)
+
+    state = run_analysis(db, product_id)
+    snapshots = db.list_analysis_run_snapshots(product_id, limit=1)
+
+    assert state["status"] == "success"
+    assert state["results_saved"] == 1
+    assert state["pending_reviews"] == 1
+    assert len(snapshots) == 1
+    assert snapshots[0]["run_source"] == "manual"
+    assert snapshots[0]["summary"] == {
+        "negative_count": 1,
+        "manual_count": 0,
+        "observe_count": 0,
+        "conflict_count": 0,
+    }
+    assert snapshots[0]["rows"] == [
+        {
+            "term": "travel pillow",
+            "normalized_term": "travel pillow",
+            "term_type": "keyword",
+            "action_type": "negative_exact",
+            "suggested_action": "否定精准",
+            "triggered_rule": "高花费无订单",
+            "decision_source": "auto_suggestion",
+            "clicks": 12.0,
+            "orders": 0.0,
+            "spend": 8.5,
+            "sales": 0.0,
+        }
+    ]
+
+
+def test_run_analysis_warning_does_not_persist_snapshot(monkeypatch, db, product_id):
+    """无建议 warning 不应污染最近一次有效分析快照。"""
+    import src.data.aggregator as aggregator_module
+    import src.rules.engine as engine_module
+
+    class NonEmptyAggregator:
+        def __init__(self, _db):
+            pass
+
+        def aggregate_by_term(self, _product_id):
+            return pd.DataFrame([
+                {"term": "travel pillow", "clicks": 12, "spend": 8.5, "orders": 0}
+            ])
+
+    class EmptyEngine:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def analyze(self, _df):
+            return []
+
+    monkeypatch.setattr(aggregator_module, "DataAggregator", NonEmptyAggregator)
+    monkeypatch.setattr(engine_module, "RuleEngine", EmptyEngine)
+
+    state = run_analysis(db, product_id)
+
+    assert state["status"] == "warning"
+    assert db.list_analysis_run_snapshots(product_id, limit=5) == []
 def test_seeded_product_config_defaults_to_generic_workspace_template():
     """新建产品工作区默认应使用通用模板，而不是旅行枕验收模板。"""
     config = build_seeded_product_config(product_asin="B0TEST1234")
