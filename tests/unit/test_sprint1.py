@@ -309,6 +309,21 @@ class TestDatabaseOperations:
 class TestSettings:
     """T03: 配置模块测试"""
 
+    def test_defaults_to_latest_gemini_3_flash_model(self):
+        """测试未显式指定模型时默认使用 Gemini 3 Flash 最新模型。"""
+        from src.config.settings import Settings
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
+            f.write("GEMINI_API_KEY=test_key_12345\n")
+            f.write("DEBUG=true\n")
+            env_path = f.name
+
+        try:
+            settings = Settings(env_path)
+            assert settings.gemini_model == "gemini-3-flash-preview"
+        finally:
+            os.unlink(env_path)
+
     def test_load_settings(self):
         """测试加载配置"""
         from src.config.settings import Settings
