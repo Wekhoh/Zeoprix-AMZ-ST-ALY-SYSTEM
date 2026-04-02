@@ -3,6 +3,8 @@
 从 analysis.py 拆分
 """
 
+from typing import Any
+
 import pandas as pd
 import streamlit as st
 
@@ -12,6 +14,57 @@ from src.ui.pages.analysis import AUTO_ACTION_DISPLAY, _resolve_analysis_role_co
 logger = get_logger(__name__)
 
 
+
+
+def _build_snapshot_asin_rows(snapshot_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """将最近一次有效快照转换为按 ASIN 页可直接消费的数据结构。"""
+    from src.analysis.truth_replay import action_type_to_auto_action
+
+    asin_rows: list[dict[str, Any]] = []
+    for row in snapshot_rows:
+        asin_identifier = str(row.get("asin_identifier") or "").strip()
+        if not asin_identifier:
+            continue
+
+        action_type = str(row.get("action_type") or "").strip()
+        asin_rows.append(
+            {
+                "term": str(row.get("term") or "").strip(),
+                "term_type": str(row.get("term_type") or "keyword").strip() or "keyword",
+                "asin_identifier": asin_identifier,
+                "triggered_rule": str(row.get("triggered_rule") or "").strip(),
+                "suggested_action": str(row.get("suggested_action") or "").strip(),
+                "auto_action": str(row.get("auto_action") or "").strip()
+                or action_type_to_auto_action(action_type),
+                "action_type": action_type,
+                "confidence": float(row.get("confidence") or 0.0),
+                "clicks": int(float(row.get("clicks") or 0)),
+                "orders": int(float(row.get("orders") or 0)),
+                "spend": float(row.get("spend") or 0.0),
+                "sales": float(row.get("sales") or 0.0),
+                "cvr": float(row.get("cvr") or 0.0),
+                "acos": float(row.get("acos") or 0.0),
+            }
+        )
+
+    return sorted(
+        asin_rows,
+        key=lambda item: (
+            {"negate": 0, "keep": 1, "observe": 2}.get(item.get("auto_action"), 3),
+            item.get("asin_identifier", ""),
+            item.get("term", ""),
+        ),
+    )
+
+
+def _build_latest_snapshot_asin_rows(db, product_id: int) -> list[dict[str, Any]] | None:
+    """按 ASIN 页优先读取最近一次包含 ASIN 维度的有效快照。"""
+    snapshots = db.list_analysis_run_snapshots(product_id, limit=20)
+    for snapshot in snapshots:
+        rows = _build_snapshot_asin_rows(snapshot.get("rows") or [])
+        if rows:
+            return rows
+    return None
 
 
 def _build_asin_analysis_access_meta(current_role: str) -> dict[str, object]:
@@ -93,6 +146,7 @@ def build_asin_export_payload(results: list[dict], export_kind: str):
 
 def render_asin_analysis(db, product_id: int):
     """渲染按ASIN分析模式页面（ASIN级别聚合，如BLK、DBL）"""
+    from src.analysis.truth_replay import has_reviewed_truth
     from src.rules.engine import analyze_search_terms_by_asin
 
     access_context = _resolve_analysis_role_context(db, product_id)
@@ -148,38 +202,46 @@ def render_asin_analysis(db, product_id: int):
                 key="asin_search_term",
             )
 
-    # 获取按ASIN分析结果
-    with st.spinner("正在加载按ASIN分析数据..."):
-        try:
-            results = analyze_search_terms_by_asin(db, product_id)
-        except Exception as e:
-            logger.error(f"按ASIN分析失败: {e}")
-            st.error(f"分析失败: {e}")
+    snapshot_rows = None
+    if not has_reviewed_truth(db, product_id):
+        snapshot_rows = _build_latest_snapshot_asin_rows(db, product_id)
+
+    if snapshot_rows:
+        results_data = snapshot_rows
+    else:
+        # 获取按ASIN分析结果
+        with st.spinner("正在加载按ASIN分析数据..."):
+            try:
+                results = analyze_search_terms_by_asin(db, product_id)
+            except Exception as e:
+                logger.error(f"按ASIN分析失败: {e}")
+                st.error(f"分析失败: {e}")
+                return
+
+        if not results:
+            st.info("暂无按ASIN分析结果。请先上传数据。")
             return
 
-    if not results:
-        st.info("暂无按ASIN分析结果。请先上传数据。")
-        return
-
-    # 转换为字典列表以便筛选
-    results_data = [
-        {
-            "term": r.term,
-            "term_type": r.term_type,
-            "asin_identifier": r.asin_identifier,
-            "triggered_rule": r.triggered_rule,
-            "suggested_action": r.suggested_action,
-            "auto_action": r.auto_action,
-            "action_type": r.action_type,
-            "confidence": r.confidence,
-            "clicks": r.clicks,
-            "orders": r.orders,
-            "spend": r.spend,
-            "cvr": r.cvr,
-            "acos": r.acos,
-        }
-        for r in results
-    ]
+        # 转换为字典列表以便筛选
+        results_data = [
+            {
+                "term": r.term,
+                "term_type": r.term_type,
+                "asin_identifier": r.asin_identifier,
+                "triggered_rule": r.triggered_rule,
+                "suggested_action": r.suggested_action,
+                "auto_action": r.auto_action,
+                "action_type": r.action_type,
+                "confidence": r.confidence,
+                "clicks": r.clicks,
+                "orders": r.orders,
+                "spend": r.spend,
+                "sales": getattr(r, "sales", 0.0),
+                "cvr": r.cvr,
+                "acos": r.acos,
+            }
+            for r in results
+        ]
 
     # 应用筛选
     filtered_results = results_data

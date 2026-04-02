@@ -26,7 +26,11 @@ from src.ui.pages.analysis import (
     _get_analysis_mode_meta,
     save_review_changes,
 )
-from src.ui.pages.analysis_asin import _build_asin_analysis_access_meta
+from src.ui.pages.analysis_asin import (
+    _build_asin_analysis_access_meta,
+    _build_latest_snapshot_asin_rows,
+    _build_snapshot_asin_rows,
+)
 from src.ui.pages.analysis_campaign import (
     _build_campaign_analysis_access_meta,
     _build_latest_snapshot_campaign_rows,
@@ -2048,6 +2052,87 @@ def test_build_latest_snapshot_campaign_rows_reads_latest_saved_snapshot(db, pro
     assert rows is not None
     assert rows[0]["campaign_id"] == "cmp-001"
     assert rows[0]["campaign_name"] == "Brand Exact"
+    assert rows[0]["auto_action"] == "negate"
+
+
+def test_build_snapshot_asin_rows_formats_latest_snapshot_for_asin_view():
+    """最近一次有效快照应转换为按 ASIN 页可直接展示的数据结构。"""
+    rows = _build_snapshot_asin_rows(
+        [
+            {
+                "term": "travel pillow",
+                "term_type": "keyword",
+                "asin_identifier": "B0TESTASIN",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "clicks": 12.0,
+                "orders": 1.0,
+                "spend": 18.5,
+                "sales": 42.0,
+                "confidence": 0.8,
+                "cvr": 1 / 12,
+                "acos": 18.5 / 42.0,
+            }
+        ]
+    )
+
+    assert rows == [
+        {
+            "term": "travel pillow",
+            "term_type": "keyword",
+            "asin_identifier": "B0TESTASIN",
+            "triggered_rule": "高点击无转化",
+            "suggested_action": "否定精准",
+            "auto_action": "negate",
+            "action_type": "negative_exact",
+            "confidence": 0.8,
+            "clicks": 12,
+            "orders": 1,
+            "spend": 18.5,
+            "sales": 42.0,
+            "cvr": 1 / 12,
+            "acos": 18.5 / 42.0,
+        }
+    ]
+
+
+def test_build_latest_snapshot_asin_rows_reads_latest_saved_snapshot(db, product_id):
+    """按 ASIN 页应优先读取最近一次包含 ASIN 维度的有效快照。"""
+    db.save_analysis_run_snapshot(
+        product_id,
+        snapshot_rows=[{"term": "summary only", "term_type": "keyword"}],
+        run_source="manual",
+        summary={"negative_count": 0},
+    )
+    db.save_analysis_run_snapshot(
+        product_id,
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "term_type": "keyword",
+                "asin_identifier": "B0TESTASIN",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "auto_action": "negate",
+                "clicks": 12.0,
+                "orders": 1.0,
+                "spend": 18.5,
+                "sales": 42.0,
+                "confidence": 0.8,
+                "cvr": 1 / 12,
+                "acos": 18.5 / 42.0,
+            }
+        ],
+        run_source="manual",
+        summary={"negative_count": 1},
+    )
+
+    rows = _build_latest_snapshot_asin_rows(db, product_id)
+
+    assert rows is not None
+    assert rows[0]["asin_identifier"] == "B0TESTASIN"
     assert rows[0]["auto_action"] == "negate"
 
 
