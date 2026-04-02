@@ -1910,7 +1910,9 @@ div[data-testid="stPopoverBody"] {
     border: 1px solid rgba(148, 163, 184, 0.24) !important;
     padding: 16px 16px 14px !important;
     background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
-    overflow: hidden !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain !important;
 }
 
 div[data-testid="stPopoverBody"] > div,
@@ -1928,10 +1930,15 @@ div[data-testid="stPopoverBody"] [data-testid="stVerticalBlockBorderWrapper"] {
     border-radius: 18px !important;
     background: linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(239, 246, 255, 0.96) 100%) !important;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+    overflow: hidden !important;
 }
 
 div[data-testid="stPopoverBody"] [data-testid="stVerticalBlockBorderWrapper"] > div {
     padding: 0.35rem 0.45rem 0.35rem 0.5rem !important;
+}
+
+div[data-testid="stPopoverBody"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlock"] {
+    padding-right: 0.15rem !important;
 }
 
 div[data-testid="stPopoverBody"] [data-testid="stChatMessage"] {
@@ -2011,7 +2018,7 @@ div[data-testid="stPopoverBody"] .stButton > button {
 }
 
 .ai-chat-empty-state {
-    padding: 0.95rem 0.2rem 0.15rem;
+    padding: 0.55rem 0.2rem 0.15rem;
 }
 
 .ai-chat-empty-title {
@@ -2037,11 +2044,11 @@ div[data-testid="stPopoverBody"] .stButton > button {
 .ai-chat-quick-grid {
     display: grid;
     gap: 0.5rem;
-    margin-top: 0.35rem;
+    margin-top: 0.6rem;
 }
 
 .ai-chat-actions {
-    margin-top: 0.15rem;
+    margin-top: 0.1rem;
 }
 
 .ai-chat-thinking {

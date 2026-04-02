@@ -208,6 +208,19 @@ def test_queue_ai_message_sets_pending_generation_state():
     ]
 
 
+def test_get_ai_chat_panel_height_keeps_follow_up_input_visible():
+    """有历史消息时应缩短消息面板，为持续对话留出输入区空间。"""
+    from src.app import (
+        AI_CHAT_EMPTY_PANEL_HEIGHT,
+        AI_CHAT_MESSAGES_PANEL_HEIGHT,
+        _get_ai_chat_panel_height,
+    )
+
+    assert _get_ai_chat_panel_height(True) == AI_CHAT_EMPTY_PANEL_HEIGHT
+    assert _get_ai_chat_panel_height(False) == AI_CHAT_MESSAGES_PANEL_HEIGHT
+    assert AI_CHAT_MESSAGES_PANEL_HEIGHT < AI_CHAT_EMPTY_PANEL_HEIGHT + 40
+
+
 def test_backend_auth_shell_meta_describes_shared_login():
     """共享后端模式应先展示明确的团队登录壳文案。"""
     from src.app import _build_backend_auth_shell_meta

@@ -31,8 +31,8 @@ NAV_OPTIONS = [
 
 AI_CHAT_MAX_HISTORY = 50
 AI_CHAT_PENDING_TEXT = "AI 正在思考..."
-AI_CHAT_EMPTY_PANEL_HEIGHT = 230
-AI_CHAT_MESSAGES_PANEL_HEIGHT = 320
+AI_CHAT_EMPTY_PANEL_HEIGHT = 220
+AI_CHAT_MESSAGES_PANEL_HEIGHT = 248
 AI_CHAT_QUICK_PROMPTS = [
     ("分析我的销售趋势和ACOS", "帮我分析当前的ACOS情况和销售趋势"),
     ("查看需要否定的关键词", "分析哪些词需要否定"),
@@ -800,6 +800,11 @@ def _queue_ai_message(message: str) -> bool:
     return True
 
 
+def _get_ai_chat_panel_height(show_empty_state: bool) -> int:
+    """根据当前对话阶段返回消息面板高度，确保多轮对话时输入区仍留在首屏。"""
+    return AI_CHAT_EMPTY_PANEL_HEIGHT if show_empty_state else AI_CHAT_MESSAGES_PANEL_HEIGHT
+
+
 def _clear_ai_chat_history():
     """清理聊天历史与待处理状态。"""
     st.session_state.chat_messages = []
@@ -928,11 +933,7 @@ def _render_ai_chat_shell(
         unsafe_allow_html=True,
     )
 
-    panel_height = (
-        AI_CHAT_EMPTY_PANEL_HEIGHT
-        if view_state["show_empty_state"]
-        else AI_CHAT_MESSAGES_PANEL_HEIGHT
-    )
+    panel_height = _get_ai_chat_panel_height(view_state["show_empty_state"])
 
     with st.container(height=panel_height, border=True):
         if view_state["show_empty_state"]:
@@ -956,6 +957,14 @@ def _render_ai_chat_shell(
             if view_state["pending_message"]:
                 _render_ai_chat_message(view_state["pending_message"])
 
+    user_input = st.chat_input(
+        input_placeholder,
+        key=input_key,
+        disabled=view_state["input_disabled"],
+    )
+    if user_input and _queue_ai_message(user_input):
+        st.rerun()
+
     if view_state["show_action_bar"]:
         st.markdown('<div class="ai-chat-actions">', unsafe_allow_html=True)
         action_col1, action_col2 = st.columns(2)
@@ -978,14 +987,6 @@ def _render_ai_chat_shell(
                 _clear_ai_chat_history()
                 st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
-
-    user_input = st.chat_input(
-        input_placeholder,
-        key=input_key,
-        disabled=view_state["input_disabled"],
-    )
-    if user_input and _queue_ai_message(user_input):
-        st.rerun()
 
     if st.session_state.get("ai_chat_is_generating"):
         with st.spinner(AI_CHAT_PENDING_TEXT):
