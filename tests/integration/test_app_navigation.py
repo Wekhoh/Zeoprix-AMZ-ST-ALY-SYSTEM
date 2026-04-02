@@ -14,6 +14,7 @@ from src.backend.app import create_app
 from src.config.product_defaults import build_seeded_product_config
 from src.rules.engine import AnalysisResult
 from src.analysis.truth_replay import (
+    build_analysis_run_snapshot_rows,
     get_latest_analysis_run_diff_preview,
     get_latest_analysis_run_summary_delta,
 )
@@ -26,7 +27,11 @@ from src.ui.pages.analysis import (
     save_review_changes,
 )
 from src.ui.pages.analysis_asin import _build_asin_analysis_access_meta
-from src.ui.pages.analysis_campaign import _build_campaign_analysis_access_meta
+from src.ui.pages.analysis_campaign import (
+    _build_campaign_analysis_access_meta,
+    _build_latest_snapshot_campaign_rows,
+    _build_snapshot_campaign_rows,
+)
 from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summary_cards
 from src.ui.pages.actions import (
     _build_actions_access_meta,
@@ -1694,6 +1699,10 @@ def test_run_analysis_persists_snapshot_on_success(monkeypatch, db, product_id):
             "orders": 0.0,
             "spend": 8.5,
             "sales": 0.0,
+            "impressions": 0.0,
+            "confidence": 0.92,
+            "cvr": 0.0,
+            "acos": 0.0,
         }
     ]
 
@@ -1908,6 +1917,138 @@ def test_build_latest_snapshot_summary_rows_reads_latest_saved_snapshot(db, prod
     assert rows[0]["reviewed"] is True
     assert rows[0]["clicks"] == 7
     assert rows[0]["orders"] == 1
+
+
+def test_build_analysis_run_snapshot_rows_preserves_campaign_dimensions():
+    """成功分析快照应保留广告组与自动处理维度，供后续页面复用。"""
+
+    class _CampaignResult:
+        term = "travel pillow"
+        term_type = "keyword"
+        action_type = "negative_exact"
+        suggested_action = "否定精准"
+        triggered_rule = "高点击无转化"
+        campaign_id = "cmp-001"
+        campaign_name = "Brand Exact"
+        auto_action = "negate"
+        clicks = 12
+        orders = 0
+        spend = 18.5
+        sales = 0.0
+        confidence = 0.9
+        cvr = 0.0
+        acos = 0.0
+        data = {}
+
+    rows = build_analysis_run_snapshot_rows([_CampaignResult()])
+
+    assert rows == [
+        {
+            "term": "travel pillow",
+            "normalized_term": "travel pillow",
+            "term_type": "keyword",
+            "action_type": "negative_exact",
+            "suggested_action": "否定精准",
+            "triggered_rule": "高点击无转化",
+            "decision_source": "auto_suggestion",
+            "clicks": 12.0,
+            "orders": 0.0,
+            "spend": 18.5,
+            "sales": 0.0,
+            "impressions": 0.0,
+            "confidence": 0.9,
+            "cvr": 0.0,
+            "acos": 0.0,
+            "campaign_id": "cmp-001",
+            "campaign_name": "Brand Exact",
+            "auto_action": "negate",
+        }
+    ]
+
+
+def test_build_snapshot_campaign_rows_formats_latest_snapshot_for_campaign_view():
+    """最近一次有效快照应转换为按活动页可直接展示的数据结构。"""
+    rows = _build_snapshot_campaign_rows(
+        [
+            {
+                "term": "travel pillow",
+                "term_type": "keyword",
+                "campaign_id": "cmp-001",
+                "campaign_name": "Brand Exact",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "clicks": 12.0,
+                "orders": 1.0,
+                "spend": 18.5,
+                "sales": 42.0,
+                "confidence": 0.8,
+                "cvr": 1 / 12,
+                "acos": 18.5 / 42.0,
+            }
+        ]
+    )
+
+    assert rows == [
+        {
+            "term": "travel pillow",
+            "term_type": "keyword",
+            "campaign_id": "cmp-001",
+            "campaign_name": "Brand Exact",
+            "triggered_rule": "高点击无转化",
+            "suggested_action": "否定精准",
+            "auto_action": "negate",
+            "action_type": "negative_exact",
+            "confidence": 0.8,
+            "clicks": 12,
+            "orders": 1,
+            "spend": 18.5,
+            "sales": 42.0,
+            "cvr": 1 / 12,
+            "acos": 18.5 / 42.0,
+        }
+    ]
+
+
+def test_build_latest_snapshot_campaign_rows_reads_latest_saved_snapshot(db, product_id):
+    """按活动页应优先读取最近一次包含广告组维度的有效快照。"""
+    db.save_analysis_run_snapshot(
+        product_id,
+        snapshot_rows=[{"term": "summary only", "term_type": "keyword"}],
+        run_source="manual",
+        summary={"negative_count": 0},
+    )
+    db.save_analysis_run_snapshot(
+        product_id,
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "term_type": "keyword",
+                "campaign_id": "cmp-001",
+                "campaign_name": "Brand Exact",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "auto_action": "negate",
+                "clicks": 12.0,
+                "orders": 1.0,
+                "spend": 18.5,
+                "sales": 42.0,
+                "confidence": 0.8,
+                "cvr": 1 / 12,
+                "acos": 18.5 / 42.0,
+            }
+        ],
+        run_source="manual",
+        summary={"negative_count": 1},
+    )
+
+    rows = _build_latest_snapshot_campaign_rows(db, product_id)
+
+    assert rows is not None
+    assert rows[0]["campaign_id"] == "cmp-001"
+    assert rows[0]["campaign_name"] == "Brand Exact"
+    assert rows[0]["auto_action"] == "negate"
 
 
 def test_asin_analysis_hero_meta_matches_workbench_copy():

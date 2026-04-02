@@ -39,3 +39,5 @@
 - 2026-03-30: 验证补充：快照汇总回归 5 passed；全量 pytest 326 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
 - 2026-04-01: 已完成操作清单优先读取最近一次有效分析快照；无人工真值时，侧边栏执行数量、动作列表与导出结果都优先复用最近一次有效 snapshot，而不是退回实时分析。
 - 2026-04-01: 验证补充：操作清单快照回归 6 passed；全量 pytest 330 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
+- 2026-04-01: 已完成 snapshot 行字段扩展，成功分析后会保留 campaign_id / campaign_name / auto_action / confidence / cvr / acos 等维度，并让按活动页在无 truth-first 时优先读取最近一次有效分析快照。
+- 2026-04-01: 验证补充：按活动 snapshot 回归 5 passed；全量 pytest 333 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。

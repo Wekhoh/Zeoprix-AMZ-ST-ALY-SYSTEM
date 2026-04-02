@@ -3,6 +3,8 @@
 从 analysis.py 拆分
 """
 
+from typing import Any
+
 import pandas as pd
 import streamlit as st
 
@@ -48,6 +50,59 @@ def _matches_campaign_action_filter(action_type: str, filters: list[str]) -> boo
     return "evaluate" in filters
 
 
+def _build_snapshot_campaign_rows(snapshot_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """将最近一次有效快照转换为按活动页可直接消费的数据结构。"""
+    from src.analysis.truth_replay import action_type_to_auto_action
+
+    campaign_rows: list[dict[str, Any]] = []
+    for row in snapshot_rows:
+        campaign_id = str(row.get("campaign_id") or "").strip()
+        campaign_name = str(row.get("campaign_name") or "").strip()
+        if not campaign_id or not campaign_name:
+            continue
+
+        action_type = str(row.get("action_type") or "").strip()
+        campaign_rows.append(
+            {
+                "term": str(row.get("term") or "").strip(),
+                "term_type": str(row.get("term_type") or "keyword").strip() or "keyword",
+                "campaign_id": campaign_id,
+                "campaign_name": campaign_name,
+                "triggered_rule": str(row.get("triggered_rule") or "").strip(),
+                "suggested_action": str(row.get("suggested_action") or "").strip(),
+                "auto_action": str(row.get("auto_action") or "").strip()
+                or action_type_to_auto_action(action_type),
+                "action_type": action_type,
+                "confidence": float(row.get("confidence") or 0.0),
+                "clicks": int(float(row.get("clicks") or 0)),
+                "orders": int(float(row.get("orders") or 0)),
+                "spend": float(row.get("spend") or 0.0),
+                "sales": float(row.get("sales") or 0.0),
+                "cvr": float(row.get("cvr") or 0.0),
+                "acos": float(row.get("acos") or 0.0),
+            }
+        )
+
+    return sorted(
+        campaign_rows,
+        key=lambda item: (
+            {"negate": 0, "keep": 1, "observe": 2}.get(item.get("auto_action"), 3),
+            item.get("campaign_name", ""),
+            item.get("term", ""),
+        ),
+    )
+
+
+def _build_latest_snapshot_campaign_rows(db, product_id: int) -> list[dict[str, Any]] | None:
+    """按活动页优先读取最近一次包含广告组信息的有效快照。"""
+    snapshots = db.list_analysis_run_snapshots(product_id, limit=20)
+    for snapshot in snapshots:
+        rows = _build_snapshot_campaign_rows(snapshot.get("rows") or [])
+        if rows:
+            return rows
+    return None
+
+
 def render_campaign_analysis(db, product_id: int):
     """渲染按活动分析模式页面"""
     from src.rules.engine import analyze_search_terms_by_campaign
@@ -66,6 +121,8 @@ def render_campaign_analysis(db, product_id: int):
     if truth_rows is not None:
         _render_truth_first_campaign_analysis(truth_rows)
         return
+
+    snapshot_rows = _build_latest_snapshot_campaign_rows(db, product_id)
 
     # 筛选面板
     with st.expander("筛选条件", expanded=True):
@@ -113,39 +170,43 @@ def render_campaign_analysis(db, product_id: int):
                 key="campaign_search_term",
             )
 
-    # 获取按活动分析结果
-    with st.spinner("正在加载按活动分析数据..."):
-        try:
-            results = analyze_search_terms_by_campaign(db, product_id)
-        except Exception as e:
-            logger.error(f"按活动分析失败: {e}")
-            st.error(f"分析失败: {e}")
+    if snapshot_rows:
+        results_data = snapshot_rows
+    else:
+        # 获取按活动分析结果
+        with st.spinner("正在加载按活动分析数据..."):
+            try:
+                results = analyze_search_terms_by_campaign(db, product_id)
+            except Exception as e:
+                logger.error(f"按活动分析失败: {e}")
+                st.error(f"分析失败: {e}")
+                return
+
+        if not results:
+            st.info("暂无按活动分析结果。请先上传数据。")
             return
 
-    if not results:
-        st.info("暂无按活动分析结果。请先上传数据。")
-        return
-
-    # 转换为字典列表以便筛选
-    results_data = [
-        {
-            "term": r.term,
-            "term_type": r.term_type,
-            "campaign_id": r.campaign_id,
-            "campaign_name": r.campaign_name,
-            "triggered_rule": r.triggered_rule,
-            "suggested_action": r.suggested_action,
-            "auto_action": r.auto_action,
-            "action_type": r.action_type,
-            "confidence": r.confidence,
-            "clicks": r.clicks,
-            "orders": r.orders,
-            "spend": r.spend,
-            "cvr": r.cvr,
-            "acos": r.acos,
-        }
-        for r in results
-    ]
+        # 转换为字典列表以便筛选
+        results_data = [
+            {
+                "term": r.term,
+                "term_type": r.term_type,
+                "campaign_id": r.campaign_id,
+                "campaign_name": r.campaign_name,
+                "triggered_rule": r.triggered_rule,
+                "suggested_action": r.suggested_action,
+                "auto_action": r.auto_action,
+                "action_type": r.action_type,
+                "confidence": r.confidence,
+                "clicks": r.clicks,
+                "orders": r.orders,
+                "spend": r.spend,
+                "sales": getattr(r, "sales", 0.0),
+                "cvr": r.cvr,
+                "acos": r.acos,
+            }
+            for r in results
+        ]
 
     # 应用筛选
     filtered_results = results_data

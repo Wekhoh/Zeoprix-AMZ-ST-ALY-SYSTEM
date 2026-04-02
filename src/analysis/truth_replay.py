@@ -575,23 +575,39 @@ def build_analysis_run_snapshot_rows(results: list[Any]) -> list[dict[str, Any]]
         if not normalized_term:
             continue
 
-        snapshot_rows.append(
-            {
-                "term": term,
-                "normalized_term": normalized_term,
-                "term_type": _normalize_text(getattr(result, "term_type", "")) or "keyword",
-                "action_type": _normalize_text(getattr(result, "action_type", "")),
-                "suggested_action": _normalize_text(
-                    getattr(result, "suggested_action", "")
-                ),
-                "triggered_rule": _normalize_text(getattr(result, "triggered_rule", "")),
-                "decision_source": _snapshot_decision_source(result),
-                "clicks": _snapshot_numeric_metric(result, "total_clicks", "clicks"),
-                "orders": _snapshot_numeric_metric(result, "total_orders", "orders"),
-                "spend": _snapshot_numeric_metric(result, "total_spend", "spend"),
-                "sales": _snapshot_numeric_metric(result, "total_sales", "sales"),
-            }
-        )
+        snapshot_row = {
+            "term": term,
+            "normalized_term": normalized_term,
+            "term_type": _normalize_text(getattr(result, "term_type", "")) or "keyword",
+            "action_type": _normalize_text(getattr(result, "action_type", "")),
+            "suggested_action": _normalize_text(getattr(result, "suggested_action", "")),
+            "triggered_rule": _normalize_text(getattr(result, "triggered_rule", "")),
+            "decision_source": _snapshot_decision_source(result),
+            "clicks": _snapshot_numeric_metric(result, "total_clicks", "clicks"),
+            "orders": _snapshot_numeric_metric(result, "total_orders", "orders"),
+            "spend": _snapshot_numeric_metric(result, "total_spend", "spend"),
+            "sales": _snapshot_numeric_metric(result, "total_sales", "sales"),
+            "impressions": _snapshot_numeric_metric(result, "impressions", "impressions"),
+            "confidence": float(getattr(result, "confidence", 0.0) or 0.0),
+            "cvr": _snapshot_numeric_metric(result, "cvr", "cvr"),
+            "acos": _snapshot_numeric_metric(result, "acos", "acos"),
+        }
+
+        campaign_id = _normalize_text(getattr(result, "campaign_id", ""))
+        campaign_name = _normalize_text(getattr(result, "campaign_name", ""))
+        asin_identifier = _normalize_text(getattr(result, "asin_identifier", ""))
+        auto_action = _normalize_text(getattr(result, "auto_action", ""))
+
+        if campaign_id:
+            snapshot_row["campaign_id"] = campaign_id
+        if campaign_name:
+            snapshot_row["campaign_name"] = campaign_name
+        if asin_identifier:
+            snapshot_row["asin_identifier"] = asin_identifier
+        if auto_action:
+            snapshot_row["auto_action"] = auto_action
+
+        snapshot_rows.append(snapshot_row)
 
     return sorted(
         snapshot_rows,
