@@ -28,7 +28,13 @@ from src.ui.pages.analysis import (
 from src.ui.pages.analysis_asin import _build_asin_analysis_access_meta
 from src.ui.pages.analysis_campaign import _build_campaign_analysis_access_meta
 from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summary_cards
-from src.ui.pages.actions import _build_actions_access_meta, _build_actions_workbench_meta
+from src.ui.pages.actions import (
+    _build_actions_access_meta,
+    _build_actions_workbench_meta,
+    _build_snapshot_action_buckets,
+    _get_export_results,
+    _get_latest_snapshot_action_context,
+)
 from src.ui.pages.home import (
     _build_dashboard_metric_cards,
     _build_overview_chart_rows,
@@ -1976,6 +1982,176 @@ def test_actions_workbench_meta_surfaces_execute_vs_review_counts():
             "待人工拍板 18 项",
         ],
     }
+
+
+def test_actions_workbench_meta_uses_snapshot_fallback_counts_without_truth():
+    """操作清单页在没有人工真值时，也应能透出最近一次有效快照的执行数量。"""
+    meta = _build_actions_workbench_meta(
+        "桌面验收产品",
+        {},
+        {"conflict_count": 4},
+        fallback_counts={"negative": 12, "manual": 5, "conflict": 4},
+    )
+
+    assert meta["chips"] == [
+        "可直接否定 12 项",
+        "可直接投放 5 项",
+        "待人工拍板 4 项",
+    ]
+
+
+def test_build_snapshot_action_buckets_classifies_latest_snapshot_rows():
+    """最近一次有效快照应被稳定拆成操作清单需要的各个分桶。"""
+    buckets = _build_snapshot_action_buckets(
+        [
+            {
+                "term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高花费低转化否定精准",
+                "clicks": 12,
+                "orders": 0,
+                "spend": 18.5,
+                "sales": 0,
+            },
+            {
+                "term": "travel pillow memory foam",
+                "term_type": "keyword",
+                "action_type": "negative_phrase",
+                "suggested_action": "否定词组",
+                "triggered_rule": "高点击低订单否定词组",
+            },
+            {
+                "term": "B0NEG12345",
+                "term_type": "asin",
+                "action_type": "negative_exact",
+                "suggested_action": "商品否定",
+                "triggered_rule": "高花费商品否定",
+            },
+            {
+                "term": "best neck pillow",
+                "term_type": "keyword",
+                "action_type": "manual_exact",
+                "suggested_action": "手动精准",
+                "triggered_rule": "高转化词移到精准",
+            },
+            {
+                "term": "B0MANUAL99",
+                "term_type": "asin",
+                "action_type": "manual_product",
+                "suggested_action": "手动商品定位",
+                "triggered_rule": "高转化ASIN拉商品定位",
+            },
+            {
+                "term": "conflicted keyword",
+                "term_type": "keyword",
+                "action_type": "conflict",
+                "suggested_action": "跨快照分歧",
+                "triggered_rule": "最近一次分析冲突",
+            },
+        ]
+    )
+
+    assert [item["term"] for item in buckets["negative_keyword_exact"]] == [
+        "travel pillow"
+    ]
+    assert [item["term"] for item in buckets["negative_keyword_phrase"]] == [
+        "travel pillow memory foam"
+    ]
+    assert [item["term"] for item in buckets["negative_asin"]] == ["B0NEG12345"]
+    assert [item["term"] for item in buckets["manual_keywords"]] == [
+        "best neck pillow"
+    ]
+    assert [item["term"] for item in buckets["manual_products"]] == ["B0MANUAL99"]
+    assert [item["term"] for item in buckets["cross_asin_conflicts"]] == [
+        "conflicted keyword"
+    ]
+    assert buckets["manual_keywords"][0]["auto_action"] == "keep"
+
+
+def test_get_latest_snapshot_action_context_reads_latest_saved_snapshot(
+    db, product_id
+):
+    """操作清单页应优先读取最近一次有效快照，避免继续实时重算。"""
+    db.save_analysis_run_snapshot(
+        product_id,
+        snapshot_rows=[],
+        run_source="manual",
+        summary={"negative": 0, "manual": 0, "conflict": 0},
+    )
+    db.save_analysis_run_snapshot(
+        product_id,
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高花费低转化否定精准",
+                "clicks": 7,
+                "orders": 0,
+                "spend": 12.3,
+                "sales": 0,
+            },
+            {
+                "term": "best neck pillow",
+                "term_type": "keyword",
+                "action_type": "manual_exact",
+                "suggested_action": "手动精准",
+                "triggered_rule": "高转化词移到精准",
+            },
+        ],
+        run_source="manual",
+        summary={"negative": 1, "manual": 1, "conflict": 0},
+    )
+
+    context = _get_latest_snapshot_action_context(db, product_id)
+
+    assert context is not None
+    assert context["counts"] == {"negative": 1, "manual": 1, "conflict": 0}
+    assert context["pending_stats"]["conflict_count"] == 0
+    assert [item["term"] for item in context["buckets"]["negative_keyword_exact"]] == [
+        "travel pillow"
+    ]
+    assert [item["term"] for item in context["buckets"]["manual_keywords"]] == [
+        "best neck pillow"
+    ]
+
+
+def test_get_export_results_prefers_latest_snapshot_when_truth_missing(
+    monkeypatch, db, product_id
+):
+    """没有人工真值时，导出应优先复用最近一次有效快照，而不是退回实时分析。"""
+    db.save_analysis_run_snapshot(
+        product_id,
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高花费低转化否定精准",
+                "clicks": 6,
+                "orders": 0,
+                "spend": 9.8,
+                "sales": 0,
+            }
+        ],
+        run_source="manual",
+        summary={"negative": 1, "manual": 0, "conflict": 0},
+    )
+
+    monkeypatch.setattr(
+        "src.ui.pages.actions.analyze_search_terms",
+        lambda *_args, **_kwargs: pytest.fail("不应在存在有效快照时回退到实时分析"),
+    )
+
+    results = _get_export_results(db, product_id, "negative")
+
+    assert len(results) == 1
+    assert results[0].term == "travel pillow"
+    assert results[0].action_type == "negative_exact"
 
 
 def test_review_dashboard_state_and_empty_state_copy():

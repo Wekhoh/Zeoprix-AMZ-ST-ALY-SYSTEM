@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from src.analysis.truth_replay import (
+    action_type_to_auto_action,
     get_truth_first_action_buckets,
     get_truth_first_pending_stats,
 )
@@ -149,6 +150,7 @@ def _build_actions_workbench_meta(
     product_name: str,
     truth_buckets: dict | None,
     pending_stats: dict | None = None,
+    fallback_counts: dict[str, int] | None = None,
 ) -> dict[str, str | list[str]]:
     """构建操作清单页的工作台文案与核心数量。"""
     counts = {
@@ -156,6 +158,14 @@ def _build_actions_workbench_meta(
         "manual": 0,
         "conflict": 0,
     }
+    if fallback_counts:
+        counts.update(
+            {
+                "negative": int(fallback_counts.get("negative", counts["negative"])),
+                "manual": int(fallback_counts.get("manual", counts["manual"])),
+                "conflict": int(fallback_counts.get("conflict", counts["conflict"])),
+            }
+        )
     if truth_buckets:
         counts["negative"] = sum(
             len(truth_buckets.get(key, []))
@@ -182,16 +192,166 @@ def _build_actions_workbench_meta(
     }
 
 
+def _build_snapshot_action_buckets(
+    snapshot_rows: list[dict] | None,
+) -> dict[str, list[dict[str, object]]]:
+    """将最近一次有效分析快照转换为操作清单分桶。"""
+    buckets: dict[str, list[dict[str, object]]] = {
+        "negative_keyword_exact": [],
+        "negative_keyword_phrase": [],
+        "negative_asin": [],
+        "manual_keywords": [],
+        "manual_products": [],
+        "cross_asin_conflicts": [],
+    }
+    if not snapshot_rows:
+        return buckets
+
+    for row in snapshot_rows:
+        action_type = str(row.get("action_type") or "")
+        term = row.get("term")
+        term_type = row.get("term_type")
+        if not term or not action_type:
+            continue
+
+        item = {
+            "term": term,
+            "term_type": term_type,
+            "triggered_rule": row.get("triggered_rule") or "规则分析快照",
+            "suggested_action": row.get("suggested_action") or "观察",
+            "action_type": action_type,
+            "auto_action": row.get("auto_action")
+            or action_type_to_auto_action(action_type),
+            "confidence": float(row.get("confidence") or 1.0),
+            "spend": float(row.get("spend") or 0),
+            "clicks": int(row.get("clicks") or 0),
+            "orders": int(row.get("orders") or 0),
+            "sales": float(row.get("sales") or 0),
+        }
+
+        if action_type == "conflict":
+            buckets["cross_asin_conflicts"].append(item)
+            continue
+
+        if action_type.startswith("negative"):
+            if term_type == "asin":
+                buckets["negative_asin"].append(item)
+            elif action_type == "negative_phrase":
+                buckets["negative_keyword_phrase"].append(item)
+            else:
+                buckets["negative_keyword_exact"].append(item)
+            continue
+
+        if action_type.startswith("manual"):
+            if term_type == "asin":
+                buckets["manual_products"].append(item)
+            else:
+                buckets["manual_keywords"].append(item)
+
+    return buckets
+
+
+def _build_snapshot_pending_stats(snapshot_summary: dict | None) -> dict[str, int]:
+    """基于最近一次有效快照的 summary 生成待处理统计。"""
+    snapshot_summary = snapshot_summary or {}
+    return {
+        "negative_count": int(snapshot_summary.get("negative", 0) or 0),
+        "manual_count": int(snapshot_summary.get("manual", 0) or 0),
+        "conflict_count": int(snapshot_summary.get("conflict", 0) or 0),
+        "ai_pending_count": 0,
+        "review_pending_count": 0,
+    }
+
+
+def _get_latest_snapshot_action_context(
+    db,
+    product_id: int,
+) -> dict[str, object] | None:
+    """读取最近一次有效分析快照，为操作清单提供统一结果源。"""
+    for snapshot in db.list_analysis_run_snapshots(product_id, limit=20):
+        snapshot_rows = snapshot.get("rows") or []
+        if not snapshot_rows:
+            continue
+
+        buckets = _build_snapshot_action_buckets(snapshot_rows)
+        summary = snapshot.get("summary") or {}
+        counts = {
+            "negative": int(summary.get("negative", 0) or 0),
+            "manual": int(summary.get("manual", 0) or 0),
+            "conflict": int(summary.get("conflict", 0) or 0),
+        }
+        if not any(counts.values()):
+            counts["negative"] = sum(
+                len(buckets[key])
+                for key in (
+                    "negative_keyword_exact",
+                    "negative_keyword_phrase",
+                    "negative_asin",
+                )
+            )
+            counts["manual"] = len(buckets["manual_keywords"]) + len(
+                buckets["manual_products"]
+            )
+            counts["conflict"] = len(buckets["cross_asin_conflicts"])
+
+        return {
+            "buckets": buckets,
+            "counts": counts,
+            "pending_stats": _build_snapshot_pending_stats(summary or counts),
+            "snapshot": snapshot,
+        }
+
+    return None
+
+
+def _build_export_results_from_bucket_items(
+    bucket_items: list[dict[str, object]],
+) -> list[AnalysisResult]:
+    """将页面桶内条目转换为导出器需要的 AnalysisResult。"""
+    export_results: list[AnalysisResult] = []
+    for item in bucket_items:
+        export_results.append(
+            AnalysisResult(
+                term=str(item["term"]),
+                term_type=str(item["term_type"]),
+                triggered_rule=str(item.get("triggered_rule") or "规则分析快照"),
+                suggested_action=str(item.get("suggested_action") or "观察"),
+                action_type=str(item.get("action_type") or "observe"),
+                confidence=float(item.get("confidence") or 1.0),
+                need_ai_judgment=False,
+                data={
+                    "total_spend": float(item.get("spend") or 0),
+                    "total_clicks": int(item.get("clicks") or 0),
+                    "total_orders": int(item.get("orders") or 0),
+                    "total_sales": float(item.get("sales") or 0),
+                },
+            )
+        )
+    return export_results
+
+
 def _get_export_results(db, product_id: int, export_kind: str) -> list[AnalysisResult]:
     """返回与页面 truth bucket 一致的导出结果。"""
     truth_buckets = get_truth_first_action_buckets(db, product_id)
     if truth_buckets is None:
-        results = analyze_search_terms(db, product_id)
-        if export_kind == "negative":
-            return [r for r in results if r.action_type and r.action_type.startswith("negative")]
-        if export_kind == "manual":
-            return [r for r in results if r.action_type and r.action_type.startswith("manual")]
-        return results
+        snapshot_context = _get_latest_snapshot_action_context(db, product_id)
+        if snapshot_context is not None:
+            truth_buckets = snapshot_context["buckets"]
+        else:
+            results = analyze_search_terms(db, product_id)
+            if export_kind == "negative":
+                return [
+                    r
+                    for r in results
+                    if r.action_type and r.action_type.startswith("negative")
+                ]
+            if export_kind == "manual":
+                return [
+                    r
+                    for r in results
+                    if r.action_type and r.action_type.startswith("manual")
+                ]
+            return results
 
     bucket_groups = {
         "negative": (
@@ -202,29 +362,12 @@ def _get_export_results(db, product_id: int, export_kind: str) -> list[AnalysisR
         "manual": ("manual_keywords", "manual_products"),
     }
     selected_keys = bucket_groups.get(export_kind, ())
-    export_results: list[AnalysisResult] = []
-
-    for bucket_key in selected_keys:
-        for item in truth_buckets.get(bucket_key, []):
-            export_results.append(
-                AnalysisResult(
-                    term=item["term"],
-                    term_type=item["term_type"],
-                    triggered_rule=item.get("triggered_rule", "人工已审核回放"),
-                    suggested_action=item.get("suggested_action", "观察"),
-                    action_type=item.get("action_type", "observe"),
-                    confidence=item.get("confidence", 1.0),
-                    need_ai_judgment=False,
-                    data={
-                        "total_spend": item.get("spend", 0),
-                        "total_clicks": item.get("clicks", 0),
-                        "total_orders": item.get("orders", 0),
-                        "total_sales": item.get("sales", 0),
-                    },
-                )
-            )
-
-    return export_results
+    bucket_items = [
+        item
+        for bucket_key in selected_keys
+        for item in truth_buckets.get(bucket_key, [])
+    ]
+    return _build_export_results_from_bucket_items(bucket_items)
 
 
 def _get_export_payload(db, product_id: int, export_kind: str, export_format: str):
@@ -271,9 +414,24 @@ def render_actions():
     # 获取产品信息
     product = db.get_product(product_id)
     product_name = product.get("name", "未知产品") if product else "未知产品"
-    truth_buckets = get_truth_first_action_buckets(db, product_id) or {}
+    truth_buckets = get_truth_first_action_buckets(db, product_id)
     pending_stats = get_truth_first_pending_stats(db, product_id)
-    meta = _build_actions_workbench_meta(product_name, truth_buckets, pending_stats)
+    snapshot_context = None
+    fallback_counts = None
+    action_buckets = truth_buckets or {}
+    if truth_buckets is None:
+        snapshot_context = _get_latest_snapshot_action_context(db, product_id)
+        if snapshot_context is not None:
+            action_buckets = snapshot_context["buckets"]
+            pending_stats = snapshot_context["pending_stats"]
+            fallback_counts = snapshot_context["counts"]
+
+    meta = _build_actions_workbench_meta(
+        product_name,
+        action_buckets,
+        pending_stats,
+        fallback_counts=fallback_counts,
+    )
     access_context = _resolve_actions_role_context(db, product_id)
     access_meta = _build_actions_access_meta(access_context["current_role"])
 
@@ -313,16 +471,36 @@ def render_actions():
     tab1, tab2, tab3 = st.tabs(["否词操作", "手动投放", "操作历史"])
 
     with tab1:
-        render_negative_actions(db, product_id, can_export=bool(access_meta["can_export"]))
+        render_negative_actions(
+            db,
+            product_id,
+            can_export=bool(access_meta["can_export"]),
+            action_buckets=action_buckets
+            if (truth_buckets is not None or snapshot_context)
+            else None,
+        )
 
     with tab2:
-        render_manual_actions(db, product_id, can_export=bool(access_meta["can_export"]))
+        render_manual_actions(
+            db,
+            product_id,
+            can_export=bool(access_meta["can_export"]),
+            action_buckets=action_buckets
+            if (truth_buckets is not None or snapshot_context)
+            else None,
+        )
 
     with tab3:
         render_action_history(db, product_id)
 
 
-def render_negative_actions(db, product_id: int, *, can_export: bool = True):
+def render_negative_actions(
+    db,
+    product_id: int,
+    *,
+    can_export: bool = True,
+    action_buckets: dict[str, list[dict[str, object]]] | None = None,
+):
     """渲染否词操作清单"""
     st.write("### 待否定关键词")
     st.markdown(
@@ -330,11 +508,10 @@ def render_negative_actions(db, product_id: int, *, can_export: bool = True):
         unsafe_allow_html=True,
     )
 
-    truth_buckets = get_truth_first_action_buckets(db, product_id)
-    if truth_buckets is not None:
-        exact_negatives = truth_buckets["negative_keyword_exact"]
-        phrase_negatives = truth_buckets["negative_keyword_phrase"]
-        product_negatives = truth_buckets["negative_asin"]
+    if action_buckets is not None:
+        exact_negatives = action_buckets["negative_keyword_exact"]
+        phrase_negatives = action_buckets["negative_keyword_phrase"]
+        product_negatives = action_buckets["negative_asin"]
     else:
         # 使用实时分析结果（与搜索词分析页面保持一致）
         analysis_results = analyze_search_terms(db, product_id)
@@ -490,7 +667,13 @@ def render_negative_actions(db, product_id: int, *, can_export: bool = True):
             st.button("导出否词CSV（批量上传格式）", disabled=True, width="stretch")
 
 
-def render_manual_actions(db, product_id: int, *, can_export: bool = True):
+def render_manual_actions(
+    db,
+    product_id: int,
+    *,
+    can_export: bool = True,
+    action_buckets: dict[str, list[dict[str, object]]] | None = None,
+):
     """渲染手动投放操作清单"""
     st.write("### 推荐手动投放")
     st.markdown(
@@ -498,10 +681,9 @@ def render_manual_actions(db, product_id: int, *, can_export: bool = True):
         unsafe_allow_html=True,
     )
 
-    truth_buckets = get_truth_first_action_buckets(db, product_id)
-    if truth_buckets is not None:
-        manual_keywords = truth_buckets["manual_keywords"]
-        manual_products = truth_buckets["manual_products"]
+    if action_buckets is not None:
+        manual_keywords = action_buckets["manual_keywords"]
+        manual_products = action_buckets["manual_products"]
     else:
         analysis_results = analyze_search_terms(db, product_id)
         if not analysis_results:
