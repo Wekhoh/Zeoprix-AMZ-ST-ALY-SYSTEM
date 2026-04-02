@@ -15,7 +15,7 @@ import streamlit as st
 from src.config.logger import get_logger
 from src.config.settings import Settings
 from src.data.db import Database
-from src.ui.styles import inject_global_styles
+from src.ui.styles import inject_ai_assistant_styles, inject_global_styles
 
 logger = get_logger(__name__)
 
@@ -27,6 +27,15 @@ NAV_OPTIONS = [
     "操作清单",
     "相关性审核",
     "系统设置",
+]
+
+AI_CHAT_MAX_HISTORY = 50
+AI_CHAT_PENDING_TEXT = "AI 正在思考..."
+AI_CHAT_QUICK_PROMPTS = [
+    ("分析我的销售趋势和ACOS", "帮我分析当前的ACOS情况和销售趋势"),
+    ("查看需要否定的关键词", "分析哪些词需要否定"),
+    ("推荐手动投放的关键词", "有哪些词值得手动投放"),
+    ("优化广告投放建议", "给我一些广告优化建议"),
 ]
 
 # 页面配置
@@ -59,6 +68,12 @@ def init_session_state():
 
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
+    if "ai_chat_is_generating" not in st.session_state:
+        st.session_state.ai_chat_is_generating = False
+    if "ai_chat_pending_prompt" not in st.session_state:
+        st.session_state.ai_chat_pending_prompt = None
+    if "ai_chat_last_prompt" not in st.session_state:
+        st.session_state.ai_chat_last_prompt = None
 
     _ensure_current_user_context(st.session_state.db)
 
@@ -660,464 +675,162 @@ def render_sidebar():
         return st.session_state.nav_page
 
 
-def render_sidebar_ai_assistant():
-    """在侧边栏渲染AI助手（参考Amazon Seller Assistant风格）"""
-    # AI助手样式 - 参考Amazon Seller Assistant设计
-    st.markdown(
-        """
-    <style>
-    /* ===== AI助手Popover - Amazon风格 - 宽敞布局 ===== */
-    div[data-testid="stPopoverBody"] {
-        width: 420px !important;
-        min-height: auto !important;
-        max-height: 85vh !important;
-        height: auto !important;
-        border-radius: 12px !important;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15) !important;
-        border: 1px solid #d5d9d9 !important;
-        padding: 20px 24px !important;
-        background: #ffffff !important;
-        overflow-y: auto !important;
-        overflow-x: hidden !important;
+def _normalize_ai_chat_message(message: dict) -> dict:
+    """标准化 AI 对话消息结构，统一状态与重试字段。"""
+    return {
+        "role": message.get("role", "assistant"),
+        "content": (message.get("content") or "").strip(),
+        "status": message.get("status", "default"),
+        "can_retry": bool(message.get("can_retry", False)),
+        "retry_prompt": message.get("retry_prompt"),
     }
 
-    /* ===== 关键修复：覆盖Streamlit的.st-f3类的max-height限制 ===== */
-    .st-f3,
-    div.st-f3,
-    [data-testid="stPopoverBody"].st-f3,
-    div[data-testid="stPopoverBody"].st-f3 {
-        max-height: 85vh !important;
-        height: auto !important;
-        overflow-y: auto !important;
-    }
 
-    /* 强制覆盖所有内部容器的高度限制 */
-    div[data-testid="stPopoverBody"] > div,
-    div[data-testid="stPopoverBody"] > div > div,
-    div[data-testid="stPopoverBody"] > div > div > div,
-    div[data-testid="stPopoverBody"] > div > div > div > div {
-        background: transparent !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        max-height: none !important;
-        height: auto !important;
-        overflow: visible !important;
-    }
-
-    /* Streamlit内部元素覆盖 - 增加垂直间距 */
-    div[data-testid="stPopoverBody"] [data-testid="stVerticalBlock"] {
-        gap: 8px !important;
-    }
-
-    /* ===== Chat Input 样式 - Amazon风格 - 更宽敞 ===== */
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] {
-        margin-top: 20px !important;
-        padding: 0 !important;
-        border-top: 1px solid #e7e7e7 !important;
-        padding-top: 16px !important;
-    }
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] textarea {
-        font-size: 15px !important;
-        min-height: 50px !important;
-        border-radius: 25px !important;
-        border: 1px solid #d5d9d9 !important;
-        padding: 12px 18px !important;
-        outline: none !important;
-        box-shadow: none !important;
-    }
-    /* 去掉输入框聚焦时的蓝色边框 - 全面覆盖 */
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] textarea:focus,
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] textarea:focus-visible,
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] textarea:active {
-        border: 1px solid #d5d9d9 !important;
-        outline: none !important;
-        outline-width: 0 !important;
-        box-shadow: none !important;
-    }
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] > div,
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] > div > div {
-        border: none !important;
-        box-shadow: none !important;
-        outline: none !important;
-    }
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] > div:focus-within,
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] > div > div:focus-within {
-        border: none !important;
-        box-shadow: none !important;
-        outline: none !important;
-    }
-    /* 去掉Streamlit默认的蓝色左侧指示线和所有伪元素 */
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"]::before,
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"]::after,
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] > div::before,
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] > div::after,
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] *::before,
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] *::after {
-        display: none !important;
-        background: transparent !important;
-        border: none !important;
-    }
-    div[data-testid="stPopoverBody"] [data-testid="stChatInputTextArea"] {
-        border-left: none !important;
-        outline: none !important;
-    }
-    /* 覆盖Streamlit的.st-emotion-cache类focus样式 */
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] [class*="st-emotion-cache"]:focus,
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] [class*="st-emotion-cache"]:focus-within {
-        border-color: #d5d9d9 !important;
-        box-shadow: none !important;
-        outline: none !important;
-    }
-    /* 发送按钮 - 蓝色背景+白色箭头 */
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] button {
-        background: #2563EB !important;
-        border-radius: 50% !important;
-        width: 44px !important;
-        height: 44px !important;
-        border: none !important;
-    }
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] button svg {
-        fill: #ffffff !important;
-        color: #ffffff !important;
-    }
-    div[data-testid="stPopoverBody"] [data-testid="stChatInput"] button path {
-        fill: #ffffff !important;
-    }
-
-    /* ===== 标题区域 - Amazon风格 ===== */
-    .ai-header {
-        margin-bottom: 16px !important;
-        padding-bottom: 12px !important;
-        border-bottom: 1px solid #e7e7e7 !important;
-    }
-    .ai-header-title {
-        font-size: 16px !important;
-        font-weight: 700 !important;
-        color: #0f1111 !important;
-        margin: 0 0 2px 0 !important;
-    }
-    .ai-header-subtitle {
-        font-size: 11px !important;
-        color: #565959 !important;
-        margin: 0 !important;
-    }
-
-    /* ===== 内容区域 ===== */
-    .ai-content {
-        padding: 0 !important;
-    }
-
-    /* ===== 欢迎消息 - Amazon风格 - 宽敞间距 ===== */
-    .ai-welcome {
-        font-size: 15px !important;
-        color: #0f1111 !important;
-        line-height: 1.7 !important;
-        margin: 0 0 28px 0 !important;
-    }
-
-    /* ===== 快捷问题标签 ===== */
-    .ai-prompt-text {
-        font-size: 15px !important;
-        font-weight: 700 !important;
-        color: #0f1111 !important;
-        margin: 0 0 20px 0 !important;
-    }
-
-    /* ===== 快捷按钮容器 ===== */
-    .quick-link-btn {
-        margin: 0 0 14px 0 !important;
-        padding: 0 !important;
-    }
-    .quick-link-btn > div {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-
-    /* ===== 快捷按钮样式 - Amazon橙色边框风格 ===== */
-    .quick-link-btn button,
-    div[data-testid="stPopoverBody"] .stButton button {
-        background: #ffffff !important;
-        color: #007185 !important;
-        border: 1px solid #ff9900 !important;
-        border-radius: 8px !important;
-        font-size: 14px !important;
-        font-weight: 400 !important;
-        padding: 10px 14px !important;
-        text-align: left !important;
-        justify-content: flex-start !important;
-        margin: 0 !important;
-        width: 100% !important;
-        min-height: 42px !important;
-        height: auto !important;
-        transition: all 0.15s ease !important;
-        box-shadow: none !important;
-    }
-    .quick-link-btn button:hover,
-    div[data-testid="stPopoverBody"] .stButton button:hover {
-        background: #232f3e !important;
-        color: #ffffff !important;
-        border-color: #ff9900 !important;
-    }
-    /* Hover时按钮内部文字强制白色 - 高对比度 */
-    .quick-link-btn button:hover p,
-    .quick-link-btn button:hover span,
-    .quick-link-btn button:hover div,
-    div[data-testid="stPopoverBody"] .stButton button:hover p,
-    div[data-testid="stPopoverBody"] .stButton button:hover span,
-    div[data-testid="stPopoverBody"] .stButton button:hover div {
-        color: #ffffff !important;
-    }
-    .quick-link-btn button p {
-        margin: 0 !important;
-        text-align: left !important;
-        color: #007185 !important;
-    }
-
-    /* ===== 消息容器 ===== */
-    div[data-testid="stPopoverBody"] [data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 8px !important;
-        border: 1px solid #e7e7e7 !important;
-        background: #f7f8f8 !important;
-        margin: 8px 0 !important;
-    }
-    div[data-testid="stPopoverBody"] [data-testid="stVerticalBlockBorderWrapper"] > div {
-        padding: 8px !important;
-    }
-
-    /* ===== 聊天消息 ===== */
-    div[data-testid="stPopoverBody"] [data-testid="stChatMessage"] {
-        padding: 6px 0 !important;
-        margin: 0 !important;
-        font-size: 14px !important;
-        background: transparent !important;
-    }
-
-    /* ===== 底部提示 - Amazon风格 ===== */
-    .ai-disclaimer {
-        font-size: 11px !important;
-        color: #565959 !important;
-        text-align: center !important;
-        padding: 8px 0 0 0 !important;
-        margin: 0 !important;
-    }
-
-    /* ===== Info消息 ===== */
-    div[data-testid="stPopoverBody"] [data-testid="stAlert"] {
-        background: #f7f8f8 !important;
-        border: 1px solid #e7e7e7 !important;
-        border-radius: 8px !important;
-        padding: 10px 12px !important;
-        color: #0f1111 !important;
-        font-size: 14px !important;
-        margin: 0 !important;
-    }
-
-    /* 分割线 */
-    div[data-testid="stPopoverBody"] hr {
-        margin: 10px 0 !important;
-        border: none !important;
-        height: 1px !important;
-        background: #e7e7e7 !important;
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # 使用popover弹出对话框
-    with st.popover("AI助手", width="stretch"):
-        # 标题区域
-        st.markdown(
-            """
-        <div class="ai-header">
-            <div>
-                <div class="ai-header-title">AI助手</div>
-                <div class="ai-header-subtitle">Powered by AI</div>
-            </div>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
-        # 内容区域
-        st.markdown('<div class="ai-content">', unsafe_allow_html=True)
-
-        # 欢迎消息或对话历史
-        if not st.session_state.chat_messages:
-            st.markdown(
-                """
-            <p class="ai-welcome">你好，我是你的广告分析助手 - 帮助你通过数据洞察和专业建议优化广告投放。</p>
-            <p class="ai-prompt-text">向我提问或选择以下主题开始：</p>
-            """,
-                unsafe_allow_html=True,
-            )
-
-            # 快捷问题 - 4个完整问题，Amazon风格
-            quick_questions = [
-                ("分析我的销售趋势和ACOS", "帮我分析当前的ACOS情况和销售趋势"),
-                ("查看需要否定的关键词", "分析哪些词需要否定"),
-                ("推荐手动投放的关键词", "有哪些词值得手动投放"),
-                ("优化广告投放建议", "给我一些广告优化建议"),
-            ]
-
-            for i, (label, question) in enumerate(quick_questions):
-                st.markdown('<div class="quick-link-btn">', unsafe_allow_html=True)
-                if st.button(label, key=f"ai_quick_{i}", width="stretch"):
-                    _process_ai_message(question)
-                st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            # 消息历史 - 可滚动区域
-            messages_container = st.container(height=250)
-            with messages_container:
-                for msg in st.session_state.chat_messages[-8:]:
-                    with st.chat_message(msg["role"]):
-                        st.write(msg["content"])
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # 使用chat_input - 自带发送按钮
-        user_input = st.chat_input("Message AI助手...", key="ai_chat_input")
-        if user_input:
-            _process_ai_message(user_input)
-
-        # 底部提示
-        st.markdown(
-            '<p class="ai-disclaimer">AI助手仍在学习中，请仔细核实建议。</p>',
-            unsafe_allow_html=True,
-        )
-
-
-def render_floating_ai_assistant():
-    """渲染浮动AI助手按钮和弹出对话框"""
-    # 浮动按钮样式 - 现代SaaS风格深蓝配色
-    st.markdown(
-        """
-    <style>
-    /* 浮动按钮容器 */
-    div[data-testid="stPopover"] {
-        position: fixed !important;
-        bottom: 24px !important;
-        right: 24px !important;
-        z-index: 9999 !important;
-    }
-    /* 浮动按钮本体 */
-    div[data-testid="stPopover"] > button {
-        position: relative !important;
-        width: 56px !important;
-        height: 56px !important;
-        border-radius: 12px !important;
-        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
-        color: white !important;
-        border: none !important;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
-        font-size: 20px !important;
-        padding: 0 !important;
-        min-height: unset !important;
-        transition: all 0.2s ease;
-    }
-    div[data-testid="stPopover"] > button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4) !important;
-    }
-    /* 弹出框样式 */
-    div[data-testid="stPopoverBody"] {
-        width: 400px !important;
-        max-height: 520px !important;
-        border-radius: 12px !important;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12) !important;
-        border: 1px solid #E2E8F0 !important;
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # 使用popover作为弹出对话框
-    with st.popover("AI", width="content"):
-        st.markdown("### AI助手")
-        st.caption("您的亚马逊广告优化专家")
-
-        # 快捷问题按钮
-        st.markdown("**快捷问题:**")
-        col1, col2 = st.columns(2)
-
-        quick_questions = [
-            ("分析ACOS", "帮我分析当前的ACOS情况"),
-            ("优化建议", "给我一些广告优化建议"),
-            ("否词分析", "分析哪些词需要否定"),
-            ("投放建议", "有哪些词值得手动投放"),
-        ]
-
-        for i, (label, question) in enumerate(quick_questions):
-            col = col1 if i % 2 == 0 else col2
-            with col:
-                if st.button(label, key=f"ai_quick_{i}", width="stretch"):
-                    _process_ai_message(question)
-
-        st.divider()
-
-        # 消息历史
-        messages_container = st.container(height=280)
-        with messages_container:
-            if not st.session_state.chat_messages:
-                st.info(
-                    "你好！我是AI助手，可以帮你分析广告数据。试试上面的快捷问题，或直接输入你的问题。"
-                )
-            else:
-                for msg in st.session_state.chat_messages[-8:]:
-                    with st.chat_message(msg["role"]):
-                        content = msg["content"]
-                        if len(content) > 400:
-                            content = content[:400] + "..."
-                        st.write(content)
-
-        # 输入框
-        user_input = st.chat_input("输入你的问题...", key="floating_ai_input")
-        if user_input:
-            _process_ai_message(user_input)
-
-        # 清除对话按钮
-        if st.session_state.chat_messages:
-            if st.button("清除对话", width="stretch", type="secondary"):
-                st.session_state.chat_messages = []
-                st.rerun()
-
-
-def _process_ai_message(message: str):
-    """处理AI消息"""
-    from src.ai.chat import ChatAssistant
-
-    # 限制聊天历史记录大小，防止内存无限增长
-    MAX_CHAT_HISTORY = 50
-    if len(st.session_state.chat_messages) > MAX_CHAT_HISTORY:
-        st.session_state.chat_messages = st.session_state.chat_messages[
-            -MAX_CHAT_HISTORY:
-        ]
-
-    # 添加用户消息
-    st.session_state.chat_messages.append(
+def _append_ai_chat_message(
+    role: str,
+    content: str,
+    *,
+    status: str = "default",
+    can_retry: bool = False,
+    retry_prompt: str | None = None,
+):
+    """向会话消息列表中追加一条标准化消息，并控制历史长度。"""
+    normalized = _normalize_ai_chat_message(
         {
-            "role": "user",
-            "content": message,
+            "role": role,
+            "content": content,
+            "status": status,
+            "can_retry": can_retry,
+            "retry_prompt": retry_prompt,
         }
     )
 
-    # 获取AI响应
+    if not normalized["content"]:
+        return
+
+    history = [
+        _normalize_ai_chat_message(item)
+        for item in st.session_state.get("chat_messages", [])
+    ]
+    history.append(normalized)
+    if len(history) > AI_CHAT_MAX_HISTORY:
+        history = history[-AI_CHAT_MAX_HISTORY:]
+    st.session_state.chat_messages = history
+
+
+def _build_ai_error_message(exc: Exception) -> dict[str, str | bool]:
+    """将 AI 异常映射为统一的用户可见消息。"""
+    error_text = str(exc or "").strip()
+    lowered = error_text.lower()
+
+    if "gemini_api_key" in lowered or "api key" in lowered or "api_key" in lowered:
+        return {
+            "content": "当前未配置 AI Key，暂时无法使用 AI 助手。",
+            "status": "error",
+            "can_retry": False,
+        }
+
+    if isinstance(exc, TimeoutError) or "timeout" in lowered or "timed out" in lowered:
+        return {
+            "content": "AI 请求超时，请稍后重试。",
+            "status": "warning",
+            "can_retry": True,
+        }
+
+    if "rate limit" in lowered or "429" in lowered or "too many requests" in lowered:
+        return {
+            "content": "AI 当前请求较多，请稍后重试。",
+            "status": "warning",
+            "can_retry": True,
+        }
+
+    return {
+        "content": "抱歉，处理请求时出错，请稍后重试。",
+        "status": "error",
+        "can_retry": True,
+    }
+
+
+def _build_ai_chat_view_state(messages: list[dict], is_generating: bool) -> dict:
+    """构建统一聊天视图状态，供侧边栏与浮动助手共享。"""
+    normalized_messages = [_normalize_ai_chat_message(message) for message in messages]
+    retry_prompt = None
+    for message in reversed(normalized_messages):
+        if message["can_retry"] and message.get("retry_prompt"):
+            retry_prompt = message["retry_prompt"]
+            break
+
+    return {
+        "messages": normalized_messages,
+        "show_empty_state": not normalized_messages,
+        "input_disabled": is_generating,
+        "retry_prompt": retry_prompt,
+        "show_retry_button": bool(retry_prompt) and not is_generating,
+        "pending_message": {
+            "role": "assistant",
+            "content": AI_CHAT_PENDING_TEXT,
+            "status": "pending",
+            "can_retry": False,
+            "retry_prompt": None,
+        }
+        if is_generating
+        else None,
+    }
+
+
+def _queue_ai_message(message: str) -> bool:
+    """将用户输入排入待处理队列，并立即显示在聊天记录中。"""
+    prompt = (message or "").strip()
+    if not prompt:
+        return False
+
+    _append_ai_chat_message(
+        "user",
+        prompt,
+        status="default",
+        can_retry=False,
+        retry_prompt=None,
+    )
+    st.session_state.ai_chat_pending_prompt = prompt
+    st.session_state.ai_chat_last_prompt = prompt
+    st.session_state.ai_chat_is_generating = True
+    return True
+
+
+def _clear_ai_chat_history():
+    """清理聊天历史与待处理状态。"""
+    st.session_state.chat_messages = []
+    st.session_state.ai_chat_is_generating = False
+    st.session_state.ai_chat_pending_prompt = None
+    st.session_state.ai_chat_last_prompt = None
+
+    product_id = st.session_state.get("current_product_id")
+    if product_id is not None:
+        assistant_key = f"chat_assistant_{product_id}"
+        st.session_state.pop(assistant_key, None)
+
+
+def _drain_pending_ai_message() -> bool:
+    """消费一条待处理消息，并把结果写回聊天历史。"""
+    prompt = st.session_state.get("ai_chat_pending_prompt")
+    if not prompt or not st.session_state.get("ai_chat_is_generating"):
+        return False
+
+    from src.ai.chat import ChatAssistant
+
     try:
         db = st.session_state.get("db")
         product_id = st.session_state.get("current_product_id")
-
         if not db:
-            st.session_state.chat_messages.append(
-                {
-                    "role": "assistant",
-                    "content": "数据库未初始化，请先上传数据。",
-                }
+            _append_ai_chat_message(
+                "assistant",
+                "数据库未初始化，请先上传数据。",
+                status="error",
+                can_retry=False,
+                retry_prompt=None,
             )
-            st.rerun()
-            return
+            return True
 
-        # 持久化ChatAssistant实例，保持多轮对话上下文
         assistant_key = f"chat_assistant_{product_id}"
         if assistant_key not in st.session_state:
             st.session_state[assistant_key] = ChatAssistant(
@@ -1125,24 +838,184 @@ def _process_ai_message(message: str):
                 product_id=product_id,
             )
         assistant = st.session_state[assistant_key]
-        response = assistant.process_message(message)
-
-        st.session_state.chat_messages.append(
-            {
-                "role": "assistant",
-                "content": response.message,
-            }
+        response = assistant.process_message(prompt)
+        _append_ai_chat_message(
+            "assistant",
+            response.message,
+            status="default",
+            can_retry=False,
+            retry_prompt=None,
         )
-    except Exception as e:
-        logger.error(f"AI响应错误: {e}", exc_info=True)
-        st.session_state.chat_messages.append(
-            {
-                "role": "assistant",
-                "content": "抱歉，处理请求时出错，请稍后重试。",
-            }
+    except Exception as exc:
+        logger.error(f"AI响应错误: {exc}", exc_info=True)
+        error_meta = _build_ai_error_message(exc)
+        _append_ai_chat_message(
+            "assistant",
+            str(error_meta["content"]),
+            status=str(error_meta["status"]),
+            can_retry=bool(error_meta["can_retry"]),
+            retry_prompt=prompt if error_meta["can_retry"] else None,
+        )
+    finally:
+        st.session_state.ai_chat_is_generating = False
+        st.session_state.ai_chat_pending_prompt = None
+
+    return True
+
+
+def _render_ai_chat_message(message: dict):
+    """渲染单条聊天消息。"""
+    with st.chat_message(message["role"]):
+        status = message.get("status", "default")
+        content = message.get("content", "")
+        if status == "error":
+            st.error(content)
+        elif status == "warning":
+            st.warning(content)
+        elif status == "pending":
+            st.markdown(
+                f'<div class="ai-chat-thinking">{escape(content)}</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.write(content)
+
+        if message.get("can_retry") and message.get("retry_prompt"):
+            st.caption("可重试")
+
+
+def _render_ai_quick_prompts(*, key_prefix: str, disabled: bool):
+    """渲染快捷提问按钮。"""
+    st.markdown('<div class="ai-chat-quick-grid">', unsafe_allow_html=True)
+    for idx, (label, prompt) in enumerate(AI_CHAT_QUICK_PROMPTS):
+        if st.button(
+            label,
+            key=f"{key_prefix}-quick-{idx}",
+            use_container_width=True,
+            disabled=disabled,
+        ):
+            if _queue_ai_message(prompt):
+                st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _render_ai_chat_shell(
+    *,
+    surface_key: str,
+    title: str,
+    subtitle: str,
+    input_key: str,
+    input_placeholder: str,
+):
+    """统一渲染成熟聊天窗体验。"""
+    view_state = _build_ai_chat_view_state(
+        st.session_state.get("chat_messages", []),
+        bool(st.session_state.get("ai_chat_is_generating")),
+    )
+
+    st.markdown(
+        f"""
+        <div class="ai-chat-shell">
+            <div class="ai-chat-header">
+                <div class="ai-chat-header-title">{escape(title)}</div>
+                <div class="ai-chat-header-subtitle">{escape(subtitle)}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if view_state["show_empty_state"]:
+        st.markdown(
+            """
+            <div class="ai-chat-empty-state">
+                <div class="ai-chat-empty-title">你好，我是你的 AI 广告分析助手</div>
+                <div class="ai-chat-empty-subtitle">我可以结合当前产品、搜索词与分析结果，帮你总结问题、识别浪费，并给出下一步建议。</div>
+                <div class="ai-chat-empty-hint">你可以先点一个快捷问题开始，也可以直接在下方输入。</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        _render_ai_quick_prompts(key_prefix=surface_key, disabled=view_state["input_disabled"])
+    else:
+        with st.container(height=320, border=True):
+            for message in view_state["messages"]:
+                _render_ai_chat_message(message)
+            if view_state["pending_message"]:
+                _render_ai_chat_message(view_state["pending_message"])
+
+    st.markdown('<div class="ai-chat-actions">', unsafe_allow_html=True)
+    action_col1, action_col2 = st.columns(2)
+    with action_col1:
+        if st.button(
+            "重试上一条",
+            key=f"{surface_key}-retry",
+            use_container_width=True,
+            disabled=not view_state["show_retry_button"],
+        ):
+            if _queue_ai_message(view_state["retry_prompt"] or ""):
+                st.rerun()
+    with action_col2:
+        if st.button(
+            "清空对话",
+            key=f"{surface_key}-clear",
+            use_container_width=True,
+            disabled=view_state["input_disabled"] and not view_state["messages"],
+        ):
+            _clear_ai_chat_history()
+            st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    user_input = st.chat_input(
+        input_placeholder,
+        key=input_key,
+        disabled=view_state["input_disabled"],
+    )
+    if user_input and _queue_ai_message(user_input):
+        st.rerun()
+
+    if st.session_state.get("ai_chat_is_generating"):
+        with st.spinner(AI_CHAT_PENDING_TEXT):
+            processed = _drain_pending_ai_message()
+        if processed:
+            st.rerun()
+
+    st.markdown(
+        '<p class="ai-chat-disclaimer">AI 助手仍在学习中，请仔细核实建议。</p>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_sidebar_ai_assistant():
+    """在侧边栏渲染成熟聊天体验的 AI 助手。"""
+    inject_ai_assistant_styles()
+    with st.popover("AI助手", width="stretch"):
+        _render_ai_chat_shell(
+            surface_key="sidebar-ai",
+            title="AI 助手",
+            subtitle="结合当前产品、搜索词与分析结果给出建议。",
+            input_key="ai_chat_input",
+            input_placeholder="输入问题，或让 AI 帮你总结当前产品…",
         )
 
-    st.rerun()
+
+def render_floating_ai_assistant():
+    """渲染复用同一聊天内核的浮动 AI 助手。"""
+    inject_ai_assistant_styles()
+    with st.popover("AI", width="content"):
+        _render_ai_chat_shell(
+            surface_key="floating-ai",
+            title="AI助手",
+            subtitle="你的亚马逊广告分析助手。",
+            input_key="floating_ai_input",
+            input_placeholder="输入你的问题…",
+        )
+
+
+def _process_ai_message(message: str):
+    """兼容旧入口：排队后触发统一聊天处理流程。"""
+    if _queue_ai_message(message):
+        st.rerun()
 
 
 def main():
@@ -1189,3 +1062,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

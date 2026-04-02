@@ -118,6 +118,83 @@ def _get_current_page_heading(app: AppTest) -> str | None:
     return None
 
 
+def test_build_ai_chat_view_state_exposes_pending_placeholder_and_retry_prompt():
+    """AI 聊天视图状态应暴露等待中的占位消息与可重试提示。"""
+    from src.app import _build_ai_chat_view_state
+
+    state = _build_ai_chat_view_state(
+        [
+            {"role": "user", "content": "先帮我看 ACOS"},
+            {
+                "role": "assistant",
+                "content": "AI 请求超时，请稍后重试。",
+                "status": "warning",
+                "can_retry": True,
+                "retry_prompt": "先帮我看 ACOS",
+            },
+        ],
+        is_generating=True,
+    )
+
+    assert state["show_empty_state"] is False
+    assert state["input_disabled"] is True
+    assert state["show_retry_button"] is False
+    assert state["retry_prompt"] == "先帮我看 ACOS"
+    assert state["pending_message"] == {
+        "role": "assistant",
+        "content": "AI 正在思考...",
+        "status": "pending",
+        "can_retry": False,
+        "retry_prompt": None,
+    }
+
+
+def test_build_ai_error_message_marks_retryable_timeout_and_nonretryable_missing_key():
+    """AI 错误状态应区分可重试超时与不可重试的密钥缺失。"""
+    from src.app import _build_ai_error_message
+
+    timeout_error = _build_ai_error_message(TimeoutError("request timeout"))
+    missing_key_error = _build_ai_error_message(ValueError("未配置 GEMINI_API_KEY"))
+
+    assert timeout_error == {
+        "content": "AI 请求超时，请稍后重试。",
+        "status": "warning",
+        "can_retry": True,
+    }
+    assert missing_key_error == {
+        "content": "当前未配置 AI Key，暂时无法使用 AI 助手。",
+        "status": "error",
+        "can_retry": False,
+    }
+
+
+def test_queue_ai_message_sets_pending_generation_state():
+    """提交 AI 对话时应立即写入用户消息并标记生成中。"""
+    from src.app import _queue_ai_message
+
+    st.session_state.clear()
+    st.session_state.chat_messages = []
+    st.session_state.ai_chat_is_generating = False
+    st.session_state.ai_chat_pending_prompt = None
+    st.session_state.ai_chat_last_prompt = None
+
+    queued = _queue_ai_message("  请总结当前产品问题  ")
+
+    assert queued is True
+    assert st.session_state.ai_chat_is_generating is True
+    assert st.session_state.ai_chat_pending_prompt == "请总结当前产品问题"
+    assert st.session_state.ai_chat_last_prompt == "请总结当前产品问题"
+    assert st.session_state.chat_messages == [
+        {
+            "role": "user",
+            "content": "请总结当前产品问题",
+            "status": "default",
+            "can_retry": False,
+            "retry_prompt": None,
+        }
+    ]
+
+
 def test_backend_auth_shell_meta_describes_shared_login():
     """共享后端模式应先展示明确的团队登录壳文案。"""
     from src.app import _build_backend_auth_shell_meta

@@ -34,6 +34,7 @@
   - 分析页 / 操作清单仍需进一步统一到最近一次有效分析结果
   - 上传与分析结果的单一可信来源仍在持续收口
   - sidebar theme warning 仍是已知未解问题
+  - AI 侧边栏与浮动聊天入口仍需继续观察是否要做流式输出与更强的历史持久化，但当前滚动、等待与重试体验已统一
 
 - 2026-03-30: 已完成汇总页优先读取最近一次有效分析快照，并统一 truth-first / snapshot / realtime 的渲染入口。
 - 2026-03-30: 验证补充：快照汇总回归 5 passed；全量 pytest 326 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
@@ -43,3 +44,5 @@
 - 2026-04-01: 验证补充：按活动 snapshot 回归 5 passed；全量 pytest 333 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
 - 2026-04-01: 已完成按 ASIN 页优先读取最近一次有效分析快照；无人工真值时，按 ASIN 结果会优先复用最近一次成功分析留下的 snapshot，而不是直接退回实时分析。
 - 2026-04-01: 验证补充：按 ASIN snapshot 回归 2 passed；全量 pytest 335 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
+- 2026-04-01: 已完成 AI 侧边栏 / 浮动聊天入口的成熟聊天窗收口：统一消息渲染内核、固定输入区、可滚动消息区、等待思考态、错误/重试提示。
+- 2026-04-01: 验证补充：AI 聊天状态定向回归 3 passed；真实浏览器验收确认消息区可滚动、发送后出现“AI 正在思考...”且输入禁用；全量 pytest 338 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。

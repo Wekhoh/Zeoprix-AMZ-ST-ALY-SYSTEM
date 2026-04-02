@@ -1899,111 +1899,184 @@ html {
 </style>
 """
 
-# AI助手样式 - 深蓝色主题
+# AI助手样式 - 成熟聊天窗体验
 AI_ASSISTANT_CSS = """
 <style>
-/* AI助手按钮样式 */
-.sidebar-ai-btn button {
-    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%) !important;
-    color: white !important;
-    border: none !important;
-    border-radius: var(--radius-lg) !important;
-    padding: 12px 20px !important;
-    font-weight: 600 !important;
-    font-size: 0.875rem !important;
-    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
-    transition: all var(--transition-base) !important;
-}
-
-.sidebar-ai-btn button:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4) !important;
-}
-
-/* Popover弹出框样式 */
 div[data-testid="stPopoverBody"] {
-    width: 420px !important;
-    max-height: 560px !important;
-    border-radius: var(--radius-lg) !important;
-    box-shadow: var(--shadow-lg) !important;
-    border: 1px solid var(--border-subtle) !important;
-    padding: 20px !important;
+    width: min(440px, calc(100vw - 32px)) !important;
+    max-height: 82vh !important;
+    border-radius: 20px !important;
+    box-shadow: 0 28px 80px rgba(15, 23, 42, 0.24) !important;
+    border: 1px solid rgba(148, 163, 184, 0.24) !important;
+    padding: 16px 16px 14px !important;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
+    overflow: hidden !important;
 }
 
-/* Popover内部内容区域 */
-div[data-testid="stPopoverBody"] > div {
+div[data-testid="stPopoverBody"] > div,
+div[data-testid="stPopoverBody"] > div > div {
     padding: 0 !important;
+    margin: 0 !important;
 }
 
-/* AI助手标题样式 */
-div[data-testid="stPopoverBody"] h3 {
-    font-size: 1.125rem !important;
-    font-weight: 700 !important;
-    color: var(--text-primary) !important;
-    margin-bottom: 0.25rem !important;
+div[data-testid="stPopoverBody"] [data-testid="stVerticalBlock"] {
+    gap: 0.75rem !important;
 }
 
-/* AI助手副标题 */
-div[data-testid="stPopoverBody"] .stCaption {
-    color: var(--text-secondary) !important;
-    margin-bottom: 1rem !important;
+div[data-testid="stPopoverBody"] [data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid rgba(191, 219, 254, 0.85) !important;
+    border-radius: 18px !important;
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(239, 246, 255, 0.96) 100%) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
 }
 
-/* AI助手内部按钮 */
-div[data-testid="stPopoverBody"] .stButton > button {
-    width: 100% !important;
-    justify-content: center !important;
-    padding: 0.75rem 1rem !important;
-    font-size: 0.875rem !important;
-    margin: 0.25rem 0 !important;
+div[data-testid="stPopoverBody"] [data-testid="stVerticalBlockBorderWrapper"] > div {
+    padding: 0.35rem 0.45rem 0.35rem 0.5rem !important;
 }
 
-/* AI助手输入框容器 */
+div[data-testid="stPopoverBody"] [data-testid="stChatMessage"] {
+    padding: 0.4rem 0 !important;
+    margin: 0 !important;
+}
+
 div[data-testid="stPopoverBody"] [data-testid="stChatInput"] {
-    padding: 0 !important;
-    margin-top: 1rem !important;
+    margin-top: 0.25rem !important;
+    padding-top: 0.85rem !important;
+    border-top: 1px solid rgba(226, 232, 240, 0.95) !important;
+    background: transparent !important;
 }
 
-/* AI助手分割线 */
-div[data-testid="stPopoverBody"] hr {
-    margin: 1rem 0 !important;
+div[data-testid="stPopoverBody"] [data-testid="stChatInput"] textarea {
+    min-height: 52px !important;
+    border-radius: 16px !important;
+    border: 1px solid rgba(148, 163, 184, 0.42) !important;
+    padding: 12px 14px !important;
+    font-size: 0.95rem !important;
+    box-shadow: none !important;
+    background: rgba(255, 255, 255, 0.95) !important;
 }
 
-/* 对话框标题栏 */
+div[data-testid="stPopoverBody"] [data-testid="stChatInput"] textarea:focus,
+div[data-testid="stPopoverBody"] [data-testid="stChatInput"] textarea:focus-visible {
+    border-color: rgba(37, 99, 235, 0.45) !important;
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12) !important;
+    outline: none !important;
+}
+
+div[data-testid="stPopoverBody"] [data-testid="stChatInput"] button {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 14px !important;
+    border: none !important;
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+    box-shadow: 0 14px 24px rgba(37, 99, 235, 0.24) !important;
+}
+
+div[data-testid="stPopoverBody"] [data-testid="stChatInput"] button svg,
+div[data-testid="stPopoverBody"] [data-testid="stChatInput"] button path {
+    fill: #ffffff !important;
+    color: #ffffff !important;
+}
+
+div[data-testid="stPopoverBody"] .stButton > button {
+    min-height: 40px !important;
+    border-radius: 14px !important;
+    font-size: 0.88rem !important;
+    font-weight: 600 !important;
+}
+
+.ai-chat-shell {
+    display: block;
+}
+
 .ai-chat-header {
-    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
-    color: white;
-    padding: 16px 20px;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    margin: -1rem -1rem 1rem -1rem;
+    padding: 0.95rem 1rem;
+    border-radius: 18px;
+    background: linear-gradient(135deg, rgba(30, 64, 175, 0.95) 0%, rgba(37, 99, 235, 0.92) 58%, rgba(14, 165, 233, 0.88) 100%);
+    color: #ffffff;
+    box-shadow: 0 18px 34px rgba(30, 64, 175, 0.26);
 }
 
-.ai-chat-header h3 {
-    margin: 0;
-    font-size: 1.125rem;
+.ai-chat-header-title {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.ai-chat-header-subtitle {
+    margin-top: 0.35rem;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.88);
+}
+
+.ai-chat-empty-state {
+    padding: 0.95rem 0.2rem 0.15rem;
+}
+
+.ai-chat-empty-title {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.ai-chat-empty-subtitle {
+    margin-top: 0.42rem;
+    font-size: 0.88rem;
+    line-height: 1.65;
+    color: #475569;
+}
+
+.ai-chat-empty-hint {
+    margin-top: 0.62rem;
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: #64748b;
+}
+
+.ai-chat-quick-grid {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+}
+
+.ai-chat-actions {
+    margin-top: 0.15rem;
+}
+
+.ai-chat-thinking {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.85rem 0.95rem;
+    border-radius: 14px;
+    border: 1px dashed rgba(59, 130, 246, 0.35);
+    background: rgba(239, 246, 255, 0.86);
+    color: #1e3a8a;
+    font-size: 0.9rem;
     font-weight: 600;
 }
 
-.ai-chat-header p {
-    margin: 4px 0 0 0;
-    font-size: 0.8125rem;
-    opacity: 0.9;
+.ai-chat-thinking::before {
+    content: "";
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
+    box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.12);
+    animation: ai-chat-pulse 1.3s ease-in-out infinite;
 }
 
-/* 快捷问题按钮样式 */
-.quick-btn button {
-    background: white !important;
-    color: var(--accent) !important;
-    border: 2px solid var(--accent) !important;
-    border-radius: var(--radius-full) !important;
-    font-size: 0.8125rem !important;
-    padding: 6px 12px !important;
-    margin: 4px 0 !important;
-    font-weight: 500 !important;
+.ai-chat-disclaimer {
+    margin: 0;
+    text-align: center;
+    font-size: 0.75rem;
+    color: #64748b;
 }
 
-.quick-btn button:hover {
-    background: var(--accent-lighter) !important;
+@keyframes ai-chat-pulse {
+    0%, 100% { transform: scale(0.9); opacity: 0.8; }
+    50% { transform: scale(1.08); opacity: 1; }
 }
 </style>
 """
