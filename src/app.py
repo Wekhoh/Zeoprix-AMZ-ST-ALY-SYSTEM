@@ -31,6 +31,8 @@ NAV_OPTIONS = [
 
 AI_CHAT_MAX_HISTORY = 50
 AI_CHAT_PENDING_TEXT = "AI 正在思考..."
+AI_CHAT_EMPTY_PANEL_HEIGHT = 230
+AI_CHAT_MESSAGES_PANEL_HEIGHT = 320
 AI_CHAT_QUICK_PROMPTS = [
     ("分析我的销售趋势和ACOS", "帮我分析当前的ACOS情况和销售趋势"),
     ("查看需要否定的关键词", "分析哪些词需要否定"),
@@ -766,6 +768,7 @@ def _build_ai_chat_view_state(messages: list[dict], is_generating: bool) -> dict
         "input_disabled": is_generating,
         "retry_prompt": retry_prompt,
         "show_retry_button": bool(retry_prompt) and not is_generating,
+        "show_action_bar": bool(normalized_messages or retry_prompt),
         "pending_message": {
             "role": "assistant",
             "content": AI_CHAT_PENDING_TEXT,
@@ -925,46 +928,56 @@ def _render_ai_chat_shell(
         unsafe_allow_html=True,
     )
 
-    if view_state["show_empty_state"]:
-        st.markdown(
-            """
-            <div class="ai-chat-empty-state">
-                <div class="ai-chat-empty-title">你好，我是你的 AI 广告分析助手</div>
-                <div class="ai-chat-empty-subtitle">我可以结合当前产品、搜索词与分析结果，帮你总结问题、识别浪费，并给出下一步建议。</div>
-                <div class="ai-chat-empty-hint">你可以先点一个快捷问题开始，也可以直接在下方输入。</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        _render_ai_quick_prompts(key_prefix=surface_key, disabled=view_state["input_disabled"])
-    else:
-        with st.container(height=320, border=True):
+    panel_height = (
+        AI_CHAT_EMPTY_PANEL_HEIGHT
+        if view_state["show_empty_state"]
+        else AI_CHAT_MESSAGES_PANEL_HEIGHT
+    )
+
+    with st.container(height=panel_height, border=True):
+        if view_state["show_empty_state"]:
+            st.markdown(
+                """
+                <div class="ai-chat-empty-state">
+                    <div class="ai-chat-empty-title">你好，我是你的 AI 广告分析助手</div>
+                    <div class="ai-chat-empty-subtitle">我可以结合当前产品、搜索词与分析结果，帮你总结问题、识别浪费，并给出下一步建议。</div>
+                    <div class="ai-chat-empty-hint">你可以先点一个快捷问题开始，也可以直接在下方输入。</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            _render_ai_quick_prompts(
+                key_prefix=surface_key,
+                disabled=view_state["input_disabled"],
+            )
+        else:
             for message in view_state["messages"]:
                 _render_ai_chat_message(message)
             if view_state["pending_message"]:
                 _render_ai_chat_message(view_state["pending_message"])
 
-    st.markdown('<div class="ai-chat-actions">', unsafe_allow_html=True)
-    action_col1, action_col2 = st.columns(2)
-    with action_col1:
-        if st.button(
-            "重试上一条",
-            key=f"{surface_key}-retry",
-            use_container_width=True,
-            disabled=not view_state["show_retry_button"],
-        ):
-            if _queue_ai_message(view_state["retry_prompt"] or ""):
+    if view_state["show_action_bar"]:
+        st.markdown('<div class="ai-chat-actions">', unsafe_allow_html=True)
+        action_col1, action_col2 = st.columns(2)
+        with action_col1:
+            if st.button(
+                "重试上一条",
+                key=f"{surface_key}-retry",
+                use_container_width=True,
+                disabled=not view_state["show_retry_button"],
+            ):
+                if _queue_ai_message(view_state["retry_prompt"] or ""):
+                    st.rerun()
+        with action_col2:
+            if st.button(
+                "清空对话",
+                key=f"{surface_key}-clear",
+                use_container_width=True,
+                disabled=view_state["input_disabled"] and not view_state["messages"],
+            ):
+                _clear_ai_chat_history()
                 st.rerun()
-    with action_col2:
-        if st.button(
-            "清空对话",
-            key=f"{surface_key}-clear",
-            use_container_width=True,
-            disabled=view_state["input_disabled"] and not view_state["messages"],
-        ):
-            _clear_ai_chat_history()
-            st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     user_input = st.chat_input(
         input_placeholder,

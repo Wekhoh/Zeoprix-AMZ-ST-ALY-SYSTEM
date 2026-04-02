@@ -138,6 +138,7 @@ def test_build_ai_chat_view_state_exposes_pending_placeholder_and_retry_prompt()
 
     assert state["show_empty_state"] is False
     assert state["input_disabled"] is True
+    assert state["show_action_bar"] is True
     assert state["show_retry_button"] is False
     assert state["retry_prompt"] == "先帮我看 ACOS"
     assert state["pending_message"] == {
@@ -147,6 +148,18 @@ def test_build_ai_chat_view_state_exposes_pending_placeholder_and_retry_prompt()
         "can_retry": False,
         "retry_prompt": None,
     }
+
+
+def test_build_ai_chat_view_state_hides_action_bar_for_empty_chat():
+    """空白聊天态不应先占掉底部空间，输入区必须优先可见。"""
+    from src.app import _build_ai_chat_view_state
+
+    state = _build_ai_chat_view_state([], is_generating=False)
+
+    assert state["show_empty_state"] is True
+    assert state["show_action_bar"] is False
+    assert state["show_retry_button"] is False
+    assert state["retry_prompt"] is None
 
 
 def test_build_ai_error_message_marks_retryable_timeout_and_nonretryable_missing_key():
