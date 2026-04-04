@@ -8,6 +8,7 @@ from html import escape
 import pandas as pd
 import streamlit as st
 
+from src.ai.copilot import build_actions_ai_brief
 from src.analysis.truth_replay import (
     action_type_to_auto_action,
     get_truth_first_action_buckets,
@@ -304,6 +305,88 @@ def _get_latest_snapshot_action_context(
     return None
 
 
+def _render_actions_ai_brief_card(
+    *,
+    product_name: str,
+    action_buckets: dict[str, list[dict[str, object]]],
+    counts: dict[str, int],
+    context_label: str,
+) -> None:
+    """渲染操作清单页的 AI 执行摘要卡。"""
+    brief = build_actions_ai_brief(
+        {
+            "product_name": product_name,
+            "counts": counts,
+            "context_label": context_label,
+            "buckets": action_buckets,
+        }
+    )
+    st.markdown(
+        f"""
+        <section class="ai-brief-card">
+            <div class="ai-brief-card__eyebrow">AI 执行说明</div>
+            <h3 class="ai-brief-card__headline">{escape(str(brief.get('headline') or 'AI 已生成执行摘要。'))}</h3>
+            <div class="ai-brief-card__context">{escape(str(brief.get('context_label') or context_label))}</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    bullets = [
+        str(item).strip()
+        for item in brief.get("bullets") or []
+        if str(item).strip()
+    ]
+    if bullets:
+        st.markdown("**执行摘要**")
+        for item in bullets:
+            st.markdown(f"- {item}")
+
+    evidence_items = [item for item in (brief.get("evidence") or []) if item]
+    if evidence_items:
+        st.markdown("**当前证据**")
+        for item in evidence_items:
+            term = str(item.get("term") or "未命名词").strip()
+            rule = str(item.get("triggered_rule") or "规则分析").strip()
+            action = str(
+                item.get("suggested_action") or item.get("action_type") or "观察"
+            ).strip()
+            spend = float(item.get("spend") or 0)
+            st.markdown(
+                f"- **{term}** · 规则：{rule} · 建议：{action} · 花费：${spend:.2f}"
+            )
+
+    next_actions = [
+        str(item).strip()
+        for item in brief.get("recommended_next_actions") or []
+        if str(item).strip()
+    ]
+    if next_actions:
+        st.markdown("**下一步建议**")
+        for item in next_actions:
+            st.markdown(f"- {item}")
+
+    prompts = [
+        str(item).strip()
+        for item in brief.get("follow_up_prompts") or []
+        if str(item).strip()
+    ]
+    if prompts:
+        st.markdown("**继续追问**")
+        columns = st.columns(min(2, len(prompts)))
+        for idx, prompt in enumerate(prompts):
+            with columns[idx % len(columns)]:
+                if st.button(
+                    prompt,
+                    key=f"actions_ai_brief_prompt_{idx}",
+                    width="stretch",
+                ):
+                    from src.app import _queue_ai_message
+
+                    if _queue_ai_message(prompt):
+                        st.rerun()
+
+
 def _build_export_results_from_bucket_items(
     bucket_items: list[dict[str, object]],
 ) -> list[AnalysisResult]:
@@ -466,6 +549,33 @@ def render_actions():
     )
     if not access_meta["can_export"]:
         st.info(str(access_meta["blocked_message"]))
+
+    effective_counts = fallback_counts or {
+        "negative": sum(
+            len(action_buckets.get(key, []))
+            for key in (
+                "negative_keyword_exact",
+                "negative_keyword_phrase",
+                "negative_asin",
+            )
+        ),
+        "manual": sum(
+            len(action_buckets.get(key, []))
+            for key in ("manual_keywords", "manual_products")
+        ),
+        "conflict": int((pending_stats or {}).get("conflict_count", 0) or 0),
+    }
+    context_label = (
+        f"当前产品：{product_name} · 上下文：人工校准结果"
+        if truth_buckets is not None
+        else f"当前产品：{product_name} · 上下文：最近一次分析结果"
+    )
+    _render_actions_ai_brief_card(
+        product_name=product_name,
+        action_buckets=action_buckets,
+        counts=effective_counts,
+        context_label=context_label,
+    )
 
     # 标签页切换
     tab1, tab2, tab3 = st.tabs(["否词操作", "手动投放", "操作历史"])

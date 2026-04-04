@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from src.ai.copilot import build_summary_ai_brief
 from src.config.logger import get_logger
 from src.ui.utils import safe_error
 
@@ -763,10 +764,7 @@ def render_summary_analysis(db, product_id: int, access_meta: dict[str, object] 
 
     st.divider()
 
-    # AI 洞察报告
-    product = db.get_product(product_id)
-    product_name = product.get("name", "") if product else ""
-    _render_ai_insights(results, product_name=product_name)
+    _render_summary_ai_brief_card(db, product_id)
 
     st.divider()
 
@@ -1318,6 +1316,80 @@ def _render_latest_snapshot_summary_analysis(
         title="最近一次有效分析结果",
         key_prefix="summary_snapshot",
     )
+
+
+def _render_summary_ai_brief_card(db, product_id: int) -> None:
+    """渲染汇总页页面内嵌 AI 简报卡。"""
+    brief = build_summary_ai_brief(db, product_id)
+    _render_ai_brief_card(
+        title="AI 汇总简报",
+        brief=brief,
+        key_prefix="summary_ai_brief",
+    )
+
+
+def _render_ai_brief_card(
+    *,
+    title: str,
+    brief: dict[str, Any],
+    key_prefix: str,
+) -> None:
+    """渲染页面内嵌 AI 卡片，提供结论、依据与追问。"""
+    st.markdown(
+        f"""
+        <section class="ai-brief-card">
+            <div class="ai-brief-card__eyebrow">{escape(title)}</div>
+            <h3 class="ai-brief-card__headline">{escape(str(brief.get('headline') or 'AI 已生成摘要。'))}</h3>
+            <div class="ai-brief-card__context">{escape(str(brief.get('context_label') or ''))}</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+    warning = brief.get("warning")
+    if warning:
+        st.warning(str(warning))
+
+    bullets = [str(item).strip() for item in brief.get("bullets") or [] if str(item).strip()]
+    if bullets:
+        st.markdown("**关键结论**")
+        for item in bullets:
+            st.markdown(f"- {item}")
+
+    evidence_items = [item for item in (brief.get("evidence") or []) if item]
+    if evidence_items:
+        st.markdown("**关键依据**")
+        for item in evidence_items:
+            term = str(item.get("term") or "未命名词").strip()
+            rule = str(item.get("triggered_rule") or "规则分析").strip()
+            action = str(item.get("suggested_action") or item.get("action_type") or "观察").strip()
+            spend = float(item.get("spend") or 0)
+            clicks = int(item.get("clicks") or 0)
+            orders = int(item.get("orders") or 0)
+            st.markdown(
+                f"- **{term}** · 规则：{rule} · 建议：{action} · 花费：${spend:.2f} · 点击：{clicks} · 订单：{orders}"
+            )
+
+    next_actions = [
+        str(item).strip()
+        for item in brief.get("recommended_next_actions") or []
+        if str(item).strip()
+    ]
+    if next_actions:
+        st.markdown("**建议动作**")
+        for item in next_actions:
+            st.markdown(f"- {item}")
+
+    prompts = [str(item).strip() for item in brief.get("follow_up_prompts") or [] if str(item).strip()]
+    if prompts:
+        st.markdown("**继续追问**")
+        columns = st.columns(min(2, len(prompts)))
+        for idx, prompt in enumerate(prompts):
+            with columns[idx % len(columns)]:
+                if st.button(prompt, key=f"{key_prefix}_prompt_{idx}", width="stretch"):
+                    from src.app import _queue_ai_message
+
+                    if _queue_ai_message(prompt):
+                        st.rerun()
 
 
 def _render_summary_rows_analysis(

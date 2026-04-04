@@ -12,6 +12,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import streamlit as st
 
+from src.ai.copilot import (
+    build_ai_context_pack,
+    build_chat_response_envelope,
+    format_ai_context_hint,
+)
 from src.config.logger import get_logger
 from src.config.settings import Settings
 from src.data.db import Database
@@ -679,13 +684,27 @@ def render_sidebar():
 
 def _normalize_ai_chat_message(message: dict) -> dict:
     """标准化 AI 对话消息结构，统一状态与重试字段。"""
-    return {
+    normalized = {
         "role": message.get("role", "assistant"),
         "content": (message.get("content") or "").strip(),
         "status": message.get("status", "default"),
         "can_retry": bool(message.get("can_retry", False)),
         "retry_prompt": message.get("retry_prompt"),
     }
+    for key in (
+        "headline",
+        "bullets",
+        "evidence",
+        "recommended_next_actions",
+        "follow_up_prompts",
+        "context_label",
+        "warning",
+        "confidence",
+    ):
+        value = message.get(key)
+        if value not in (None, "", [], {}):
+            normalized[key] = value
+    return normalized
 
 
 def _append_ai_chat_message(
@@ -695,6 +714,14 @@ def _append_ai_chat_message(
     status: str = "default",
     can_retry: bool = False,
     retry_prompt: str | None = None,
+    headline: str | None = None,
+    bullets: list[str] | None = None,
+    evidence: list[dict] | None = None,
+    recommended_next_actions: list[str] | None = None,
+    follow_up_prompts: list[str] | None = None,
+    context_label: str | None = None,
+    warning: str | None = None,
+    confidence: str | None = None,
 ):
     """向会话消息列表中追加一条标准化消息，并控制历史长度。"""
     normalized = _normalize_ai_chat_message(
@@ -704,6 +731,14 @@ def _append_ai_chat_message(
             "status": status,
             "can_retry": can_retry,
             "retry_prompt": retry_prompt,
+            "headline": headline,
+            "bullets": bullets,
+            "evidence": evidence,
+            "recommended_next_actions": recommended_next_actions,
+            "follow_up_prompts": follow_up_prompts,
+            "context_label": context_label,
+            "warning": warning,
+            "confidence": confidence,
         }
     )
 
@@ -781,6 +816,50 @@ def _build_ai_chat_view_state(messages: list[dict], is_generating: bool) -> dict
     }
 
 
+def _get_ai_page_descriptor() -> tuple[str, str]:
+    """根据当前导航上下文返回 AI 页面键与标题。"""
+    nav_page = st.session_state.get("nav_page")
+    if nav_page == "文件上传":
+        return ("upload", "文件上传")
+    if nav_page == "操作清单":
+        return ("actions", "操作清单")
+    if nav_page == "相关性审核":
+        return ("review", "相关性审核")
+    if nav_page == "系统设置":
+        return ("settings", "系统设置")
+    if nav_page == "首页":
+        return ("home", "首页")
+    if nav_page == "ASIN分析":
+        return ("asin_detail", "ASIN分析")
+    if nav_page == "搜索词分析":
+        mode = st.session_state.get("analysis_mode_selector", "汇总模式")
+        if mode == "按活动模式":
+            return ("campaign", "按活动分析")
+        if mode == "按ASIN模式":
+            return ("asin", "按ASIN分析")
+        return ("summary", "汇总分析")
+    return ("workspace", "当前页面")
+
+
+def _get_ai_context_pack():
+    """构建当前侧边栏 AI 助手的统一上下文。"""
+    db = st.session_state.get("db")
+    product_id = st.session_state.get("current_product_id")
+    page_key, page_title = _get_ai_page_descriptor()
+    page_context: dict[str, object] = {}
+    if db is not None and product_id is not None:
+        product = db.get_product(product_id)
+        if product and product.get("name"):
+            page_context["product_name"] = product.get("name")
+    return build_ai_context_pack(
+        db,
+        product_id,
+        page_key=page_key,
+        page_title=page_title,
+        page_context=page_context,
+    )
+
+
 def _queue_ai_message(message: str) -> bool:
     """将用户输入排入待处理队列，并立即显示在聊天记录中。"""
     prompt = (message or "").strip()
@@ -846,13 +925,25 @@ def _drain_pending_ai_message() -> bool:
                 product_id=product_id,
             )
         assistant = st.session_state[assistant_key]
-        response = assistant.process_message(prompt)
+        context_pack = _get_ai_context_pack()
+        response = assistant.process_message(
+            f"{prompt}\n\n---\n{format_ai_context_hint(context_pack)}"
+        )
+        envelope = build_chat_response_envelope(response, context_pack)
         _append_ai_chat_message(
             "assistant",
             response.message,
             status="default",
             can_retry=False,
             retry_prompt=None,
+            headline=envelope.headline,
+            bullets=envelope.bullets,
+            evidence=envelope.evidence,
+            recommended_next_actions=envelope.recommended_next_actions,
+            follow_up_prompts=envelope.follow_up_prompts,
+            context_label=envelope.context_label,
+            warning=envelope.warning,
+            confidence=envelope.confidence,
         )
     except Exception as exc:
         logger.error(f"AI响应错误: {exc}", exc_info=True)
@@ -871,7 +962,35 @@ def _drain_pending_ai_message() -> bool:
     return True
 
 
-def _render_ai_chat_message(message: dict):
+def _render_ai_follow_up_prompts(
+    prompts: list[str],
+    *,
+    surface_key: str,
+    message_index: int,
+    disabled: bool,
+):
+    if not prompts:
+        return
+    cols = st.columns(min(2, len(prompts)))
+    for idx, prompt in enumerate(prompts):
+        with cols[idx % len(cols)]:
+            if st.button(
+                prompt,
+                key=f"{surface_key}-followup-{message_index}-{idx}",
+                use_container_width=True,
+                disabled=disabled,
+            ):
+                if _queue_ai_message(prompt):
+                    st.rerun()
+
+
+def _render_ai_chat_message(
+    message: dict,
+    *,
+    surface_key: str,
+    message_index: int,
+    input_disabled: bool,
+):
     """渲染单条聊天消息。"""
     with st.chat_message(message["role"]):
         status = message.get("status", "default")
@@ -886,7 +1005,57 @@ def _render_ai_chat_message(message: dict):
                 unsafe_allow_html=True,
             )
         else:
-            st.write(content)
+            context_label = str(message.get("context_label") or "").strip()
+            if context_label:
+                st.markdown(
+                    f'<div class="ai-chat-context-pill">{escape(context_label)}</div>',
+                    unsafe_allow_html=True,
+                )
+            headline = str(message.get("headline") or "").strip()
+            bullets = message.get("bullets") or []
+            evidence = message.get("evidence") or []
+            next_actions = message.get("recommended_next_actions") or []
+            warning = str(message.get("warning") or "").strip()
+
+            if headline or bullets or evidence or next_actions or warning:
+                if headline:
+                    st.markdown(
+                        f'<div class="ai-chat-headline">{escape(headline)}</div>',
+                        unsafe_allow_html=True,
+                    )
+                if content and content.strip() and content.strip() != headline:
+                    st.markdown(
+                        f'<div class="ai-chat-raw-copy">{escape(content)}</div>',
+                        unsafe_allow_html=True,
+                    )
+                if bullets:
+                    st.markdown("**关键结论**")
+                    for bullet in bullets:
+                        st.markdown(f"- {bullet}")
+                if evidence:
+                    st.markdown("**依据**")
+                    for item in evidence:
+                        term = str(item.get("term") or "当前词").strip() or "当前词"
+                        rule = str(item.get("triggered_rule") or "规则分析").strip() or "规则分析"
+                        action = str(item.get("suggested_action") or item.get("action_type") or "观察").strip() or "观察"
+                        spend = float(item.get("spend") or 0)
+                        st.markdown(
+                            f"- **{term}** · {rule} · {action} · 花费 ${spend:.2f}"
+                        )
+                if next_actions:
+                    st.markdown("**建议动作**")
+                    for action in next_actions:
+                        st.markdown(f"- {action}")
+                if warning:
+                    st.warning(warning)
+                _render_ai_follow_up_prompts(
+                    message.get("follow_up_prompts") or [],
+                    surface_key=surface_key,
+                    message_index=message_index,
+                    disabled=input_disabled,
+                )
+            else:
+                st.write(content)
 
         if message.get("can_retry") and message.get("retry_prompt"):
             st.caption("可重试")
@@ -921,12 +1090,14 @@ def _render_ai_chat_shell(
         bool(st.session_state.get("ai_chat_is_generating")),
     )
 
+    context_pack = _get_ai_context_pack()
     st.markdown(
         f"""
         <div class="ai-chat-shell">
             <div class="ai-chat-header">
                 <div class="ai-chat-header-title">{escape(title)}</div>
                 <div class="ai-chat-header-subtitle">{escape(subtitle)}</div>
+                <div class="ai-chat-context-row">{escape(context_pack.context_label)}</div>
             </div>
         </div>
         """,
@@ -952,10 +1123,20 @@ def _render_ai_chat_shell(
                 disabled=view_state["input_disabled"],
             )
         else:
-            for message in view_state["messages"]:
-                _render_ai_chat_message(message)
+            for idx, message in enumerate(view_state["messages"]):
+                _render_ai_chat_message(
+                    message,
+                    surface_key=surface_key,
+                    message_index=idx,
+                    input_disabled=view_state["input_disabled"],
+                )
             if view_state["pending_message"]:
-                _render_ai_chat_message(view_state["pending_message"])
+                _render_ai_chat_message(
+                    view_state["pending_message"],
+                    surface_key=surface_key,
+                    message_index=len(view_state["messages"]),
+                    input_disabled=view_state["input_disabled"],
+                )
 
     user_input = st.chat_input(
         input_placeholder,

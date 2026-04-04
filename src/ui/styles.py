@@ -2017,6 +2017,20 @@ div[data-testid="stPopoverBody"] .stButton > button {
     color: rgba(255, 255, 255, 0.88);
 }
 
+.ai-chat-context-row {
+    margin-top: 0.72rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.42rem 0.72rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.94);
+    font-size: 0.76rem;
+    line-height: 1.35;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
 .ai-chat-empty-state {
     padding: 0.55rem 0.2rem 0.15rem;
 }
@@ -2072,6 +2086,55 @@ div[data-testid="stPopoverBody"] .stButton > button {
     background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
     box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.12);
     animation: ai-chat-pulse 1.3s ease-in-out infinite;
+}
+
+.ai-chat-headline {
+    font-size: 0.96rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 0.2rem;
+}
+
+.ai-chat-raw-copy {
+    margin-top: 0.35rem;
+    color: #475569;
+    font-size: 0.88rem;
+    line-height: 1.65;
+}
+
+.ai-brief-card {
+    margin: 1rem 0 0.85rem;
+    padding: 1rem 1.05rem;
+    border-radius: 18px;
+    border: 1px solid rgba(191, 219, 254, 0.92);
+    background: linear-gradient(180deg, rgba(248,250,252,0.98) 0%, rgba(239,246,255,0.96) 100%);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+}
+
+.ai-brief-card__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.28rem 0.72rem;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.10);
+    color: #1d4ed8;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.ai-brief-card__headline {
+    margin: 0.78rem 0 0;
+    color: #0f172a;
+    font-size: 1.02rem;
+    line-height: 1.55;
+}
+
+.ai-brief-card__context {
+    margin-top: 0.55rem;
+    color: #64748b;
+    font-size: 0.82rem;
+    line-height: 1.55;
 }
 
 .ai-chat-disclaimer {

@@ -18,6 +18,13 @@ from src.analysis.truth_replay import (
     get_latest_analysis_run_diff_preview,
     get_latest_analysis_run_summary_delta,
 )
+from src.ai.chat import ChatResponse, GuidedOption
+from src.ai.copilot import (
+    build_actions_ai_brief,
+    build_ai_context_pack,
+    build_chat_response_envelope,
+    build_summary_ai_brief,
+)
 from src.ui.pages.analysis import (
     _build_analysis_access_meta,
     _build_latest_snapshot_summary_rows,
@@ -179,6 +186,142 @@ def test_build_ai_error_message_marks_retryable_timeout_and_nonretryable_missing
         "status": "error",
         "can_retry": False,
     }
+
+
+def test_build_ai_context_pack_prefers_latest_snapshot(db, product_id):
+    """AI 上下文应优先绑定最近一次有效分析快照。"""
+    product = db.get_product(product_id)
+    product_name = product.get("name", "") if product else ""
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={"negative": 2, "manual": 1, "conflict": 0},
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "clicks": 12,
+                "orders": 0,
+                "spend": 24.0,
+                "sales": 0.0,
+            }
+        ],
+    )
+
+    context_pack = build_ai_context_pack(
+        db,
+        product_id,
+        page_key="summary",
+        page_title="汇总分析",
+    )
+
+    assert context_pack.context_source == "latest_snapshot"
+    assert context_pack.snapshot_id is not None
+    assert product_name in context_pack.context_label
+    assert "最近一次分析结果" in context_pack.context_label
+    assert context_pack.metrics["negative_count"] == 2
+    assert context_pack.evidence[0]["term"] == "travel pillow"
+
+
+def test_build_chat_response_envelope_maps_options_and_summary():
+    """聊天响应 envelope 应保留结论、追问和上下文标签。"""
+    response = ChatResponse(
+        message="当前最大的问题是 ACOS 偏高。\n建议先处理高花费无转化词。",
+        options=[
+            GuidedOption(id="next-1", label="查看最浪费的词"),
+            GuidedOption(id="next-2", label="给我 3 个优先动作"),
+        ],
+        data={"intent": "recommendations"},
+    )
+
+    context_pack = build_ai_context_pack(
+        db=None,
+        product_id=None,
+        page_key="summary",
+        page_title="汇总分析",
+        page_context={"product_name": "桌面验收产品"},
+    )
+
+    envelope = build_chat_response_envelope(response, context_pack)
+
+    assert envelope.headline == "当前最大的问题是 ACOS 偏高。"
+    assert envelope.bullets == ["建议先处理高花费无转化词。"]
+    assert envelope.follow_up_prompts == ["查看最浪费的词", "给我 3 个优先动作"]
+    assert envelope.context_label == context_pack.context_label
+
+
+def test_build_summary_ai_brief_uses_snapshot_counts(db, product_id):
+    """汇总页 AI 简报应基于最近一次有效 snapshot 给出结论与建议。"""
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={"negative": 3, "manual": 2, "conflict": 1},
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高花费低转化",
+                "clicks": 20,
+                "orders": 0,
+                "spend": 32.0,
+                "sales": 0.0,
+            }
+        ],
+    )
+
+    brief = build_summary_ai_brief(db, product_id)
+
+    assert brief["headline"]
+    assert any("3" in item for item in brief["bullets"])
+    assert brief["recommended_next_actions"]
+    assert brief["context_label"].endswith("最近一次分析结果")
+
+
+def test_build_actions_ai_brief_uses_action_context_counts():
+    """操作清单 AI 简报应解释当前执行清单规模与下一步动作。"""
+    brief = build_actions_ai_brief(
+        {
+            "counts": {"negative": 4, "manual": 2, "conflict": 1},
+            "product_name": "桌面验收产品",
+            "context_label": "当前产品：桌面验收产品 · 上下文：最近一次分析结果",
+        }
+    )
+
+    assert "桌面验收产品" in brief["headline"]
+    assert any("4" in item for item in brief["bullets"])
+    assert brief["recommended_next_actions"]
+
+
+def test_normalize_ai_chat_message_preserves_structured_fields():
+    """聊天消息标准化后应保留结构化 AI 响应字段。"""
+    from src.app import _normalize_ai_chat_message
+
+    normalized = _normalize_ai_chat_message(
+        {
+            "role": "assistant",
+            "content": "这是正文",
+            "headline": "一句结论",
+            "bullets": ["第一点"],
+            "evidence": [{"label": "高花费词", "value": "travel pillow"}],
+            "recommended_next_actions": ["先否定 travel pillow"],
+            "follow_up_prompts": ["解释为什么"],
+            "context_label": "当前产品：桌面验收产品 · 上下文：最近一次分析结果",
+        }
+    )
+
+    assert normalized["headline"] == "一句结论"
+    assert normalized["bullets"] == ["第一点"]
+    assert normalized["evidence"][0]["label"] == "高花费词"
+    assert normalized["recommended_next_actions"] == ["先否定 travel pillow"]
+    assert normalized["follow_up_prompts"] == ["解释为什么"]
+    assert "最近一次分析结果" in normalized["context_label"]
 
 
 def test_queue_ai_message_sets_pending_generation_state():
