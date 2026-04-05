@@ -260,6 +260,115 @@ def build_actions_ai_brief(action_context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_upload_ai_brief(
+    *,
+    product_name: str,
+    parsed_files_count: int,
+    total_terms: int,
+    total_spend: float,
+    total_clicks: int,
+    total_orders: int,
+    analysis_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """为上传页生成导入摘要卡，解释数据准备度与下一步动作。"""
+    context_source = "最近一次导入批次"
+    context_label = f"当前产品：{product_name} · 上下文：{context_source}"
+    evidence = [
+        {
+            "term": "当前导入批次",
+            "triggered_rule": "导入预检",
+            "action_type": "import_summary",
+            "suggested_action": "确认导入后运行分析",
+            "clicks": total_clicks,
+            "orders": total_orders,
+            "spend": total_spend,
+            "sales": 0.0,
+        }
+    ]
+
+    if parsed_files_count <= 0:
+        return {
+            "headline": f"{product_name} 还没有可分析的导入文件。",
+            "bullets": ["请先上传原始报表，系统才能判断这批数据是否具备分析条件。"],
+            "evidence": [],
+            "recommended_next_actions": _default_next_actions("upload"),
+            "follow_up_prompts": ["上传前要准备哪些列？", "支持哪些文件格式？"],
+            "context_label": context_label,
+            "warning": "当前还没有导入任何可解析文件。",
+        }
+
+    base_bullets = [
+        f"当前已解析 {parsed_files_count} 个文件，共覆盖 {total_terms} 个搜索词、{total_clicks} 次点击、{total_orders} 笔订单，累计花费 ${total_spend:.2f}。",
+    ]
+    follow_up_prompts = ["导入后先看什么？", "这批数据够不够开始分析？", "接下来推荐哪一步？"]
+
+    if not analysis_state:
+        base_bullets.append("当前还没有运行规则分析，建议先确认导入批次，再决定是否立即开始分析。")
+        return {
+            "headline": f"{product_name} 已完成导入预检，下一步建议先运行规则分析，再查看总结与执行清单。",
+            "bullets": base_bullets,
+            "evidence": evidence,
+            "recommended_next_actions": _default_next_actions("upload"),
+            "follow_up_prompts": follow_up_prompts,
+            "context_label": context_label,
+            "warning": None,
+        }
+
+    status = str(analysis_state.get("status") or "warning")
+    message = str(analysis_state.get("message") or "").strip()
+    terms_analyzed = int(analysis_state.get("terms_analyzed") or 0)
+    results_saved = int(analysis_state.get("results_saved") or 0)
+    pending_reviews = int(analysis_state.get("pending_reviews") or 0)
+    can_retry = bool(analysis_state.get("can_retry"))
+
+    if status == "success":
+        base_bullets.append(
+            f"规则分析已处理 {terms_analyzed} 个聚合词，生成 {results_saved} 条建议，另有 {pending_reviews} 条需要人工审核。"
+        )
+        return {
+            "headline": f"{product_name} 当前导入与分析链路已打通，可以继续进入汇总页和审核页处理重点问题。",
+            "bullets": base_bullets,
+            "evidence": evidence,
+            "recommended_next_actions": _default_next_actions("upload"),
+            "follow_up_prompts": ["帮我总结当前最核心的问题", "先去汇总页还是审核页？", "哪些词最值得先处理？"],
+            "context_label": context_label,
+            "warning": None,
+        }
+
+    if status == "error":
+        base_bullets.append(message or "规则分析失败，请检查当前导入数据或稍后重试。")
+        if can_retry:
+            base_bullets.append("当前错误支持重试，建议先确认文件内容无误后再次运行分析。")
+        return {
+            "headline": f"{product_name} 已完成导入，但规则分析这一步还没有成功，需要先修复再进入后续页面。",
+            "bullets": base_bullets,
+            "evidence": evidence,
+            "recommended_next_actions": [
+                "先检查原始报表字段是否齐全",
+                "确认当前批次是否真的包含搜索词、点击和花费数据",
+                "修复后再次运行规则分析",
+            ],
+            "follow_up_prompts": ["为什么分析失败？", "我应该先检查什么？"],
+            "context_label": context_label,
+            "warning": message or "规则分析失败，请稍后重试。",
+        }
+
+    base_bullets.append(message or "当前分析还没有形成可保存的建议。")
+    return {
+        "headline": f"{product_name} 已完成导入，但这批数据暂时还不足以形成稳定动作建议，建议先核对报表质量或继续补充数据。",
+        "bullets": base_bullets,
+        "evidence": evidence,
+        "recommended_next_actions": [
+            "先确认报表是否覆盖足够长的时间范围",
+            "检查搜索词、点击、订单列是否齐全",
+            "必要时补充更多原始报表后再分析",
+        ],
+        "follow_up_prompts": ["为什么这批数据还不够？", "我应该补哪些数据？", "下一步先去哪一页？"],
+        "context_label": context_label,
+        "warning": message or "当前导入批次暂未生成可保存的建议。",
+    }
+
+
 def build_campaign_ai_brief(
     results_data: list[dict[str, Any]],
     *,

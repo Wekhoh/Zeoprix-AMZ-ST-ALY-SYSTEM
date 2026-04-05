@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from src.ai.copilot import build_upload_ai_brief
 from src.analysis.truth_replay import (
     apply_reviewed_truth,
     build_analysis_run_snapshot_rows,
@@ -19,8 +20,11 @@ from src.analysis.truth_replay import (
 )
 from src.config.logger import get_logger
 from src.data.parser import FileParser
+from src.ui.pages.analysis import _render_ai_brief_card
 
 logger = get_logger(__name__)
+
+UPLOAD_AI_BRIEF_STATE_KEY = "upload_ai_brief_state"
 
 UPLOAD_PAGE_CSS = """
 <style>
@@ -360,6 +364,11 @@ def render_upload():
         return
 
     current_product_id = st.session_state.get("current_product_id")
+    products = db.get_all_products()
+    current_product_name = next(
+        (p["name"] for p in products if p["id"] == current_product_id),
+        "当前产品",
+    )
     access_context = _resolve_upload_role_context(db, current_product_id)
     access_meta = _build_upload_access_meta(access_context["current_role"])
     access_chips_html = "".join(
@@ -379,7 +388,6 @@ def render_upload():
     # 产品选择/创建
     st.subheader("1. 选择或创建产品")
 
-    products = db.get_all_products()
     product_options = ["创建新产品"] + [p["name"] for p in products]
 
     selected_option = st.selectbox("选择产品", product_options, index=get_upload_product_default_index(products, st.session_state.get("current_product_id")))
@@ -412,6 +420,8 @@ def render_upload():
         product = next((p for p in products if p["name"] == selected_option), None)
         if product:
             st.session_state.current_product_id = product["id"]
+            current_product_id = product["id"]
+            current_product_name = product["name"]
 
     st.divider()
 
@@ -421,10 +431,6 @@ def render_upload():
     if not current_product_id:
         st.info("请先选择或创建产品工作区，再按需导入广告组人工判定表和最终汇总结论表。")
     else:
-        current_product_name = next(
-            (p["name"] for p in products if p["id"] == current_product_id),
-            "当前产品",
-        )
         st.caption(
             "如果这批数据已经在 Excel 里人工判定完成，可以直接导入两份表，系统会跳过重复审核并回放你的最终结论。"
         )
@@ -638,6 +644,36 @@ def render_upload():
                 unsafe_allow_html=True,
             )
 
+            upload_ai_brief_state = st.session_state.get(UPLOAD_AI_BRIEF_STATE_KEY)
+            if (
+                not isinstance(upload_ai_brief_state, dict)
+                or int(upload_ai_brief_state.get("product_id") or 0) != int(current_product_id or 0)
+            ):
+                upload_ai_brief_state = {}
+
+            analysis_state_for_brief = upload_ai_brief_state.get("analysis_state")
+            parsed_meta = upload_ai_brief_state.get("parsed_meta") or {}
+            parsed_files_count = int(parsed_meta.get("parsed_files_count") or len(parsed_files))
+            total_terms_for_brief = int(parsed_meta.get("total_terms") or total_terms)
+            total_spend_for_brief = float(parsed_meta.get("total_spend") or total_spend)
+            total_clicks_for_brief = int(parsed_meta.get("total_clicks") or total_clicks)
+            total_orders_for_brief = int(parsed_meta.get("total_orders") or total_orders)
+
+            upload_ai_brief = build_upload_ai_brief(
+                product_name=current_product_name,
+                parsed_files_count=parsed_files_count,
+                total_terms=total_terms_for_brief,
+                total_spend=total_spend_for_brief,
+                total_clicks=total_clicks_for_brief,
+                total_orders=total_orders_for_brief,
+                analysis_state=analysis_state_for_brief if isinstance(analysis_state_for_brief, dict) else None,
+            )
+            _render_ai_brief_card(
+                title="AI 导入摘要",
+                brief=upload_ai_brief,
+                key_prefix="upload_ai_brief",
+            )
+
             st.divider()
 
             # 导入确认
@@ -688,10 +724,23 @@ def render_upload():
                     )
 
                     # 自动运行分析
+                    analysis_state: dict[str, object] | None = None
                     if auto_analyze and success_count > 0:
                         with st.spinner("正在运行规则分析..."):
                             analysis_state = run_analysis(db, product_id)
                         _render_analysis_run_feedback(analysis_state)
+
+                    st.session_state[UPLOAD_AI_BRIEF_STATE_KEY] = {
+                        "product_id": product_id,
+                        "parsed_meta": {
+                            "parsed_files_count": len(parsed_files),
+                            "total_terms": total_terms,
+                            "total_spend": total_spend,
+                            "total_clicks": total_clicks,
+                            "total_orders": total_orders,
+                        },
+                        "analysis_state": analysis_state,
+                    }
 
         else:
             st.error("所有文件解析失败")

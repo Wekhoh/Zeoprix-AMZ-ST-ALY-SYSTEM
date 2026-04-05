@@ -56,3 +56,6 @@
 - 2026-04-03: 验证补充：Copilot 定向回归 5 passed；全量 pytest 345 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
 - 2026-04-04: 已完成页面内嵌 AI 第二批接入：按活动页增加“AI 活动解释”卡片、按 ASIN 页增加“AI 归因卡”，审核页增加“AI 审核建议”结构化卡片；三者均统一基于 `AIContextPack` / `AIResponseEnvelope` 构建。
 - 2026-04-04: 验证补充：campaign/asin/review AI brief 定向回归 5 passed；全量 pytest 348 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
+## 2026-04-04
+- 已完成上传页 AI 导入摘要卡接入：基于当前导入批次、产品上下文与分析状态生成结构化下一步建议。
+- 已验证 upload AI brief：定向测试 2 passed；全量 pytest 350 passed, 10 skipped, 2 warnings；evaluate_product = 99.50 / 97.00 / 98.50。

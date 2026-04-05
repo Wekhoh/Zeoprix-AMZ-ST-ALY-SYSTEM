@@ -27,6 +27,7 @@ from src.ai.copilot import (
     build_chat_response_envelope,
     build_review_ai_brief,
     build_summary_ai_brief,
+    build_upload_ai_brief,
 )
 from src.ui.pages.analysis import (
     _build_analysis_access_meta,
@@ -300,6 +301,53 @@ def test_build_actions_ai_brief_uses_action_context_counts():
     assert "桌面验收产品" in brief["headline"]
     assert any("4" in item for item in brief["bullets"])
     assert brief["recommended_next_actions"]
+
+
+def test_build_upload_ai_brief_guides_next_steps_after_successful_import_analysis():
+    """上传页 AI 简报应在成功导入并完成分析后给出后续工作流建议。"""
+    brief = build_upload_ai_brief(
+        product_name="桌面验收产品",
+        parsed_files_count=2,
+        total_terms=316,
+        total_spend=248.5,
+        total_clicks=143,
+        total_orders=11,
+        analysis_state={
+            "status": "success",
+            "message": "分析完成。",
+            "terms_analyzed": 54,
+            "results_saved": 18,
+            "pending_reviews": 6,
+        },
+    )
+
+    assert "桌面验收产品" in brief["headline"]
+    assert any("54" in item for item in brief["bullets"])
+    assert any("审核页" in item or "汇总页" in item for item in brief["follow_up_prompts"])
+    assert brief["warning"] is None
+
+
+def test_build_upload_ai_brief_warns_when_import_has_no_actionable_analysis():
+    """上传页 AI 简报应解释导入成功但分析未形成建议的 warning 状态。"""
+    brief = build_upload_ai_brief(
+        product_name="桌面验收产品",
+        parsed_files_count=1,
+        total_terms=28,
+        total_spend=18.3,
+        total_clicks=22,
+        total_orders=0,
+        analysis_state={
+            "status": "warning",
+            "message": "规则分析已运行，但当前没有生成可保存的建议。",
+            "terms_analyzed": 28,
+            "results_saved": 0,
+            "pending_reviews": 0,
+        },
+    )
+
+    assert "桌面验收产品" in brief["headline"]
+    assert brief["warning"]
+    assert any("没有生成可保存的建议" in item for item in brief["bullets"])
 
 
 def test_build_campaign_ai_brief_highlights_top_campaign_signal():
