@@ -54,3 +54,5 @@
 - 2026-04-03: 已完成 AI Copilot 第一阶段收口：引入统一的 `AIContextPack` / `AIResponseEnvelope`，侧边栏 AI 助手开始显示上下文标签、结构化结论、依据、建议动作与推荐追问。
 - 2026-04-03: 已完成页面内嵌 AI 第一批接入：汇总页增加“AI 汇总简报”卡片，操作清单页增加“AI 执行说明”卡片；两者都优先基于当前产品与最近一次有效分析结果生成结构化摘要。
 - 2026-04-03: 验证补充：Copilot 定向回归 5 passed；全量 pytest 345 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
+- 2026-04-04: 已完成页面内嵌 AI 第二批接入：按活动页增加“AI 活动解释”卡片、按 ASIN 页增加“AI 归因卡”，审核页增加“AI 审核建议”结构化卡片；三者均统一基于 `AIContextPack` / `AIResponseEnvelope` 构建。
+- 2026-04-04: 验证补充：campaign/asin/review AI brief 定向回归 5 passed；全量 pytest 348 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。

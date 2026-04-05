@@ -8,9 +8,11 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from src.ai.copilot import build_ai_context_pack, build_campaign_ai_brief
 from src.config.logger import get_logger
 from src.ui.pages.analysis import (
     AUTO_ACTION_DISPLAY,
+    _render_ai_brief_card,
     _resolve_analysis_role_context,
     save_campaign_review_changes,
 )
@@ -236,6 +238,28 @@ def render_campaign_analysis(db, product_id: int):
             if search_lower in str(r.get("term", "")).lower()
             or search_lower in str(r.get("campaign_name", "")).lower()
         ]
+
+    if filtered_results:
+        context_pack = build_ai_context_pack(
+            db,
+            product_id,
+            page_key="campaign",
+            page_title="按活动分析",
+        )
+        brief = build_campaign_ai_brief(
+            filtered_results,
+            product_name=context_pack.product_name,
+            context_label=(
+                f"当前产品：{context_pack.product_name} · 上下文："
+                f"{'最近一次分析结果（按活动）' if snapshot_rows else '实时活动分析结果'}"
+            ),
+        )
+        _render_ai_brief_card(
+            title="AI 活动解释",
+            brief=brief,
+            key_prefix="campaign_ai_brief",
+        )
+        st.divider()
 
     # 显示结果统计
     st.subheader(f"按活动分析结果 ({len(filtered_results)} 条)")

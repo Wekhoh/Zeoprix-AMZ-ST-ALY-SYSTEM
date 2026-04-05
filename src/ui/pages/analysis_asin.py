@@ -8,8 +8,13 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from src.ai.copilot import build_ai_context_pack, build_asin_ai_brief
 from src.config.logger import get_logger
-from src.ui.pages.analysis import AUTO_ACTION_DISPLAY, _resolve_analysis_role_context
+from src.ui.pages.analysis import (
+    AUTO_ACTION_DISPLAY,
+    _render_ai_brief_card,
+    _resolve_analysis_role_context,
+)
 
 logger = get_logger(__name__)
 
@@ -287,6 +292,28 @@ def render_asin_analysis(db, product_id: int):
             filtered_results = [
                 r for r in filtered_results if r.get("asin_identifier") in asin_filter
             ]
+
+    if filtered_results:
+        context_pack = build_ai_context_pack(
+            db,
+            product_id,
+            page_key="asin",
+            page_title="按ASIN分析",
+        )
+        brief = build_asin_ai_brief(
+            filtered_results,
+            product_name=context_pack.product_name,
+            context_label=(
+                f"当前产品：{context_pack.product_name} · 上下文："
+                f"{'最近一次分析结果（按 ASIN）' if snapshot_rows else '实时 ASIN 分析结果'}"
+            ),
+        )
+        _render_ai_brief_card(
+            title="AI 归因卡",
+            brief=brief,
+            key_prefix="asin_ai_brief",
+        )
+        st.divider()
 
     # 显示结果统计
     st.subheader(f"按ASIN分析结果 ({len(filtered_results)} 条)")

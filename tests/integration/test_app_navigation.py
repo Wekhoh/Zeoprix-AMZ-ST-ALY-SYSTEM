@@ -21,8 +21,11 @@ from src.analysis.truth_replay import (
 from src.ai.chat import ChatResponse, GuidedOption
 from src.ai.copilot import (
     build_actions_ai_brief,
+    build_asin_ai_brief,
     build_ai_context_pack,
+    build_campaign_ai_brief,
     build_chat_response_envelope,
+    build_review_ai_brief,
     build_summary_ai_brief,
 )
 from src.ui.pages.analysis import (
@@ -297,6 +300,111 @@ def test_build_actions_ai_brief_uses_action_context_counts():
     assert "桌面验收产品" in brief["headline"]
     assert any("4" in item for item in brief["bullets"])
     assert brief["recommended_next_actions"]
+
+
+def test_build_campaign_ai_brief_highlights_top_campaign_signal():
+    """按活动 AI 简报应点出最关键活动与浪费信号。"""
+    brief = build_campaign_ai_brief(
+        [
+            {
+                "term": "travel pillow",
+                "campaign_name": "Brand Exact",
+                "campaign_id": "camp-1",
+                "action_type": "negative_exact",
+                "triggered_rule": "高点击低转化",
+                "suggested_action": "否定精准",
+                "clicks": 18,
+                "orders": 1,
+                "spend": 26.5,
+                "sales": 31.0,
+            },
+            {
+                "term": "best neck pillow",
+                "campaign_name": "Generic Auto",
+                "campaign_id": "camp-2",
+                "action_type": "manual_keyword",
+                "triggered_rule": "高转化补量",
+                "suggested_action": "手动精准",
+                "clicks": 9,
+                "orders": 3,
+                "spend": 11.0,
+                "sales": 52.0,
+            },
+        ],
+        product_name="桌面验收产品",
+        context_label="当前产品：桌面验收产品 · 上下文：最近一次分析结果（按活动）",
+    )
+
+    assert "桌面验收产品" in brief["headline"]
+    assert any("Brand Exact" in item for item in brief["bullets"])
+    assert brief["evidence"][0]["term"] == "travel pillow"
+    assert "按活动" in brief["context_label"]
+
+
+def test_build_asin_ai_brief_surfaces_variant_focus():
+    """按 ASIN AI 简报应指出当前最需要关注的变体。"""
+    brief = build_asin_ai_brief(
+        [
+            {
+                "term": "travel pillow",
+                "asin_identifier": "B0TESTASIN1",
+                "action_type": "negative_exact",
+                "triggered_rule": "高点击低转化",
+                "suggested_action": "否定精准",
+                "clicks": 16,
+                "orders": 1,
+                "spend": 22.0,
+                "sales": 29.0,
+            },
+            {
+                "term": "best neck pillow",
+                "asin_identifier": "B0TESTASIN2",
+                "action_type": "manual_keyword",
+                "triggered_rule": "高转化补量",
+                "suggested_action": "手动精准",
+                "clicks": 8,
+                "orders": 3,
+                "spend": 10.0,
+                "sales": 49.0,
+            },
+        ],
+        product_name="桌面验收产品",
+        context_label="当前产品：桌面验收产品 · 上下文：最近一次分析结果（按 ASIN）",
+    )
+
+    assert "桌面验收产品" in brief["headline"]
+    assert any("B0TESTASIN1" in item for item in brief["bullets"])
+    assert brief["evidence"][0]["term"] == "travel pillow"
+    assert "按 ASIN" in brief["context_label"]
+
+
+def test_build_review_ai_brief_distinguishes_ai_and_manual_state():
+    """审核页 AI 简报应同时解释 AI 建议与人工当前状态。"""
+    brief = build_review_ai_brief(
+        term="travel pillow",
+        term_type="keyword",
+        item={
+            "relevance": "generic",
+            "total_clicks": 19,
+            "total_orders": 1,
+            "total_spend": 23.4,
+            "triggered_rule": "高点击低转化",
+            "suggested_action": "否定精准",
+        },
+        ai_suggestion={
+            "relevance": "weak",
+            "confidence": 0.72,
+            "reasoning": "搜索意图偏泛",
+            "suggested_action": "先否定词组",
+        },
+        context_label="当前产品：桌面验收产品 · 上下文：最近一次分析结果（审核）",
+    )
+
+    assert "travel pillow" in brief["headline"]
+    assert any("AI 当前建议" in item for item in brief["bullets"])
+    assert any("人工当前标记" in item for item in brief["bullets"])
+    assert brief["evidence"][0]["term"] == "travel pillow"
+    assert any("为什么这么判断" in prompt for prompt in brief["follow_up_prompts"])
 
 
 def test_normalize_ai_chat_message_preserves_structured_fields():

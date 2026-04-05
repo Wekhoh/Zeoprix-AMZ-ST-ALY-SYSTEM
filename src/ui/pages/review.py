@@ -8,9 +8,11 @@ from html import escape
 
 import streamlit as st
 
+from src.ai.copilot import build_ai_context_pack, build_review_ai_brief
 from src.ai.analyzer import AIAnalyzer, RelevanceSuggestion
 from src.config.logger import get_logger
 from src.ui.pages.actions import ACTIONS_PAGE_CSS
+from src.ui.pages.analysis import _render_ai_brief_card
 
 logger = get_logger(__name__)
 
@@ -996,39 +998,27 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
                 _request_ai_suggestion(db, product_id, term, item)
 
         with col_ai_result:
-            if ai_suggestion:
-                relevance_label = RELEVANCE_DISPLAY.get(
-                    ai_suggestion.get("relevance", "pending"),
-                    ai_suggestion.get("relevance", "待定"),
-                )
-                confidence = ai_suggestion.get("confidence", 0)
-                reasoning = ai_suggestion.get("reasoning", "")
-                suggested_action = ai_suggestion.get("suggested_action", "")
-                status = ai_suggestion.get("status", "success")
-                status_message = ai_suggestion.get("status_message", "")
-
-                # 根据置信度显示不同颜色
-                if status == "error":
-                    st.error(status_message or "AI 建议暂时不可用。")
-                elif status == "warning":
-                    st.warning(status_message or "AI 本次未返回有效建议。")
-                elif confidence >= 0.8:
-                    st.success(
-                        f"AI建议: **{relevance_label}** (置信度: {confidence:.0%})"
-                    )
-                elif confidence >= 0.5:
-                    st.info(f"AI建议: **{relevance_label}** (置信度: {confidence:.0%})")
-                else:
-                    st.warning(
-                        f"AI建议: **{relevance_label}** (置信度: {confidence:.0%})"
-                    )
-
-                if reasoning:
-                    st.caption(f"理由: {reasoning}")
-                if suggested_action:
-                    st.caption(f"建议动作: {suggested_action}")
-            else:
-                st.caption("点击按钮获取AI相关性建议")
+            context_pack = build_ai_context_pack(
+                db,
+                product_id,
+                page_key="review",
+                page_title="相关性审核",
+            )
+            review_brief = build_review_ai_brief(
+                term=term,
+                term_type=term_type,
+                item=item,
+                ai_suggestion=ai_suggestion,
+                context_label=(
+                    f"当前产品：{context_pack.product_name} · 上下文："
+                    f"{'最近一次分析结果（审核）' if context_pack.context_source == 'latest_snapshot' else '仅产品基础信息（审核）'}"
+                ),
+            )
+            _render_ai_brief_card(
+                title="AI 审核建议",
+                brief=review_brief,
+                key_prefix=f"review_ai_brief_{term}",
+            )
     # ========== AI建议功能结束 ==========
 
     st.divider()

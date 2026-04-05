@@ -145,6 +145,9 @@ def _default_next_actions(page_key: str) -> list[str]:
         "summary": ["先确认最浪费的词", "再整理手动投放机会", "最后回到审核页确认边界词"],
         "actions": ["先执行否词清单", "再处理手动投放草稿", "最后整理汇报摘要给团队"],
         "upload": ["先确认导入质量", "再运行规则分析", "最后进入汇总页查看机会与风险"],
+        "campaign": ["先收紧高浪费活动", "再对高转化活动补量", "最后核对活动级边界词"],
+        "asin": ["先确认问题集中在哪个变体", "再排查页面承接与词意图", "最后回到审核页校准边界词"],
+        "review": ["先确认 AI 判断是否合理", "再保存人工最终决定", "最后回到操作清单查看影响"],
     }
     return mapping.get(page_key, ["继续追问具体问题", "切到相关页面继续处理"])
 
@@ -254,6 +257,151 @@ def build_actions_ai_brief(action_context: dict[str, Any]) -> dict[str, Any]:
         "follow_up_prompts": ["先执行哪些动作？", "给我老板汇报摘要", "哪些词还需要人工判断？"],
         "context_label": context_label,
         "warning": None,
+    }
+
+
+def build_campaign_ai_brief(
+    results_data: list[dict[str, Any]],
+    *,
+    product_name: str,
+    context_label: str,
+) -> dict[str, Any]:
+    """为按活动页生成 AI 解释卡。"""
+    rows = list(results_data or [])
+    if not rows:
+        return {
+            "headline": f"{product_name} 当前没有可解释的活动分析结果。",
+            "bullets": ["请先调整筛选条件，或先完成一次成功分析后再查看活动级解释。"],
+            "evidence": [],
+            "recommended_next_actions": _default_next_actions("campaign"),
+            "follow_up_prompts": ["为什么当前活动没有结果？"],
+            "context_label": context_label,
+            "warning": "当前筛选条件下没有可用于 AI 解释的活动结果。",
+        }
+
+    top_spend = max(rows, key=lambda row: float(row.get("spend") or 0.0))
+    campaign_count = len({str(row.get("campaign_id") or "").strip() for row in rows if str(row.get("campaign_id") or "").strip()})
+    negative_count = sum(1 for row in rows if "negative" in str(row.get("action_type") or ""))
+    manual_count = sum(1 for row in rows if "manual" in str(row.get("action_type") or ""))
+
+    bullets = [
+        f"当前共覆盖 {campaign_count} 个活动，其中 {negative_count} 条结果倾向先控浪费，另有 {manual_count} 条结果提示值得补量。",
+        f"最值得优先盯住的活动是 {top_spend.get('campaign_name') or '未命名活动'}，其代表词 {top_spend.get('term') or '-'} 已累计花费 ${float(top_spend.get('spend') or 0):.2f}。",
+    ]
+    if top_spend.get("triggered_rule"):
+        bullets.append(
+            f"该活动当前最关键的判断依据是“{top_spend.get('triggered_rule')}”，建议先确认这类词是否真的不值得继续放量。"
+        )
+
+    return {
+        "headline": f"{product_name} 当前最需要优先解释的是高花费活动里的词意图与预算浪费点。",
+        "bullets": bullets,
+        "evidence": _normalize_evidence_items(rows, limit=3),
+        "recommended_next_actions": _default_next_actions("campaign"),
+        "follow_up_prompts": ["为什么这个活动最差？", "哪些活动该先减预算？", "哪些活动值得补量？"],
+        "context_label": context_label,
+        "warning": None,
+    }
+
+
+def build_asin_ai_brief(
+    results_data: list[dict[str, Any]],
+    *,
+    product_name: str,
+    context_label: str,
+) -> dict[str, Any]:
+    """为按 ASIN 页生成 AI 归因卡。"""
+    rows = list(results_data or [])
+    if not rows:
+        return {
+            "headline": f"{product_name} 当前没有可解释的 ASIN 分析结果。",
+            "bullets": ["请先调整筛选条件，或先完成一次成功分析后再查看变体归因。"],
+            "evidence": [],
+            "recommended_next_actions": _default_next_actions("asin"),
+            "follow_up_prompts": ["为什么当前 ASIN 没有结果？"],
+            "context_label": context_label,
+            "warning": "当前筛选条件下没有可用于 AI 归因的 ASIN 结果。",
+        }
+
+    top_spend = max(rows, key=lambda row: float(row.get("spend") or 0.0))
+    asin_count = len({str(row.get("asin_identifier") or "").strip() for row in rows if str(row.get("asin_identifier") or "").strip()})
+    bullets = [
+        f"当前共覆盖 {asin_count} 个变体，最值得先排查的是 {top_spend.get('asin_identifier') or '未知 ASIN'} 对应的高花费词流量。",
+        f"代表词 {top_spend.get('term') or '-'} 已累计花费 ${float(top_spend.get('spend') or 0):.2f}，当前建议动作是 {top_spend.get('suggested_action') or top_spend.get('action_type') or '继续观察'}。",
+    ]
+    if top_spend.get("triggered_rule"):
+        bullets.append(
+            f"当前更像是“{top_spend.get('triggered_rule')}”导致的变体承接问题，建议先核对词意图与页面承接是否匹配。"
+        )
+
+    return {
+        "headline": f"{product_name} 当前最需要聚焦的是把高花费词与具体变体表现对应起来，再决定是否继续投放。",
+        "bullets": bullets,
+        "evidence": _normalize_evidence_items(rows, limit=3),
+        "recommended_next_actions": _default_next_actions("asin"),
+        "follow_up_prompts": ["哪个 ASIN 最拖后腿？", "这是词不准还是页面问题？", "哪些变体值得继续放量？"],
+        "context_label": context_label,
+        "warning": None,
+    }
+
+
+def build_review_ai_brief(
+    *,
+    term: str,
+    term_type: str,
+    item: dict[str, Any],
+    ai_suggestion: dict[str, Any] | None,
+    context_label: str,
+) -> dict[str, Any]:
+    """为审核页生成 AI 建议卡。"""
+    term_label = str(term or "当前词").strip() or "当前词"
+    clicks = int(float(item.get("total_clicks") or item.get("clicks") or 0))
+    orders = int(float(item.get("total_orders") or item.get("orders") or 0))
+    spend = float(item.get("total_spend") or item.get("spend") or 0.0)
+    current_manual = item.get("competition_level") if term_type == "asin" else item.get("relevance")
+
+    if ai_suggestion:
+        ai_label = str(ai_suggestion.get("relevance") or "pending").strip() or "pending"
+        ai_confidence = float(ai_suggestion.get("confidence") or 0.0)
+        reasoning = str(ai_suggestion.get("reasoning") or "").strip()
+        suggested_action = str(ai_suggestion.get("suggested_action") or "").strip()
+        bullets = [
+            f"AI 当前建议：{ai_label}（置信度 {ai_confidence:.0%}）。",
+            f"人工当前标记：{current_manual or '尚未定稿'}。",
+        ]
+        if reasoning:
+            bullets.append(f"AI 主要理由：{reasoning}")
+        if suggested_action:
+            bullets.append(f"建议动作：{suggested_action}")
+        warning = str(ai_suggestion.get('status_message') or "").strip() or None
+        headline = f"{term_label} 当前已有 AI 审核建议，下一步重点是确认这条判断是否适合作为最终人工结论。"
+    else:
+        bullets = [
+            f"人工当前标记：{current_manual or '尚未定稿'}。",
+            "当前还没有 AI 审核建议，建议先获取建议，再判断是否采纳。",
+        ]
+        warning = "当前尚未获取 AI 建议。"
+        headline = f"{term_label} 当前还没有 AI 审核建议，建议先生成建议再决定最终标记。"
+
+    return {
+        "headline": headline,
+        "bullets": bullets,
+        "evidence": [
+            {
+                "term": term_label,
+                "triggered_rule": str(item.get("triggered_rule") or "").strip(),
+                "action_type": str(item.get("action_type") or "").strip(),
+                "suggested_action": str(item.get("suggested_action") or "").strip(),
+                "clicks": clicks,
+                "orders": orders,
+                "spend": spend,
+                "sales": float(item.get("sales") or 0.0),
+            }
+        ],
+        "recommended_next_actions": _default_next_actions("review"),
+        "follow_up_prompts": ["为什么这么判断？", "如果不采纳会怎样？", "给我一个更保守的建议"],
+        "context_label": context_label,
+        "warning": warning,
     }
 
 
