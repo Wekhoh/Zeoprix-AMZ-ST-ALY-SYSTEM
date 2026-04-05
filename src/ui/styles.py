@@ -2038,6 +2038,16 @@ div[data-testid="stPopoverBody"] .stButton > button {
     gap: 0.4rem;
 }
 
+.ai-chat-route-hint {
+    margin: 0.55rem 0 0.4rem;
+    padding: 0.4rem 0.72rem;
+    border-radius: 12px;
+    background: rgba(37, 99, 235, 0.08);
+    color: #1d4ed8;
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
 .ai-chat-context-badge {
     display: inline-flex;
     align-items: center;
@@ -2161,6 +2171,11 @@ div[data-testid="stPopoverBody"] .stButton > button {
     text-align: center;
     font-size: 0.75rem;
     color: #64748b;
+}
+
+.ai-chat-scroll-anchor {
+    height: 1px;
+    width: 100%;
 }
 
 @keyframes ai-chat-pulse {

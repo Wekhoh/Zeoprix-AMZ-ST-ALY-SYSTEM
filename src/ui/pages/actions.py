@@ -403,7 +403,7 @@ def _render_actions_ai_brief_card(
                 ):
                     from src.app import _queue_ai_message
 
-                    if _queue_ai_message(prompt):
+                    if _queue_ai_message(prompt, source_label="操作清单 AI 执行说明"):
                         st.rerun()
 
 

@@ -539,6 +539,7 @@ def test_queue_ai_message_sets_pending_generation_state():
     assert st.session_state.ai_chat_is_generating is True
     assert st.session_state.ai_chat_pending_prompt == "请总结当前产品问题"
     assert st.session_state.ai_chat_last_prompt == "请总结当前产品问题"
+    assert "ai_chat_last_routed_from" not in st.session_state
     assert st.session_state.chat_messages == [
         {
             "role": "user",
@@ -548,6 +549,42 @@ def test_queue_ai_message_sets_pending_generation_state():
             "retry_prompt": None,
         }
     ]
+
+
+def test_queue_ai_message_tracks_source_hint():
+    """由页面卡片发起的追问应记录来源提示，供侧边栏展示上下文。"""
+    from src.app import _queue_ai_message
+
+    st.session_state.clear()
+    st.session_state.chat_messages = []
+    st.session_state.ai_chat_is_generating = False
+    st.session_state.ai_chat_pending_prompt = None
+    st.session_state.ai_chat_last_prompt = None
+
+    queued = _queue_ai_message(
+        "请解释为什么 ACOS 偏高",
+        source_label="汇总页 AI 简报",
+    )
+
+    assert queued is True
+    assert st.session_state.ai_chat_last_routed_from == "汇总页 AI 简报"
+
+
+def test_clear_ai_chat_history_resets_source_hint():
+    """清空对话时应一并清理最近一次路由来源提示。"""
+    from src.app import _clear_ai_chat_history
+
+    st.session_state.clear()
+    st.session_state.chat_messages = [{"role": "user", "content": "hello"}]
+    st.session_state.ai_chat_is_generating = False
+    st.session_state.ai_chat_pending_prompt = None
+    st.session_state.ai_chat_last_prompt = "hello"
+    st.session_state.ai_chat_last_routed_from = "汇总页 AI 简报"
+
+    _clear_ai_chat_history()
+
+    assert st.session_state.chat_messages == []
+    assert "ai_chat_last_routed_from" not in st.session_state
 
 
 def test_get_ai_chat_panel_height_keeps_follow_up_input_visible():
@@ -561,6 +598,17 @@ def test_get_ai_chat_panel_height_keeps_follow_up_input_visible():
     assert _get_ai_chat_panel_height(True) == AI_CHAT_EMPTY_PANEL_HEIGHT
     assert _get_ai_chat_panel_height(False) == AI_CHAT_MESSAGES_PANEL_HEIGHT
     assert AI_CHAT_MESSAGES_PANEL_HEIGHT < AI_CHAT_EMPTY_PANEL_HEIGHT + 40
+
+
+def test_build_ai_chat_scroll_script_targets_anchor_and_scrolls():
+    """自动滚动脚本应指向锚点并使用 sessionStorage 去重。"""
+    from src.app import _build_ai_chat_scroll_script
+
+    script = _build_ai_chat_scroll_script("sidebar-anchor", "count=2")
+
+    assert "sidebar-anchor" in script
+    assert "scrollIntoView" in script
+    assert "sessionStorage" in script
 
 
 def test_backend_auth_shell_meta_describes_shared_login():

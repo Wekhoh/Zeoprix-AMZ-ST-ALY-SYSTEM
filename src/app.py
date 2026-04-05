@@ -11,6 +11,7 @@ from urllib import error, request
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from src.ai.copilot import (
     build_ai_context_badges,
@@ -930,7 +931,7 @@ def _get_ai_context_pack():
     )
 
 
-def _queue_ai_message(message: str) -> bool:
+def _queue_ai_message(message: str, source_label: str | None = None) -> bool:
     """将用户输入排入待处理队列，并立即显示在聊天记录中。"""
     prompt = (message or "").strip()
     if not prompt:
@@ -945,6 +946,10 @@ def _queue_ai_message(message: str) -> bool:
     )
     st.session_state.ai_chat_pending_prompt = prompt
     st.session_state.ai_chat_last_prompt = prompt
+    if source_label and source_label.strip():
+        st.session_state.ai_chat_last_routed_from = source_label.strip()
+    else:
+        st.session_state.pop("ai_chat_last_routed_from", None)
     st.session_state.ai_chat_is_generating = True
     return True
 
@@ -960,6 +965,7 @@ def _clear_ai_chat_history():
     st.session_state.ai_chat_is_generating = False
     st.session_state.ai_chat_pending_prompt = None
     st.session_state.ai_chat_last_prompt = None
+    st.session_state.pop("ai_chat_last_routed_from", None)
 
     product_id = st.session_state.get("current_product_id")
     if product_id is not None:
@@ -1052,8 +1058,48 @@ def _render_ai_follow_up_prompts(
                 use_container_width=True,
                 disabled=disabled,
             ):
-                if _queue_ai_message(prompt):
+                if _queue_ai_message(prompt, source_label="AI助手追问"):
                     st.rerun()
+
+
+def _build_ai_chat_scroll_token(view_state: dict) -> str:
+    """构建聊天滚动触发 token，避免无意义重复滚动。"""
+    messages = view_state.get("messages") or []
+    pending = view_state.get("pending_message")
+    last_message = messages[-1] if messages else None
+    last_signature = "empty"
+    if last_message:
+        last_signature = "|".join(
+            [
+                str(last_message.get("role") or "assistant"),
+                str(last_message.get("headline") or last_message.get("content") or "")[:80],
+                str(last_message.get("status") or "default"),
+            ]
+        )
+    pending_signature = str(pending.get("content") or "")[:80] if pending else ""
+    return f"count={len(messages)};last={last_signature};pending={pending_signature};generating={bool(pending)}"
+
+
+def _build_ai_chat_scroll_script(anchor_id: str, scroll_token: str) -> str:
+    """生成自动滚到最新消息的内联脚本。"""
+    payload = json.dumps({"anchorId": anchor_id, "token": scroll_token}, ensure_ascii=False)
+    return f"""
+<script>
+const payload = {payload};
+const storageKey = `ai-chat-scroll::${{payload.anchorId}}`;
+const previousToken = sessionStorage.getItem(storageKey);
+if (previousToken !== payload.token) {{
+  sessionStorage.setItem(storageKey, payload.token);
+  const scrollToAnchor = () => {{
+    const anchor = window.parent.document.getElementById(payload.anchorId);
+    if (anchor) {{
+      anchor.scrollIntoView({{ behavior: 'smooth', block: 'end' }});
+    }}
+  }};
+  requestAnimationFrame(() => requestAnimationFrame(scrollToAnchor));
+}}
+</script>
+"""
 
 
 def _render_ai_draft_payload(draft_payload: dict[str, str], *, key_prefix: str) -> None:
@@ -1187,7 +1233,7 @@ def _render_ai_quick_prompts(*, key_prefix: str, disabled: bool):
             use_container_width=True,
             disabled=disabled,
         ):
-            if _queue_ai_message(prompt):
+            if _queue_ai_message(prompt, source_label="快捷提问"):
                 st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1221,6 +1267,7 @@ def _render_ai_chat_shell(
         f'<span class="ai-chat-context-badge">{escape(badge)}</span>'
         for badge in context_badges
     )
+    routed_from = str(st.session_state.get("ai_chat_last_routed_from") or "").strip()
     st.markdown(
         f"""
         <div class="ai-chat-shell">
@@ -1235,7 +1282,16 @@ def _render_ai_chat_shell(
         unsafe_allow_html=True,
     )
 
+    if routed_from:
+        st.markdown(
+            f'<div class="ai-chat-route-hint">最近一次追问来自：{escape(routed_from)}</div>',
+            unsafe_allow_html=True,
+        )
+
     panel_height = _get_ai_chat_panel_height(view_state["show_empty_state"])
+    scroll_anchor_id = f"{surface_key}-scroll-anchor"
+    should_autoscroll = bool(view_state["messages"] or view_state["pending_message"])
+    scroll_token = _build_ai_chat_scroll_token(view_state) if should_autoscroll else ""
 
     with st.container(height=panel_height, border=True):
         if view_state["show_empty_state"]:
@@ -1268,13 +1324,24 @@ def _render_ai_chat_shell(
                     message_index=len(view_state["messages"]),
                     input_disabled=view_state["input_disabled"],
                 )
+        st.markdown(
+            f'<div id="{escape(scroll_anchor_id)}" class="ai-chat-scroll-anchor"></div>',
+            unsafe_allow_html=True,
+        )
+
+    if should_autoscroll:
+        components.html(
+            _build_ai_chat_scroll_script(scroll_anchor_id, scroll_token),
+            height=0,
+            width=0,
+        )
 
     user_input = st.chat_input(
         input_placeholder,
         key=input_key,
         disabled=view_state["input_disabled"],
     )
-    if user_input and _queue_ai_message(user_input):
+    if user_input and _queue_ai_message(user_input, source_label=None):
         st.rerun()
 
     if view_state["show_action_bar"]:
@@ -1287,7 +1354,7 @@ def _render_ai_chat_shell(
                 use_container_width=True,
                 disabled=not view_state["show_retry_button"],
             ):
-                if _queue_ai_message(view_state["retry_prompt"] or ""):
+                if _queue_ai_message(view_state["retry_prompt"] or "", source_label="重试上一条"):
                     st.rerun()
         with action_col2:
             if st.button(

@@ -1408,7 +1408,7 @@ def _render_ai_brief_card(
                 if st.button(prompt, key=f"{key_prefix}_prompt_{idx}", width="stretch"):
                     from src.app import _queue_ai_message
 
-                    if _queue_ai_message(prompt):
+                    if _queue_ai_message(prompt, source_label=title):
                         st.rerun()
 
 
