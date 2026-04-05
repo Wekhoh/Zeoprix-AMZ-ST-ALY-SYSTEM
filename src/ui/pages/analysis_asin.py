@@ -3,18 +3,163 @@
 从 analysis.py 拆分
 """
 
+from typing import Any
+
 import pandas as pd
 import streamlit as st
 
+from src.ai.copilot import build_ai_context_pack, build_asin_ai_brief
 from src.config.logger import get_logger
-from src.ui.pages.analysis import AUTO_ACTION_DISPLAY
+from src.ui.pages.analysis import (
+    AUTO_ACTION_DISPLAY,
+    _render_ai_brief_card,
+    _resolve_analysis_role_context,
+)
 
 logger = get_logger(__name__)
 
 
+
+
+def _build_snapshot_asin_rows(snapshot_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """将最近一次有效快照转换为按 ASIN 页可直接消费的数据结构。"""
+    from src.analysis.truth_replay import action_type_to_auto_action
+
+    asin_rows: list[dict[str, Any]] = []
+    for row in snapshot_rows:
+        asin_identifier = str(row.get("asin_identifier") or "").strip()
+        if not asin_identifier:
+            continue
+
+        action_type = str(row.get("action_type") or "").strip()
+        asin_rows.append(
+            {
+                "term": str(row.get("term") or "").strip(),
+                "term_type": str(row.get("term_type") or "keyword").strip() or "keyword",
+                "asin_identifier": asin_identifier,
+                "triggered_rule": str(row.get("triggered_rule") or "").strip(),
+                "suggested_action": str(row.get("suggested_action") or "").strip(),
+                "auto_action": str(row.get("auto_action") or "").strip()
+                or action_type_to_auto_action(action_type),
+                "action_type": action_type,
+                "confidence": float(row.get("confidence") or 0.0),
+                "clicks": int(float(row.get("clicks") or 0)),
+                "orders": int(float(row.get("orders") or 0)),
+                "spend": float(row.get("spend") or 0.0),
+                "sales": float(row.get("sales") or 0.0),
+                "cvr": float(row.get("cvr") or 0.0),
+                "acos": float(row.get("acos") or 0.0),
+            }
+        )
+
+    return sorted(
+        asin_rows,
+        key=lambda item: (
+            {"negate": 0, "keep": 1, "observe": 2}.get(item.get("auto_action"), 3),
+            item.get("asin_identifier", ""),
+            item.get("term", ""),
+        ),
+    )
+
+
+def _build_latest_snapshot_asin_rows(db, product_id: int) -> list[dict[str, Any]] | None:
+    """按 ASIN 页优先读取最近一次包含 ASIN 维度的有效快照。"""
+    snapshots = db.list_analysis_run_snapshots(product_id, limit=20)
+    for snapshot in snapshots:
+        rows = _build_snapshot_asin_rows(snapshot.get("rows") or [])
+        if rows:
+            return rows
+    return None
+
+
+def _build_asin_analysis_access_meta(current_role: str) -> dict[str, object]:
+    """构建按ASIN分析视图的角色门控摘要。"""
+    can_export = current_role in {"admin", "editor"}
+    return {
+        "title": "当前ASIN分析权限",
+        "description": "按ASIN模式更适合看变体差异与跨ASIN分歧，管理员和编辑者可以导出确认后的结果，查看者保留只读浏览。",
+        "chips": [
+            f"当前角色：{current_role}",
+            "可导出按ASIN结果" if can_export else "只读查看ASIN差异",
+        ],
+        "can_export": can_export,
+        "blocked_message": "当前角色只能查看按ASIN分析结果，导出按ASIN分析结果需要管理员或编辑者权限。",
+    }
+
+def build_asin_export_payload(results: list[dict], export_kind: str):
+    """构建按ASIN分析页面的直接下载载荷。"""
+    import datetime
+
+    if not results:
+        return None
+
+    if export_kind == "results":
+        export_df = pd.DataFrame(
+            [
+                {
+                    "搜索词": r["term"],
+                    "ASIN": r["asin_identifier"],
+                    "类型": r["term_type"],
+                    "触发规则": r["triggered_rule"],
+                    "主动作": r["suggested_action"],
+                    "自动处理": AUTO_ACTION_DISPLAY.get(r.get("auto_action"), "-"),
+                    "点击": r["clicks"],
+                    "订单": r["orders"],
+                    "CVR": f"{r['cvr']:.1%}" if r["cvr"] > 0 else "-",
+                    "花费": f"${r['spend']:.2f}",
+                }
+                for r in results
+            ]
+        )
+        filename = (
+            f"asin_analysis_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+    elif export_kind == "negatives":
+        negatives = [
+            r
+            for r in results
+            if r.get("auto_action") == "negate"
+            or "否定" in str(r.get("suggested_action", ""))
+        ]
+        if not negatives:
+            return None
+        export_df = pd.DataFrame(
+            [
+                {
+                    "ASIN": r["asin_identifier"],
+                    "搜索词": r["term"],
+                    "类型": r["term_type"],
+                    "触发规则": r["triggered_rule"],
+                    "否定来源": "自动否定"
+                    if r.get("auto_action") == "negate"
+                    else "规则否定",
+                    "点击": r["clicks"],
+                    "订单": r["orders"],
+                }
+                for r in negatives
+            ]
+        ).sort_values(["ASIN", "搜索词"])
+        filename = (
+            f"asin_negatives_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+    else:
+        raise ValueError(f"不支持的导出类型: {export_kind}")
+
+    csv_data = export_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+    return {"data": csv_data, "file_name": filename, "mime": "text/csv"}
+
+
 def render_asin_analysis(db, product_id: int):
     """渲染按ASIN分析模式页面（ASIN级别聚合，如BLK、DBL）"""
+    from src.analysis.truth_replay import has_reviewed_truth
     from src.rules.engine import analyze_search_terms_by_asin
+
+    access_context = _resolve_analysis_role_context(db, product_id)
+    access_meta = _build_asin_analysis_access_meta(access_context["current_role"])
+    st.markdown(f"#### {access_meta['title']}")
+    st.caption(str(access_meta["description"]))
+    if not access_meta["can_export"]:
+        st.info(str(access_meta["blocked_message"]))
 
     # 筛选面板
     with st.expander("筛选条件", expanded=True):
@@ -62,38 +207,46 @@ def render_asin_analysis(db, product_id: int):
                 key="asin_search_term",
             )
 
-    # 获取按ASIN分析结果
-    with st.spinner("正在加载按ASIN分析数据..."):
-        try:
-            results = analyze_search_terms_by_asin(db, product_id)
-        except Exception as e:
-            logger.error(f"按ASIN分析失败: {e}")
-            st.error(f"分析失败: {e}")
+    snapshot_rows = None
+    if not has_reviewed_truth(db, product_id):
+        snapshot_rows = _build_latest_snapshot_asin_rows(db, product_id)
+
+    if snapshot_rows:
+        results_data = snapshot_rows
+    else:
+        # 获取按ASIN分析结果
+        with st.spinner("正在加载按ASIN分析数据..."):
+            try:
+                results = analyze_search_terms_by_asin(db, product_id)
+            except Exception as e:
+                logger.error(f"按ASIN分析失败: {e}")
+                st.error(f"分析失败: {e}")
+                return
+
+        if not results:
+            st.info("暂无按ASIN分析结果。请先上传数据。")
             return
 
-    if not results:
-        st.info("暂无按ASIN分析结果。请先上传数据。")
-        return
-
-    # 转换为字典列表以便筛选
-    results_data = [
-        {
-            "term": r.term,
-            "term_type": r.term_type,
-            "asin_identifier": r.asin_identifier,
-            "triggered_rule": r.triggered_rule,
-            "suggested_action": r.suggested_action,
-            "auto_action": r.auto_action,
-            "action_type": r.action_type,
-            "confidence": r.confidence,
-            "clicks": r.clicks,
-            "orders": r.orders,
-            "spend": r.spend,
-            "cvr": r.cvr,
-            "acos": r.acos,
-        }
-        for r in results
-    ]
+        # 转换为字典列表以便筛选
+        results_data = [
+            {
+                "term": r.term,
+                "term_type": r.term_type,
+                "asin_identifier": r.asin_identifier,
+                "triggered_rule": r.triggered_rule,
+                "suggested_action": r.suggested_action,
+                "auto_action": r.auto_action,
+                "action_type": r.action_type,
+                "confidence": r.confidence,
+                "clicks": r.clicks,
+                "orders": r.orders,
+                "spend": r.spend,
+                "sales": getattr(r, "sales", 0.0),
+                "cvr": r.cvr,
+                "acos": r.acos,
+            }
+            for r in results
+        ]
 
     # 应用筛选
     filtered_results = results_data
@@ -139,6 +292,28 @@ def render_asin_analysis(db, product_id: int):
             filtered_results = [
                 r for r in filtered_results if r.get("asin_identifier") in asin_filter
             ]
+
+    if filtered_results:
+        context_pack = build_ai_context_pack(
+            db,
+            product_id,
+            page_key="asin",
+            page_title="按ASIN分析",
+        )
+        brief = build_asin_ai_brief(
+            filtered_results,
+            product_name=context_pack.product_name,
+            context_label=(
+                f"当前产品：{context_pack.product_name} · 上下文："
+                f"{'最近一次分析结果（按 ASIN）' if snapshot_rows else '实时 ASIN 分析结果'}"
+            ),
+        )
+        _render_ai_brief_card(
+            title="AI 归因卡",
+            brief=brief,
+            key_prefix="asin_ai_brief",
+        )
+        st.divider()
 
     # 显示结果统计
     st.subheader(f"按ASIN分析结果 ({len(filtered_results)} 条)")
@@ -227,7 +402,7 @@ def render_asin_analysis(db, product_id: int):
     # 显示表格
     st.dataframe(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config={
             "搜索词": st.column_config.TextColumn("搜索词", width="large"),
@@ -287,7 +462,7 @@ def render_asin_analysis(db, product_id: int):
                     )
 
                 compare_df = pd.DataFrame(compare_data)
-                st.dataframe(compare_df, use_container_width=True, hide_index=True)
+                st.dataframe(compare_df, width="stretch", hide_index=True)
         else:
             st.info("暂无跨ASIN的共同词汇")
     else:
@@ -299,98 +474,33 @@ def render_asin_analysis(db, product_id: int):
     st.subheader("导出")
 
     col1, col2 = st.columns(2)
+    results_payload = build_asin_export_payload(filtered_results, export_kind="results")
+    negatives_payload = build_asin_export_payload(
+        filtered_results, export_kind="negatives"
+    )
 
     with col1:
-        if st.button("导出按ASIN分析结果", key="export_asin_results"):
-            export_asin_results(filtered_results)
+        if results_payload:
+            st.download_button(
+                label="导出按ASIN分析结果",
+                data=results_payload["data"],
+                file_name=results_payload["file_name"],
+                mime=results_payload["mime"],
+                key="download_asin_results",
+                disabled=not access_meta["can_export"],
+            )
+        else:
+            st.button("导出按ASIN分析结果", disabled=True, width="stretch")
 
     with col2:
-        if st.button("导出否定清单（按ASIN）", key="export_asin_negatives"):
-            export_asin_negatives(filtered_results)
-
-
-def export_asin_results(results: list[dict]):
-    """导出按ASIN分析结果"""
-    import datetime
-
-    if not results:
-        st.warning("没有可导出的数据")
-        return
-
-    export_df = pd.DataFrame(
-        [
-            {
-                "搜索词": r["term"],
-                "ASIN": r["asin_identifier"],
-                "类型": r["term_type"],
-                "触发规则": r["triggered_rule"],
-                "主动作": r["suggested_action"],
-                "自动处理": AUTO_ACTION_DISPLAY.get(r.get("auto_action"), "-"),
-                "点击": r["clicks"],
-                "订单": r["orders"],
-                "CVR": f"{r['cvr']:.1%}" if r["cvr"] > 0 else "-",
-                "花费": f"${r['spend']:.2f}",
-            }
-            for r in results
-        ]
-    )
-
-    csv_data = export_df.to_csv(index=False, encoding="utf-8-sig")
-    filename = f"asin_analysis_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
-    st.download_button(
-        label="下载CSV",
-        data=csv_data,
-        file_name=filename,
-        mime="text/csv",
-    )
-    st.success(f"准备导出 {len(results)} 条记录")
-
-
-def export_asin_negatives(results: list[dict]):
-    """导出否定清单（按ASIN分组）"""
-    import datetime
-
-    # 筛选需要否定的词
-    negatives = [
-        r
-        for r in results
-        if r.get("auto_action") == "negate"
-        or "否定" in str(r.get("suggested_action", ""))
-    ]
-
-    if not negatives:
-        st.warning("没有可导出的否词数据")
-        return
-
-    # 按ASIN分组
-    export_df = pd.DataFrame(
-        [
-            {
-                "ASIN": r["asin_identifier"],
-                "搜索词": r["term"],
-                "类型": r["term_type"],
-                "触发规则": r["triggered_rule"],
-                "否定来源": "自动否定"
-                if r.get("auto_action") == "negate"
-                else "规则否定",
-                "点击": r["clicks"],
-                "订单": r["orders"],
-            }
-            for r in negatives
-        ]
-    )
-
-    # 按ASIN排序
-    export_df = export_df.sort_values(["ASIN", "搜索词"])
-
-    csv_data = export_df.to_csv(index=False, encoding="utf-8-sig")
-    filename = f"asin_negatives_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
-    st.download_button(
-        label="下载否词清单CSV",
-        data=csv_data,
-        file_name=filename,
-        mime="text/csv",
-    )
-    st.success(f"准备导出 {len(negatives)} 条否词记录")
+        if negatives_payload:
+            st.download_button(
+                label="导出否定清单（按ASIN）",
+                data=negatives_payload["data"],
+                file_name=negatives_payload["file_name"],
+                mime=negatives_payload["mime"],
+                key="download_asin_negatives",
+                disabled=not access_meta["can_export"],
+            )
+        else:
+            st.button("导出否定清单（按ASIN）", disabled=True, width="stretch")

@@ -5,11 +5,13 @@
 
 import json
 import sqlite3
+import weakref
 from pathlib import Path
 
 import pandas as pd
 
 from src.config.logger import get_logger
+from src.config.product_defaults import build_seeded_product_config
 from src.data.models import ALL_SCHEMAS, DEFAULT_RULES, INDEXES
 from src.rules.asin_rules import is_valid_asin
 
@@ -18,6 +20,10 @@ logger = get_logger(__name__)
 
 class Database:
     """数据库操作类"""
+
+    VALID_WORKSPACE_ROLES = {"admin", "editor", "viewer"}
+    DEFAULT_LOCAL_OWNER_EMAIL = "local-owner@workspace.local"
+    DEFAULT_LOCAL_OWNER_NAME = "本地工作区管理员"
 
     def __init__(self, db_path: str):
         """
@@ -29,19 +35,35 @@ class Database:
         self.db_path = db_path
         self._ensure_dir()
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30.0)
+        self._conn_finalizer = weakref.finalize(self, sqlite3.Connection.close, self.conn)
         # 启用外键约束
         self.conn.execute("PRAGMA foreign_keys = ON")
         # 返回字典形式的行
         self.conn.row_factory = sqlite3.Row
+
+    def __enter__(self):
+        """支持 with Database(...) as db 用法。"""
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        """离开上下文时自动关闭连接。"""
+        self.close()
 
     def _ensure_dir(self) -> None:
         """确保数据库目录存在"""
         db_dir = Path(self.db_path).parent
         db_dir.mkdir(parents=True, exist_ok=True)
 
+    def _get_connection(self) -> sqlite3.Connection:
+        """获取当前连接；已关闭时抛出清晰错误。"""
+        if self.conn is None:
+            raise RuntimeError("数据库连接已关闭")
+        return self.conn
+
     def init_schema(self) -> None:
         """初始化数据库表结构"""
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         try:
             # 创建所有表
             for _table_name, schema in ALL_SCHEMAS:
@@ -55,9 +77,9 @@ class Database:
             for index_sql in INDEXES:
                 cursor.execute(index_sql)
 
-            self.conn.commit()
+            conn.commit()
         except sqlite3.Error as e:
-            self.conn.rollback()
+            conn.rollback()
             raise RuntimeError(f"初始化数据库失败: {e}") from e
 
     def _migrate_schema(self, cursor: sqlite3.Cursor) -> None:
@@ -115,6 +137,8 @@ class Database:
             cursor.execute(
                 "ALTER TABLE manual_reviews ADD COLUMN scope TEXT DEFAULT 'local'"
             )
+        if "asin_identifier" not in mr_columns:
+            cursor.execute("ALTER TABLE manual_reviews ADD COLUMN asin_identifier TEXT")
 
         # ASIN竞争力评估字段
         if "competition_level" not in mr_columns:
@@ -132,6 +156,23 @@ class Database:
         if "ai_confidence" not in mr_columns:
             cursor.execute("ALTER TABLE manual_reviews ADD COLUMN ai_confidence REAL")
 
+        truth_columns = {
+            "review_source": "TEXT",
+            "truth_action_type": "TEXT",
+            "manual_action": "TEXT",
+            "auto_action": "TEXT",
+            "negate_keyword": "TEXT",
+            "negate_asin": "TEXT",
+            "action_matrix": "TEXT",
+            "conflict_flag": "INTEGER DEFAULT 0",
+            "evidence_payload": "TEXT",
+        }
+        for column_name, column_type in truth_columns.items():
+            if column_name not in mr_columns:
+                cursor.execute(
+                    f"ALTER TABLE manual_reviews ADD COLUMN {column_name} {column_type}"
+                )
+
         # 创建新索引
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_manual_reviews_relevance ON manual_reviews(product_id, relevance)"
@@ -142,6 +183,16 @@ class Database:
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_manual_reviews_reviewed ON manual_reviews(product_id, reviewed)"
         )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_manual_reviews_truth_action ON manual_reviews(product_id, truth_action_type)"
+        )
+        cursor.execute("DROP INDEX IF EXISTS idx_manual_reviews_unique")
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_reviews_unique
+            ON manual_reviews(product_id, term, COALESCE(campaign_id, 0), COALESCE(asin_identifier, ''))
+            """
+        )
 
         # 将已审核但无相关性标记的记录设为pending
         cursor.execute("""
@@ -149,6 +200,41 @@ class Database:
             SET relevance = 'pending'
             WHERE reviewed = 1 AND relevance IS NULL
         """)
+
+        cursor.execute("PRAGMA table_info(users)")
+        user_columns = {row[1] for row in cursor.fetchall()}
+        if user_columns and "updated_at" not in user_columns:
+            cursor.execute(
+                "ALTER TABLE users ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+            )
+
+        cursor.execute("PRAGMA table_info(workspace_memberships)")
+        membership_columns = {row[1] for row in cursor.fetchall()}
+        if membership_columns and "updated_at" not in membership_columns:
+            cursor.execute(
+                """
+                ALTER TABLE workspace_memberships
+                ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                """
+            )
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS analysis_run_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                run_source TEXT NOT NULL DEFAULT 'manual',
+                summary_json TEXT,
+                snapshot_json TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_analysis_run_snapshots_product_created
+            ON analysis_run_snapshots(product_id, created_at DESC)
+            """
+        )
 
     def init_default_rules(self) -> None:
         """插入默认规则配置"""
@@ -181,26 +267,275 @@ class Database:
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """执行SQL语句"""
-        return self.conn.execute(sql, params)
+        return self._get_connection().execute(sql, params)
 
     def executemany(self, sql: str, params_list: list) -> sqlite3.Cursor:
         """批量执行SQL语句"""
-        return self.conn.executemany(sql, params_list)
+        return self._get_connection().executemany(sql, params_list)
 
     def commit(self) -> None:
         """提交事务"""
-        self.conn.commit()
+        self._get_connection().commit()
 
     def rollback(self) -> None:
         """回滚事务"""
-        self.conn.rollback()
+        self._get_connection().rollback()
 
     def close(self) -> None:
         """关闭数据库连接"""
-        if self.conn:
-            self.conn.close()
+        conn = getattr(self, "conn", None)
+        finalizer = getattr(self, "_conn_finalizer", None)
+        if conn is not None:
+            conn.close()
+            self.conn = None
+        if finalizer is not None and finalizer.alive:
+            finalizer.detach()
 
     # ==================== 产品操作 ====================
+
+    def create_user(
+        self,
+        email: str,
+        display_name: str | None = None,
+        status: str = "active",
+    ) -> int:
+        """创建用户。"""
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            raise ValueError("email 不能为空")
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO users (email, display_name, status)
+            VALUES (?, ?, ?)
+            """,
+            (normalized_email, display_name, status),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_user(self, user_id: int = None, email: str = None) -> dict | None:
+        """按 ID 或邮箱获取用户。"""
+        if user_id is None and email is None:
+            raise ValueError("user_id 或 email 至少需要一个")
+
+        if user_id is not None:
+            cursor = self.conn.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        else:
+            cursor = self.conn.execute(
+                "SELECT * FROM users WHERE email = ?",
+                (email.strip().lower(),),
+            )
+
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def add_workspace_member(self, product_id: int, user_id: int, role: str) -> int:
+        """为产品工作区绑定成员角色；重复绑定时更新角色。"""
+        normalized_role = role.strip().lower()
+        if normalized_role not in self.VALID_WORKSPACE_ROLES:
+            raise ValueError(
+                f"不支持的工作区角色: {role}，仅支持 {sorted(self.VALID_WORKSPACE_ROLES)}"
+            )
+        self._validate_workspace_admin_transition(
+            product_id=product_id,
+            user_id=user_id,
+            new_role=normalized_role,
+        )
+
+        self.conn.execute(
+            """
+            INSERT INTO workspace_memberships (product_id, user_id, role)
+            VALUES (?, ?, ?)
+            ON CONFLICT(product_id, user_id) DO UPDATE SET
+                role = excluded.role,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (product_id, user_id, normalized_role),
+        )
+        self.conn.commit()
+
+        cursor = self.conn.execute(
+            """
+            SELECT id FROM workspace_memberships
+            WHERE product_id = ? AND user_id = ?
+            """,
+            (product_id, user_id),
+        )
+        row = cursor.fetchone()
+        return row["id"]
+
+    def _count_workspace_role_members(self, product_id: int, role: str) -> int:
+        """统计当前工作区某个角色的成员数。"""
+        cursor = self.conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM workspace_memberships
+            WHERE product_id = ? AND role = ?
+            """,
+            (product_id, role),
+        )
+        row = cursor.fetchone()
+        return int(row["total"]) if row is not None else 0
+
+    def _validate_workspace_admin_transition(
+        self, product_id: int, user_id: int, new_role: str
+    ) -> None:
+        """防止最后一个管理员被降级，避免工作区失去治理入口。"""
+        current_role = self.get_workspace_role(product_id, user_id)
+        if current_role != "admin" or new_role == "admin":
+            return
+        admin_count = self._count_workspace_role_members(product_id, "admin")
+        if admin_count <= 1:
+            raise ValueError("当前工作区至少需要保留 1 个管理员，不能降级最后一个管理员。")
+
+    def remove_workspace_member(self, product_id: int, user_id: int) -> None:
+        """删除工作区成员，并保护最后一个管理员不被移除。"""
+        current_role = self.get_workspace_role(product_id, user_id)
+        if current_role is None:
+            raise ValueError("要删除的成员不存在或不属于当前工作区。")
+        if current_role == "admin":
+            admin_count = self._count_workspace_role_members(product_id, "admin")
+            if admin_count <= 1:
+                raise ValueError("当前工作区至少需要保留 1 个管理员，不能删除最后一个管理员。")
+
+        cursor = self.conn.execute(
+            """
+            DELETE FROM workspace_memberships
+            WHERE product_id = ? AND user_id = ?
+            """,
+            (product_id, user_id),
+        )
+        if cursor.rowcount == 0:
+            self.conn.rollback()
+            raise ValueError("要删除的成员不存在或不属于当前工作区。")
+        self.conn.commit()
+
+    def upsert_workspace_member_by_email(
+        self,
+        product_id: int,
+        email: str,
+        role: str,
+        display_name: str | None = None,
+    ) -> dict:
+        """按邮箱创建/更新工作区成员，并返回最新成员信息。"""
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            raise ValueError("成员邮箱不能为空")
+
+        existing_user = self.get_user(email=normalized_email)
+        if existing_user is None:
+            user_id = self.create_user(
+                email=normalized_email,
+                display_name=display_name.strip() if display_name else None,
+            )
+        else:
+            user_id = existing_user["id"]
+            normalized_display_name = display_name.strip() if display_name else None
+            if normalized_display_name and normalized_display_name != (
+                existing_user.get("display_name") or ""
+            ):
+                self.conn.execute(
+                    """
+                    UPDATE users
+                    SET display_name = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (normalized_display_name, user_id),
+                )
+                self.conn.commit()
+
+        self.add_workspace_member(product_id=product_id, user_id=user_id, role=role)
+        member = next(
+            (
+                row
+                for row in self.get_workspace_members(
+                    product_id, include_system_members=True
+                )
+                if row["user_id"] == user_id
+            ),
+            None,
+        )
+        if member is None:
+            raise RuntimeError("工作区成员写入成功后未能查询到成员记录")
+        return member
+
+    def get_workspace_members(
+        self, product_id: int, include_system_members: bool = False
+    ) -> list[dict]:
+        """获取产品工作区成员列表。"""
+        cursor = self.conn.execute(
+            """
+            SELECT
+                wm.id,
+                wm.product_id,
+                wm.user_id,
+                wm.role,
+                wm.created_at,
+                wm.updated_at,
+                u.email,
+                u.display_name,
+                u.status
+            FROM workspace_memberships wm
+            JOIN users u ON u.id = wm.user_id
+            WHERE wm.product_id = ?
+            ORDER BY
+                CASE wm.role
+                    WHEN 'admin' THEN 1
+                    WHEN 'editor' THEN 2
+                    ELSE 3
+                END,
+                COALESCE(u.display_name, u.email) COLLATE NOCASE
+            """,
+            (product_id,),
+        )
+        members = [dict(row) for row in cursor.fetchall()]
+        if include_system_members:
+            return members
+        return [
+            member
+            for member in members
+            if member["email"] != self.DEFAULT_LOCAL_OWNER_EMAIL
+        ]
+
+    def get_workspace_role(self, product_id: int, user_id: int) -> str | None:
+        """获取用户在产品工作区中的角色。"""
+        cursor = self.conn.execute(
+            """
+            SELECT role
+            FROM workspace_memberships
+            WHERE product_id = ? AND user_id = ?
+            """,
+            (product_id, user_id),
+        )
+        row = cursor.fetchone()
+        return row["role"] if row else None
+
+    def get_or_create_local_owner(self) -> dict:
+        """获取或创建默认本地工作区管理员。"""
+        owner = self.get_user(email=self.DEFAULT_LOCAL_OWNER_EMAIL)
+        if owner is not None:
+            return owner
+
+        user_id = self.create_user(
+            email=self.DEFAULT_LOCAL_OWNER_EMAIL,
+            display_name=self.DEFAULT_LOCAL_OWNER_NAME,
+        )
+        owner = self.get_user(user_id=user_id)
+        if owner is None:
+            raise RuntimeError("默认本地工作区管理员创建失败")
+        return owner
+
+    def get_workspace_summary(self, product_id: int) -> dict:
+        """获取产品工作区的成员摘要。"""
+        members = self.get_workspace_members(product_id, include_system_members=True)
+        owner = self.get_or_create_local_owner()
+        current_role = self.get_workspace_role(product_id, owner["id"])
+        return {
+            "member_count": len(members),
+            "current_role": current_role or "viewer",
+        }
 
     def create_product(
         self, name: str, asin: str = None, category: str = None, config: dict = None
@@ -217,16 +552,26 @@ class Database:
         Returns:
             产品ID
         """
+        normalized_config = (
+            build_seeded_product_config(existing_config={}, product_asin=asin)
+            if config is None
+            else config
+        )
         cursor = self.conn.cursor()
         cursor.execute(
             """
             INSERT INTO products (name, asin, category, config)
             VALUES (?, ?, ?, ?)
             """,
-            (name, asin, category, json.dumps(config or {})),
+            (name, asin, category, json.dumps(normalized_config, ensure_ascii=False)),
         )
         self.conn.commit()
-        return cursor.lastrowid
+        product_id = cursor.lastrowid
+
+        default_owner = self.get_or_create_local_owner()
+        self.add_workspace_member(product_id, default_owner["id"], "admin")
+
+        return product_id
 
     def get_product(self, product_id: int) -> dict | None:
         """获取产品信息"""
@@ -301,6 +646,151 @@ class Database:
         self.update_product(product_id, config=config)
 
     # ==================== 广告活动操作 ====================
+
+    def _save_rule_version_snapshot(
+        self,
+        product_id: int,
+        config_snapshot: dict,
+        description: str,
+    ) -> int:
+        """保存产品配置快照到 rule_versions。"""
+        cursor = self.conn.execute(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM rule_versions WHERE product_id = ?",
+            (product_id,),
+        )
+        next_version = cursor.fetchone()[0]
+        cursor = self.conn.execute(
+            """
+            INSERT INTO rule_versions (product_id, version, rules_snapshot, description)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                product_id,
+                next_version,
+                json.dumps(config_snapshot, ensure_ascii=False),
+                description,
+            ),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def save_strategy_profile(
+        self,
+        name: str,
+        config_snapshot: dict,
+        lifecycle: str = None,
+        goal: str = None,
+        notes: str = None,
+        source_product_id: int = None,
+    ) -> int:
+        """保存或更新可复用策略组合。"""
+        cursor = self.conn.execute(
+            "SELECT id FROM strategy_profiles WHERE name = ?",
+            (name,),
+        )
+        existing = cursor.fetchone()
+        payload = json.dumps(config_snapshot, ensure_ascii=False)
+
+        if existing:
+            self.conn.execute(
+                """
+                UPDATE strategy_profiles
+                SET lifecycle = ?,
+                    goal = ?,
+                    config_snapshot = ?,
+                    notes = ?,
+                    source_product_id = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    lifecycle,
+                    goal,
+                    payload,
+                    notes,
+                    source_product_id,
+                    existing["id"],
+                ),
+            )
+            self.conn.commit()
+            return existing["id"]
+
+        cursor = self.conn.execute(
+            """
+            INSERT INTO strategy_profiles
+            (name, lifecycle, goal, config_snapshot, notes, source_product_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (name, lifecycle, goal, payload, notes, source_product_id),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_strategy_profile(
+        self,
+        profile_id: int = None,
+        name: str = None,
+    ) -> dict | None:
+        """按 ID 或名称获取策略组合。"""
+        if profile_id is None and name is None:
+            raise ValueError("profile_id 或 name 至少需要一个")
+
+        if profile_id is not None:
+            cursor = self.conn.execute(
+                "SELECT * FROM strategy_profiles WHERE id = ?",
+                (profile_id,),
+            )
+        else:
+            cursor = self.conn.execute(
+                "SELECT * FROM strategy_profiles WHERE name = ?",
+                (name,),
+            )
+
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        result = dict(row)
+        result["config_snapshot"] = (
+            json.loads(result["config_snapshot"]) if result["config_snapshot"] else {}
+        )
+        return result
+
+    def list_strategy_profiles(self) -> list[dict]:
+        """列出所有策略组合。"""
+        cursor = self.conn.execute(
+            "SELECT * FROM strategy_profiles ORDER BY created_at DESC"
+        )
+        profiles = []
+        for row in cursor.fetchall():
+            profile = dict(row)
+            profile["config_snapshot"] = (
+                json.loads(profile["config_snapshot"])
+                if profile["config_snapshot"]
+                else {}
+            )
+            profiles.append(profile)
+        return profiles
+
+    def apply_strategy_profile(
+        self,
+        product_id: int,
+        profile_id: int = None,
+        profile_name: str = None,
+    ) -> dict:
+        """将策略组合应用到产品，并写入版本历史。"""
+        profile = self.get_strategy_profile(profile_id=profile_id, name=profile_name)
+        if not profile:
+            raise ValueError("未找到指定的策略组合")
+
+        config_snapshot = profile.get("config_snapshot", {})
+        self.update_product_config(product_id, config_snapshot)
+        self._save_rule_version_snapshot(
+            product_id=product_id,
+            config_snapshot=config_snapshot,
+            description=f"应用策略组合: {profile['name']}",
+        )
+        return profile
 
     def create_campaign(
         self,
@@ -779,12 +1269,13 @@ class Database:
         Returns:
             分析结果ID，如果找不到对应的search_term则返回None
         """
-        # 查找对应的 search_term_id（取第一个匹配的）
+        # 查找对应的 search_term_id（按最早导入记录稳定映射）
         cursor = self.conn.execute(
             """
             SELECT st.id FROM search_terms st
             JOIN campaigns c ON st.campaign_id = c.id
             WHERE c.product_id = ? AND st.term = ?
+            ORDER BY st.id
             LIMIT 1
             """,
             (product_id, term),
@@ -828,6 +1319,67 @@ class Database:
 
         return pd.read_sql_query(sql, self.conn, params=params)
 
+    def save_analysis_run_snapshot(
+        self,
+        product_id: int,
+        snapshot_rows: list[dict],
+        run_source: str = "manual",
+        summary: dict | None = None,
+    ) -> int:
+        """保存单次分析运行快照。"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO analysis_run_snapshots (
+                product_id,
+                run_source,
+                summary_json,
+                snapshot_json
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                product_id,
+                run_source,
+                json.dumps(summary or {}, ensure_ascii=False),
+                json.dumps(snapshot_rows, ensure_ascii=False),
+            ),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def list_analysis_run_snapshots(
+        self,
+        product_id: int,
+        limit: int = 20,
+    ) -> list[dict]:
+        """按时间倒序返回分析运行快照。"""
+        cursor = self.conn.execute(
+            """
+            SELECT id, product_id, run_source, summary_json, snapshot_json, created_at
+            FROM analysis_run_snapshots
+            WHERE product_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (product_id, limit),
+        )
+        snapshots: list[dict] = []
+        for row in cursor.fetchall():
+            snapshot = dict(row)
+            snapshot["summary"] = (
+                json.loads(snapshot.pop("summary_json"))
+                if snapshot.get("summary_json")
+                else {}
+            )
+            snapshot["rows"] = (
+                json.loads(snapshot.pop("snapshot_json"))
+                if snapshot.get("snapshot_json")
+                else []
+            )
+            snapshots.append(snapshot)
+        return snapshots
+
     # ==================== 工具方法 ====================
 
     def table_exists(self, table_name: str) -> bool:
@@ -843,11 +1395,14 @@ class Database:
         # 白名单验证防止SQL注入
         VALID_TABLES = {
             "products",
+            "users",
+            "workspace_memberships",
             "campaigns",
             "search_terms",
             "rules",
             "rule_versions",
             "analysis_results",
+            "analysis_run_snapshots",
             "action_plans",
             "manual_reviews",
         }
@@ -914,6 +1469,21 @@ class Database:
         )
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_reviewed_truth_rows(self, product_id: int) -> list[dict]:
+        """获取所有带 truth_action_type 的已审核记录。"""
+        cursor = self.conn.execute(
+            """
+            SELECT *
+            FROM manual_reviews
+            WHERE product_id = ?
+              AND reviewed = 1
+              AND truth_action_type IS NOT NULL
+            ORDER BY updated_at DESC, id DESC
+            """,
+            (product_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
     def get_manual_review_relevance(
         self,
         product_id: int,
@@ -937,9 +1507,15 @@ class Database:
             包含relevance等字段的字典，或None（未找到）
         """
         cursor = self.conn.cursor()
+        normalized_campaign_id = None
+        if campaign_id is not None:
+            try:
+                normalized_campaign_id = int(campaign_id)
+            except (TypeError, ValueError):
+                normalized_campaign_id = campaign_id
 
         # 优先级1: 查找Local标记（特定活动）
-        if campaign_id is not None:
+        if normalized_campaign_id is not None:
             cursor.execute(
                 """
                 SELECT relevance, relevance_notes, scope,
@@ -947,9 +1523,10 @@ class Database:
                        ai_suggestion, ai_confidence
                 FROM manual_reviews
                 WHERE product_id = ? AND term = ? AND campaign_id = ?
+                  AND asin_identifier IS NULL
                   AND relevance IS NOT NULL
                 """,
-                (product_id, term, campaign_id),
+                (product_id, term, normalized_campaign_id),
             )
             row = cursor.fetchone()
             if row:
@@ -963,6 +1540,7 @@ class Database:
                    ai_suggestion, ai_confidence
             FROM manual_reviews
             WHERE product_id = ? AND term = ? AND campaign_id IS NULL
+              AND asin_identifier IS NULL
               AND relevance IS NOT NULL
             """,
             (product_id, term),
@@ -979,6 +1557,7 @@ class Database:
                    ai_suggestion, ai_confidence
             FROM manual_reviews
             WHERE product_id = ? AND term = ? AND scope = 'global'
+              AND asin_identifier IS NULL
               AND relevance IS NOT NULL
             LIMIT 1
             """,
@@ -996,6 +1575,7 @@ class Database:
         term: str,
         term_type: str = "keyword",
         campaign_id: int = None,
+        asin_identifier: str = None,
         system_action: str = None,
         final_action: str = None,
         reviewed: bool = False,
@@ -1008,6 +1588,15 @@ class Database:
         competition_notes: str = None,
         ai_suggestion: str = None,
         ai_confidence: float = None,
+        review_source: str = None,
+        truth_action_type: str = None,
+        manual_action: str = None,
+        auto_action: str = None,
+        negate_keyword: str = None,
+        negate_asin: str = None,
+        action_matrix: str = None,
+        conflict_flag: bool = None,
+        evidence_payload: dict | str = None,
     ) -> int:
         """
         插入或更新人工审核记录（Upsert）
@@ -1033,6 +1622,11 @@ class Database:
             记录ID
         """
         cursor = self.conn.cursor()
+        evidence_payload_json = (
+            json.dumps(evidence_payload, ensure_ascii=False)
+            if isinstance(evidence_payload, dict)
+            else evidence_payload
+        )
 
         # 检查是否已存在
         if campaign_id is not None:
@@ -1040,16 +1634,18 @@ class Database:
                 """
                 SELECT id FROM manual_reviews
                 WHERE product_id = ? AND term = ? AND campaign_id = ?
+                  AND COALESCE(asin_identifier, '') = COALESCE(?, '')
                 """,
-                (product_id, term, campaign_id),
+                (product_id, term, campaign_id, asin_identifier),
             )
         else:
             cursor.execute(
                 """
                 SELECT id FROM manual_reviews
                 WHERE product_id = ? AND term = ? AND campaign_id IS NULL
+                  AND COALESCE(asin_identifier, '') = COALESCE(?, '')
                 """,
-                (product_id, term),
+                (product_id, term, asin_identifier),
             )
 
         existing = cursor.fetchone()
@@ -1060,6 +1656,7 @@ class Database:
                 """
                 UPDATE manual_reviews
                 SET term_type = ?,
+                    asin_identifier = COALESCE(?, asin_identifier),
                     system_action = COALESCE(?, system_action),
                     final_action = COALESCE(?, final_action),
                     reviewed = ?,
@@ -1071,11 +1668,21 @@ class Database:
                     competition_notes = COALESCE(?, competition_notes),
                     ai_suggestion = COALESCE(?, ai_suggestion),
                     ai_confidence = COALESCE(?, ai_confidence),
+                    review_source = COALESCE(?, review_source),
+                    truth_action_type = COALESCE(?, truth_action_type),
+                    manual_action = COALESCE(?, manual_action),
+                    auto_action = COALESCE(?, auto_action),
+                    negate_keyword = COALESCE(?, negate_keyword),
+                    negate_asin = COALESCE(?, negate_asin),
+                    action_matrix = COALESCE(?, action_matrix),
+                    conflict_flag = COALESCE(?, conflict_flag),
+                    evidence_payload = COALESCE(?, evidence_payload),
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
                 (
                     term_type,
+                    asin_identifier,
                     system_action,
                     final_action,
                     1 if reviewed else 0,
@@ -1087,6 +1694,15 @@ class Database:
                     competition_notes,
                     ai_suggestion,
                     ai_confidence,
+                    review_source,
+                    truth_action_type,
+                    manual_action,
+                    auto_action,
+                    negate_keyword,
+                    negate_asin,
+                    action_matrix,
+                    None if conflict_flag is None else (1 if conflict_flag else 0),
+                    evidence_payload_json,
                     existing["id"],
                 ),
             )
@@ -1097,16 +1713,18 @@ class Database:
             cursor.execute(
                 """
                 INSERT INTO manual_reviews
-                (product_id, term, term_type, campaign_id, system_action, final_action, reviewed, notes,
+                (product_id, term, term_type, campaign_id, asin_identifier, system_action, final_action, reviewed, notes,
                  relevance, relevance_notes, scope, competition_level, competition_notes,
-                 ai_suggestion, ai_confidence)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ai_suggestion, ai_confidence, review_source, truth_action_type, manual_action,
+                 auto_action, negate_keyword, negate_asin, action_matrix, conflict_flag, evidence_payload)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     product_id,
                     term,
                     term_type,
                     campaign_id,
+                    asin_identifier,
                     system_action,
                     final_action,
                     1 if reviewed else 0,
@@ -1118,6 +1736,15 @@ class Database:
                     competition_notes,
                     ai_suggestion,
                     ai_confidence,
+                    review_source,
+                    truth_action_type,
+                    manual_action,
+                    auto_action,
+                    negate_keyword,
+                    negate_asin,
+                    action_matrix,
+                    None if conflict_flag is None else (1 if conflict_flag else 0),
+                    evidence_payload_json,
                 ),
             )
             self.conn.commit()
@@ -1140,16 +1767,32 @@ class Database:
         """
         cursor = self.conn.cursor()
 
-        # 统计无相关性标记的搜索词（需要人工审核）
         cursor.execute(
             """
             SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN term_type = 'keyword' THEN 1 ELSE 0 END) as keywords,
                 SUM(CASE WHEN term_type = 'asin' THEN 1 ELSE 0 END) as asins
-            FROM manual_reviews
-            WHERE product_id = ?
-              AND (relevance IS NULL OR relevance = 'pending')
+            FROM manual_reviews mr
+            WHERE mr.product_id = ?
+              AND mr.reviewed = 0
+              AND (
+                    (mr.term_type = 'keyword' AND (mr.relevance IS NULL OR mr.relevance = 'pending'))
+                    OR (mr.term_type = 'asin' AND mr.competition_level IS NULL)
+                  )
+              AND NOT (
+                    COALESCE(mr.review_source, '') = ''
+                    AND mr.campaign_id IS NULL
+                    AND COALESCE(mr.asin_identifier, '') = ''
+                    AND EXISTS (
+                        SELECT 1
+                        FROM manual_reviews resolved
+                        WHERE resolved.product_id = mr.product_id
+                          AND LOWER(resolved.term) = LOWER(mr.term)
+                          AND resolved.term_type = mr.term_type
+                          AND resolved.reviewed = 1
+                    )
+                  )
             """,
             (product_id,),
         )
@@ -1187,7 +1830,24 @@ class Database:
             FROM manual_reviews mr
             LEFT JOIN campaigns c ON mr.campaign_id = c.id
             WHERE mr.product_id = ?
-              AND (mr.relevance IS NULL OR mr.relevance = 'pending')
+              AND mr.reviewed = 0
+              AND (
+                    (mr.term_type = 'keyword' AND (mr.relevance IS NULL OR mr.relevance = 'pending'))
+                    OR (mr.term_type = 'asin' AND mr.competition_level IS NULL)
+                  )
+              AND NOT (
+                    COALESCE(mr.review_source, '') = ''
+                    AND mr.campaign_id IS NULL
+                    AND COALESCE(mr.asin_identifier, '') = ''
+                    AND EXISTS (
+                        SELECT 1
+                        FROM manual_reviews resolved
+                        WHERE resolved.product_id = mr.product_id
+                          AND LOWER(resolved.term) = LOWER(mr.term)
+                          AND resolved.term_type = mr.term_type
+                          AND resolved.reviewed = 1
+                    )
+                  )
         """
         params = [product_id]
 
@@ -1272,6 +1932,49 @@ class Database:
         except Exception as e:
             logger.error(f"更新AI建议失败: {e}")
             return False
+
+    def save_manual_review_ai_suggestion(
+        self,
+        *,
+        product_id: int,
+        term: str,
+        term_type: str,
+        ai_suggestion: str,
+        ai_confidence: float,
+        ai_reasoning: str = None,
+        ai_suggested_action: str = None,
+        ai_status: str = None,
+        ai_status_message: str = None,
+        ai_can_retry: bool | None = None,
+        campaign_id: int = None,
+        asin_identifier: str = None,
+    ) -> int:
+        """
+        持久化审核页 AI 建议，并保留理由与建议动作，便于后续回显。
+
+        说明：
+        - 如果 manual_reviews 已存在对应记录，则仅补充 AI 建议相关字段，不覆盖人工结论。
+        - 如果记录不存在，则创建一条未审核记录，供后续人工校准继续使用。
+        """
+        evidence_payload = {
+            "ai_reasoning": ai_reasoning or "",
+            "ai_suggested_action": ai_suggested_action or "",
+            "ai_status": ai_status or "success",
+            "ai_status_message": ai_status_message or "",
+            "ai_can_retry": bool(ai_can_retry) if ai_can_retry is not None else False,
+        }
+        return self.upsert_manual_review(
+            product_id=product_id,
+            term=term,
+            term_type=term_type,
+            campaign_id=campaign_id,
+            asin_identifier=asin_identifier,
+            reviewed=False,
+            ai_suggestion=ai_suggestion,
+            ai_confidence=ai_confidence,
+            review_source="ai_assistant",
+            evidence_payload=evidence_payload,
+        )
 
     def get_keywords_by_category(
         self,

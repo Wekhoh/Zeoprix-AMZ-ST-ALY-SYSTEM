@@ -3,6 +3,8 @@ ASIN分析页面
 支持多ASIN对比分析、冲突检测、跨ASIN智能分析
 """
 
+from html import escape
+
 import pandas as pd
 import streamlit as st
 
@@ -10,6 +12,191 @@ from src.analysis.asin_analyzer import ASINAnalyzer
 from src.config.logger import get_logger
 
 logger = get_logger(__name__)
+
+ASIN_ANALYSIS_CSS = """
+<style>
+.asin-hero {
+    padding: 1.2rem 1.35rem;
+    border-radius: 22px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    background: linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(248,250,252,0.92) 100%);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.05);
+    margin-bottom: 1rem;
+}
+.asin-hero__eyebrow {
+    display: inline-flex;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.08);
+    color: #2563EB;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.asin-hero h1 {
+    margin: 0.8rem 0 0.3rem 0 !important;
+}
+.asin-hero p {
+    margin: 0;
+    color: #64748B;
+    font-size: 0.96rem;
+    line-height: 1.6;
+}
+.asin-hero__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin-top: 1rem;
+}
+.asin-hero__chip {
+    padding: 0.56rem 0.82rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(255,255,255,0.9);
+    color: #334155;
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+.asin-summary-shell {
+    padding: 1rem 1.05rem;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    background: rgba(255,255,255,0.9);
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+    margin-bottom: 1rem;
+}
+.asin-summary-shell strong {
+    display: block;
+    color: #0F172A;
+    margin-bottom: 0.25rem;
+}
+.asin-summary-shell span {
+    color: #64748B;
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+.asin-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 1rem 0 1.1rem 0;
+}
+.asin-summary-card {
+    padding: 1.1rem 1.15rem;
+    border-radius: 20px;
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.95) 100%);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+}
+.asin-summary-card h3 {
+    margin: 0 0 0.8rem 0;
+    font-size: 1.1rem;
+    color: #0F172A;
+}
+.asin-summary-card__metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+.asin-summary-card__metric {
+    padding: 0.72rem 0.8rem;
+    border-radius: 14px;
+    background: rgba(248,250,252,0.92);
+    border: 1px solid rgba(226,232,240,0.8);
+}
+.asin-summary-card__metric span {
+    display: block;
+    color: #64748B;
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+.asin-summary-card__metric strong {
+    color: #1E3A8A;
+    font-size: 1.25rem;
+    line-height: 1.1;
+}
+.asin-section-note {
+    color: #64748B;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin: 0.15rem 0 0.75rem 0;
+}
+@media (max-width: 1180px) {
+    .asin-summary-grid {
+        grid-template-columns: 1fr;
+    }
+}
+@media (max-width: 960px) {
+    .asin-summary-card__metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+</style>
+"""
+
+
+def _build_asin_hero_meta(asin_ids: list[str]) -> dict[str, list[str] | str]:
+    """构建 ASIN 分析页顶部工作台文案。"""
+    asin_preview = " / ".join(asin_ids[:2]) if asin_ids else "暂无 ASIN"
+    return {
+        "title": "ASIN分析",
+        "description": "把变体对比、分歧检测和跨 ASIN 洞察放在同一块工作面板里，先看谁更强，再决定下一步动作。",
+        "chips": [
+            f"已识别 {len(asin_ids)} 个 ASIN",
+            f"当前重点：{asin_preview}",
+            "Top/Bottom 与跨ASIN智能属于洞察页",
+        ],
+    }
+
+
+def _build_asin_summary_cards(summary_df: pd.DataFrame) -> list[dict]:
+    """统一生成 ASIN 总览卡片的数据结构，便于页面渲染和测试。"""
+    cards: list[dict] = []
+    for _, row in summary_df.iterrows():
+        cards.append(
+            {
+                "asin_id": row["asin_id"],
+                "metrics": [
+                    {"label": "展示量", "value": f"{row['impressions']:,.0f}"},
+                    {"label": "点击量", "value": f"{row['clicks']:,.0f}"},
+                    {"label": "花费", "value": f"${row['spend']:,.2f}"},
+                    {"label": "订单", "value": f"{row['orders']:,.0f}"},
+                    {"label": "销售额", "value": f"${row['sales']:,.2f}"},
+                    {"label": "CTR", "value": f"{row['ctr'] * 100:.2f}%"},
+                    {"label": "CVR", "value": f"{row['cvr'] * 100:.2f}%"},
+                    {"label": "ACOS", "value": f"{row['acos'] * 100:.1f}%"},
+                ],
+            }
+        )
+    return cards
+
+
+def build_unified_negation_export_payload(unified_neg: list):
+    """构建统一否词建议的直接下载载荷。"""
+    import datetime
+
+    if not unified_neg:
+        return None
+
+    export_df = pd.DataFrame(
+        [
+            {
+                "搜索词": item["term"],
+                "总花费($)": f"{item['total_spend']:.2f}",
+                "涉及ASIN数": item["asin_count"],
+                "涉及ASIN": ", ".join(item.get("asins", [])),
+            }
+            for item in unified_neg
+        ]
+    )
+
+    csv_data = export_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+    filename = (
+        f"unified_negation_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    )
+    return {"data": csv_data, "file_name": filename, "mime": "text/csv"}
 
 
 def _render_metric_card(label: str, value: str):
@@ -27,8 +214,6 @@ def _render_metric_card(label: str, value: str):
 
 def render_asin_analysis():
     """渲染ASIN分析页面"""
-    st.title("ASIN分析")
-
     db = st.session_state.get("db")
     product_id = st.session_state.get("current_product_id")
 
@@ -50,7 +235,23 @@ def render_asin_analysis():
         st.info("暂无数据。请先上传广告数据。")
         return
 
-    st.caption(f"已识别 {len(asin_ids)} 个ASIN: {', '.join(asin_ids)}")
+    st.markdown(ASIN_ANALYSIS_CSS, unsafe_allow_html=True)
+    hero_meta = _build_asin_hero_meta(asin_ids)
+    hero_chips = "".join(
+        f'<span class="asin-hero__chip">{escape(chip)}</span>'
+        for chip in hero_meta["chips"]
+    )
+    st.markdown(
+        f"""
+        <div class="asin-hero">
+            <span class="asin-hero__eyebrow">对比工作台</span>
+            <h1>{escape(hero_meta['title'])}</h1>
+            <p>{escape(hero_meta['description'])}</p>
+            <div class="asin-hero__chips">{hero_chips}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.divider()
 
@@ -79,6 +280,10 @@ def render_asin_analysis():
 def render_summary_section(analyzer: ASINAnalyzer, product_id: int, asin_ids: list):
     """渲染汇总和对比部分（层次一+二）"""
     st.subheader("ASIN总览")
+    st.markdown(
+        '<p class="asin-section-note">先看各 ASIN 的核心表现，再看汇总表和对比洞察，避免在长页面里来回切换视角。</p>',
+        unsafe_allow_html=True,
+    )
 
     # 获取汇总数据
     summary_df = analyzer.get_asin_summary(product_id)
@@ -87,30 +292,32 @@ def render_summary_section(analyzer: ASINAnalyzer, product_id: int, asin_ids: li
         st.warning("无汇总数据")
         return
 
-    # 创建汇总卡片
-    cols = st.columns(len(asin_ids))
-
-    for idx, asin_id in enumerate(asin_ids):
-        asin_data = summary_df[summary_df["asin_id"] == asin_id]
-        if asin_data.empty:
-            continue
-
-        row = asin_data.iloc[0]
-
-        with cols[idx]:
-            st.markdown(f"### {asin_id}")
-            # 使用自定义样式让指标标签更醒目
-            _render_metric_card("展示量", f"{row['impressions']:,.0f}")
-            _render_metric_card("点击量", f"{row['clicks']:,.0f}")
-            _render_metric_card("花费", f"${row['spend']:,.2f}")
-            _render_metric_card("订单", f"{row['orders']:,.0f}")
-            _render_metric_card("销售额", f"${row['sales']:,.2f}")
-            _render_metric_card("CTR", f"{row['ctr'] * 100:.2f}%")
-            _render_metric_card("CVR", f"{row['cvr'] * 100:.2f}%")
-            _render_metric_card("ACOS", f"{row['acos'] * 100:.1f}%")
+    cards_html = "".join(
+        (
+            f'<div class="asin-summary-card"><h3>{escape(card["asin_id"])}</h3>'
+            + '<div class="asin-summary-card__metrics">'
+            + "".join(
+                (
+                    f'<div class="asin-summary-card__metric"><span>{escape(metric["label"])}</span>'
+                    f'<strong>{escape(metric["value"])}</strong></div>'
+                )
+                for metric in card["metrics"]
+            )
+            + "</div></div>"
+        )
+        for card in _build_asin_summary_cards(summary_df)
+    )
+    st.markdown(
+        f'<div class="asin-summary-grid">{cards_html}</div>',
+        unsafe_allow_html=True,
+    )
 
     # 汇总表格
     st.subheader("汇总表格")
+    st.markdown(
+        '<p class="asin-section-note">用于核对原始表现指标；如果想做执行动作判断，请优先看下方的分布、冲突和跨 ASIN 洞察。</p>',
+        unsafe_allow_html=True,
+    )
 
     display_df = summary_df[
         [
@@ -151,11 +358,15 @@ def render_summary_section(analyzer: ASINAnalyzer, product_id: int, asin_ids: li
     display_df["花费($)"] = display_df["花费($)"].apply(lambda x: f"{x:,.2f}")
     display_df["销售额($)"] = display_df["销售额($)"].apply(lambda x: f"{x:,.2f}")
 
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
     # 对比洞察
     if len(asin_ids) >= 2:
         st.subheader("对比洞察")
+        st.markdown(
+            '<p class="asin-section-note">这里给的是“谁更强、强在哪”的横向比较，帮助你快速判断预算倾斜和扩量方向。</p>',
+            unsafe_allow_html=True,
+        )
 
         insights = analyzer.get_comparison_insights(product_id)
 
@@ -186,15 +397,20 @@ def render_keyword_distribution(
 ):
     """渲染关键词分布（层次三）"""
     st.subheader("关键词操作分布")
+    st.markdown(
+        '<p class="asin-section-note">先选 ASIN 范围，再看动作分布；“全部”现在是合计视图，不再是某一个 ASIN 伪装的总计。</p>',
+        unsafe_allow_html=True,
+    )
 
     # ASIN选择器
     selected_asin = st.selectbox(
         "选择ASIN", options=["全部"] + asin_ids, key="kw_dist_asin_select"
     )
 
-    asin_filter = None if selected_asin == "全部" else selected_asin
-
-    distribution = analyzer.get_keyword_distribution(product_id, asin_filter)
+    if selected_asin == "全部":
+        distribution = analyzer.get_keyword_distribution_summary(product_id)
+    else:
+        distribution = analyzer.get_keyword_distribution(product_id, selected_asin)
 
     if not distribution:
         st.info("暂无分布数据")
@@ -236,7 +452,7 @@ def render_keyword_distribution(
                 )
             ]
         )
-        st.dataframe(dist_df, use_container_width=True, hide_index=True)
+        st.dataframe(dist_df, width="stretch", hide_index=True)
 
         st.divider()
 
@@ -244,6 +460,10 @@ def render_keyword_distribution(
 def render_conflict_detection(analyzer: ASINAnalyzer, product_id: int, asin_ids: list):
     """渲染冲突检测（层次三）"""
     st.subheader("决策冲突检测")
+    st.markdown(
+        '<p class="asin-section-note">这里专门展示同一词在不同广告组或 ASIN 下的冲突决策，适合人工拍板，而不是直接执行。</p>',
+        unsafe_allow_html=True,
+    )
 
     # ASIN选择器
     selected_asin = st.selectbox(
@@ -316,7 +536,7 @@ def render_conflict_detection(analyzer: ASINAnalyzer, product_id: int, asin_ids:
                     if decision_data:
                         decision_df = pd.DataFrame(decision_data)
                         st.dataframe(
-                            decision_df, use_container_width=True, hide_index=True
+                            decision_df, width="stretch", hide_index=True
                         )
                 st.divider()
 
@@ -324,6 +544,10 @@ def render_conflict_detection(analyzer: ASINAnalyzer, product_id: int, asin_ids:
 def render_top_bottom(analyzer: ASINAnalyzer, product_id: int, asin_ids: list):
     """渲染Top/Bottom表现词（层次三）"""
     st.subheader("Top/Bottom表现词")
+    st.markdown(
+        '<p class="asin-section-note">这是洞察视角，不是最终动作页；适合快速找高效词和高花费零转化词。</p>',
+        unsafe_allow_html=True,
+    )
 
     # ASIN选择器
     selected_asin = st.selectbox(
@@ -353,7 +577,7 @@ def render_top_bottom(analyzer: ASINAnalyzer, product_id: int, asin_ids: list):
                 top_df.columns = ["搜索词", "CVR", "订单", "花费($)"]
                 top_df["CVR"] = top_df["CVR"].apply(lambda x: f"{x * 100:.1f}%")
                 top_df["花费($)"] = top_df["花费($)"].apply(lambda x: f"{x:.2f}")
-                st.dataframe(top_df, use_container_width=True, hide_index=True)
+                st.dataframe(top_df, width="stretch", hide_index=True)
             else:
                 st.info("暂无高效词")
 
@@ -364,7 +588,7 @@ def render_top_bottom(analyzer: ASINAnalyzer, product_id: int, asin_ids: list):
                 bottom_df.columns = ["搜索词", "CVR", "订单", "花费($)"]
                 bottom_df["CVR"] = bottom_df["CVR"].apply(lambda x: f"{x * 100:.1f}%")
                 bottom_df["花费($)"] = bottom_df["花费($)"].apply(lambda x: f"{x:.2f}")
-                st.dataframe(bottom_df, use_container_width=True, hide_index=True)
+                st.dataframe(bottom_df, width="stretch", hide_index=True)
             else:
                 st.info("暂无低效词")
 
@@ -374,6 +598,10 @@ def render_top_bottom(analyzer: ASINAnalyzer, product_id: int, asin_ids: list):
 def render_cross_asin_analysis(analyzer: ASINAnalyzer, product_id: int):
     """渲染跨ASIN智能分析（层次四）"""
     st.subheader("跨ASIN智能分析")
+    st.markdown(
+        '<p class="asin-section-note">这里是跨 ASIN 的策略洞察：看差异、看互补、看统一否词，不直接替代最终执行清单。</p>',
+        unsafe_allow_html=True,
+    )
 
     cross_analysis = analyzer.cross_asin_analysis(product_id)
 
@@ -402,7 +630,7 @@ def render_cross_asin_analysis(analyzer: ASINAnalyzer, product_id: int):
         diff_df["最佳CVR"] = diff_df["最佳CVR"].apply(lambda x: f"{x * 100:.1f}%")
         diff_df["最差CVR"] = diff_df["最差CVR"].apply(lambda x: f"{x * 100:.1f}%")
         diff_df["差异比"] = diff_df["差异比"].apply(lambda x: f"{x * 100:.0f}%")
-        st.dataframe(diff_df, use_container_width=True, hide_index=True)
+        st.dataframe(diff_df, width="stretch", hide_index=True)
     else:
         st.info("未发现显著词效差异")
 
@@ -446,44 +674,18 @@ def render_cross_asin_analysis(analyzer: ASINAnalyzer, product_id: int):
         neg_df = neg_df[["term", "total_spend", "asin_count"]]
         neg_df.columns = ["搜索词", "总花费($)", "涉及ASIN数"]
         neg_df["总花费($)"] = neg_df["总花费($)"].apply(lambda x: f"{x:.2f}")
-        st.dataframe(neg_df, use_container_width=True, hide_index=True)
+        st.dataframe(neg_df, width="stretch", hide_index=True)
 
-        # 导出按钮
-        if st.button("导出统一否词清单", key="export_unified_neg"):
-            export_unified_negation(unified_neg)
+        payload = build_unified_negation_export_payload(unified_neg)
+        if payload:
+            st.download_button(
+                label="导出统一否词清单",
+                data=payload["data"],
+                file_name=payload["file_name"],
+                mime=payload["mime"],
+                key="download_unified_neg",
+            )
+        else:
+            st.button("导出统一否词清单", disabled=True, width="stretch")
     else:
         st.success("未发现需要统一否定的词")
-
-
-def export_unified_negation(unified_neg: list):
-    """导出统一否词清单"""
-    import datetime
-
-    if not unified_neg:
-        st.warning("没有可导出的数据")
-        return
-
-    export_df = pd.DataFrame(
-        [
-            {
-                "搜索词": item["term"],
-                "总花费($)": f"{item['total_spend']:.2f}",
-                "涉及ASIN数": item["asin_count"],
-                "涉及ASIN": ", ".join(item.get("asins", [])),
-            }
-            for item in unified_neg
-        ]
-    )
-
-    csv_data = export_df.to_csv(index=False, encoding="utf-8-sig")
-    filename = (
-        f"unified_negation_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    )
-
-    st.download_button(
-        label=f"下载CSV ({len(export_df)}条)",
-        data=csv_data,
-        file_name=filename,
-        mime="text/csv",
-    )
-    st.success(f"准备导出 {len(unified_neg)} 条统一否词")

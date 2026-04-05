@@ -6,6 +6,10 @@ Sprint 1 单元测试
 import os
 import sys
 import tempfile
+import gc
+import importlib
+import warnings
+import weakref
 from pathlib import Path
 
 import pytest
@@ -32,6 +36,8 @@ class TestDatabaseSchema:
             # 检查7个表是否都存在
             expected_tables = [
                 "products",
+                "users",
+                "workspace_memberships",
                 "campaigns",
                 "search_terms",
                 "rules",
@@ -66,6 +72,49 @@ class TestDatabaseSchema:
             db.close()
         finally:
             os.unlink(db_path)
+
+    def test_database_instance_does_not_leak_sqlite_connection_on_gc(self):
+        """数据库实例即使忘记手动 close，也不应在 GC 时泄漏 sqlite 连接警告。"""
+        from src.data.db import Database
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            db = Database(db_path)
+            db.init_schema()
+            db_ref = weakref.ref(db)
+            del db
+            gc.collect()
+
+            assert db_ref() is None
+
+            if os.path.exists(db_path):
+                os.unlink(db_path)
+                db_path = None
+        finally:
+            if db_path and os.path.exists(db_path):
+                os.unlink(db_path)
+
+
+class TestLoggingConfiguration:
+    """T01B: 日志配置资源回收测试"""
+
+    def test_reloading_logger_module_does_not_leak_file_handles(self):
+        """重复加载日志模块时，不应留下未关闭的日志文件句柄。"""
+        import src.config.logger as logger_mod
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ResourceWarning)
+            importlib.reload(logger_mod)
+            gc.collect()
+
+        resource_warnings = [
+            warning
+            for warning in caught
+            if issubclass(warning.category, ResourceWarning)
+        ]
+        assert resource_warnings == []
 
 
 class TestDatabaseOperations:
@@ -192,9 +241,88 @@ class TestDatabaseOperations:
         assert "高花费零转化" in rule_names
         assert "高转化词" in rule_names
 
+    def test_create_user_and_workspace_membership(self, db):
+        """测试创建用户并绑定到产品工作区角色。"""
+        product_id = db.create_product(name="协作工作区", asin="B0TEAM00001")
+
+        user_id = db.create_user(
+            email="owner@example.com",
+            display_name="Owner",
+        )
+        membership_id = db.add_workspace_member(
+            product_id=product_id,
+            user_id=user_id,
+            role="admin",
+        )
+
+        assert membership_id > 0
+
+        user = db.get_user(user_id)
+        assert user is not None
+        assert user["email"] == "owner@example.com"
+        assert user["display_name"] == "Owner"
+
+        members = db.get_workspace_members(product_id)
+        assert len(members) == 1
+        assert members[0]["user_id"] == user_id
+        assert members[0]["role"] == "admin"
+        assert members[0]["display_name"] == "Owner"
+
+        role = db.get_workspace_role(product_id=product_id, user_id=user_id)
+        assert role == "admin"
+
+    def test_add_workspace_member_upserts_role_changes(self, db):
+        """测试重复绑定成员时会更新角色而不是重复插入。"""
+        product_id = db.create_product(name="协作工作区")
+        user_id = db.create_user(email="editor@example.com", display_name="Editor")
+
+        first_membership_id = db.add_workspace_member(
+            product_id=product_id,
+            user_id=user_id,
+            role="editor",
+        )
+        second_membership_id = db.add_workspace_member(
+            product_id=product_id,
+            user_id=user_id,
+            role="viewer",
+        )
+
+        assert second_membership_id == first_membership_id
+
+        members = db.get_workspace_members(product_id)
+        assert len(members) == 1
+        assert members[0]["role"] == "viewer"
+
+    def test_workspace_role_rejects_invalid_role_values(self, db):
+        """测试工作区角色只允许 admin/editor/viewer。"""
+        product_id = db.create_product(name="协作工作区")
+        user_id = db.create_user(email="bad-role@example.com")
+
+        with pytest.raises(ValueError, match="不支持的工作区角色"):
+            db.add_workspace_member(
+                product_id=product_id,
+                user_id=user_id,
+                role="owner",
+            )
+
 
 class TestSettings:
     """T03: 配置模块测试"""
+
+    def test_defaults_to_latest_gemini_3_flash_model(self):
+        """测试未显式指定模型时默认使用 Gemini 3 Flash 最新模型。"""
+        from src.config.settings import Settings
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
+            f.write("GEMINI_API_KEY=test_key_12345\n")
+            f.write("DEBUG=true\n")
+            env_path = f.name
+
+        try:
+            settings = Settings(env_path)
+            assert settings.gemini_model == "gemini-3-flash-preview"
+        finally:
+            os.unlink(env_path)
 
     def test_load_settings(self):
         """测试加载配置"""

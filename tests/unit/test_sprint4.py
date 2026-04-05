@@ -16,8 +16,13 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 
-# 检查是否有API Key可用于真实测试
+# 真实 API 测试需要同时满足：
+# 1. 配置了 GEMINI_API_KEY
+# 2. 显式开启 RUN_LIVE_GEMINI_TESTS=1
+# 默认 CI / 沙箱环境不出网时应自动跳过，避免把网络策略误判成业务失败。
 HAS_API_KEY = bool(os.getenv("GEMINI_API_KEY"))
+RUN_LIVE_GEMINI_TESTS = os.getenv("RUN_LIVE_GEMINI_TESTS") == "1"
+HAS_LIVE_GEMINI = HAS_API_KEY and RUN_LIVE_GEMINI_TESTS
 
 
 class TestGeminiClient:
@@ -31,7 +36,7 @@ class TestGeminiClient:
         with pytest.raises(ValueError, match="未配置 GEMINI_API_KEY"):
             GeminiClient(api_key="")
 
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要GEMINI_API_KEY")
+    @pytest.mark.skipif(not HAS_LIVE_GEMINI, reason="需要 GEMINI_API_KEY 且显式开启 RUN_LIVE_GEMINI_TESTS=1")
     def test_client_init_with_key(self):
         """测试有API Key时初始化成功"""
         from src.ai.client import GeminiClient
@@ -42,7 +47,7 @@ class TestGeminiClient:
         assert client.model is not None
         assert "gemini" in client.model.lower()
 
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要GEMINI_API_KEY")
+    @pytest.mark.skipif(not HAS_LIVE_GEMINI, reason="需要 GEMINI_API_KEY 且显式开启 RUN_LIVE_GEMINI_TESTS=1")
     def test_generate_simple(self):
         """测试简单文本生成"""
         from src.ai.client import GeminiClient
@@ -53,7 +58,7 @@ class TestGeminiClient:
         assert response is not None
         assert len(response) > 0
 
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要GEMINI_API_KEY")
+    @pytest.mark.skipif(not HAS_LIVE_GEMINI, reason="需要 GEMINI_API_KEY 且显式开启 RUN_LIVE_GEMINI_TESTS=1")
     def test_generate_json(self):
         """测试JSON格式生成"""
         from src.ai.client import GeminiClient
@@ -67,7 +72,7 @@ class TestGeminiClient:
         assert result is not None
         assert isinstance(result, dict)
 
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要GEMINI_API_KEY")
+    @pytest.mark.skipif(not HAS_LIVE_GEMINI, reason="需要 GEMINI_API_KEY 且显式开启 RUN_LIVE_GEMINI_TESTS=1")
     def test_create_chat(self):
         """测试创建聊天会话"""
         from src.ai.client import GeminiClient, ChatSession
@@ -78,7 +83,7 @@ class TestGeminiClient:
         assert isinstance(chat, ChatSession)
         assert chat.history == []
 
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要GEMINI_API_KEY")
+    @pytest.mark.skipif(not HAS_LIVE_GEMINI, reason="需要 GEMINI_API_KEY 且显式开启 RUN_LIVE_GEMINI_TESTS=1")
     def test_chat_session(self):
         """测试聊天会话交互"""
         from src.ai.client import GeminiClient
@@ -95,7 +100,7 @@ class TestGeminiClient:
 class TestAIAnalyzer:
     """T25-T26: AI 分析器测试"""
 
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要GEMINI_API_KEY")
+    @pytest.mark.skipif(not HAS_LIVE_GEMINI, reason="需要 GEMINI_API_KEY 且显式开启 RUN_LIVE_GEMINI_TESTS=1")
     def test_judge_relevance(self):
         """测试相关性判断"""
         from src.ai.analyzer import AIAnalyzer
@@ -115,7 +120,7 @@ class TestAIAnalyzer:
         assert 0 <= result.confidence <= 1
         assert len(result.reason) > 0
 
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要GEMINI_API_KEY")
+    @pytest.mark.skipif(not HAS_LIVE_GEMINI, reason="需要 GEMINI_API_KEY 且显式开启 RUN_LIVE_GEMINI_TESTS=1")
     def test_judge_relevance_low(self):
         """测试低相关性判断"""
         from src.ai.analyzer import AIAnalyzer
@@ -134,7 +139,7 @@ class TestAIAnalyzer:
         # 这个词应该被判断为低相关或中相关
         assert result.relevance in ["low", "medium"]
 
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要GEMINI_API_KEY")
+    @pytest.mark.skipif(not HAS_LIVE_GEMINI, reason="需要 GEMINI_API_KEY 且显式开启 RUN_LIVE_GEMINI_TESTS=1")
     def test_resolve_conflict(self):
         """测试分歧解决"""
         from src.ai.analyzer import AIAnalyzer
@@ -166,7 +171,7 @@ class TestAIAnalyzer:
         assert len(result.suggestion) > 0
         assert len(result.reasoning) > 0
 
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要GEMINI_API_KEY")
+    @pytest.mark.skipif(not HAS_LIVE_GEMINI, reason="需要 GEMINI_API_KEY 且显式开启 RUN_LIVE_GEMINI_TESTS=1")
     def test_batch_judge_relevance(self):
         """测试批量相关性判断"""
         from src.ai.analyzer import AIAnalyzer
@@ -321,7 +326,7 @@ class TestChatAssistant:
         options = assistant._generate_options("high_conversion", "回复内容")
         assert any(opt.id == "export_manual" for opt in options)
 
-    @pytest.mark.skipif(not HAS_API_KEY, reason="需要GEMINI_API_KEY")
+    @pytest.mark.skipif(not HAS_LIVE_GEMINI, reason="需要 GEMINI_API_KEY 且显式开启 RUN_LIVE_GEMINI_TESTS=1")
     def test_process_message(self, db_with_data):
         """测试消息处理（真实API）"""
         from src.ai.chat import ChatAssistant

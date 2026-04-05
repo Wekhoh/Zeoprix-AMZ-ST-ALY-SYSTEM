@@ -13,10 +13,132 @@ from src.ui.utils import safe_error
 logger = get_logger(__name__)
 
 
+def _build_keyword_library_summary(config: dict | None) -> dict[str, str | list[str]]:
+    """构建关键词库页的摘要信息。"""
+    config = config or {}
+    keyword_libraries = config.get("keyword_libraries", {})
+    irrelevant_keywords = keyword_libraries.get("irrelevant_keywords", [])
+    weak_category_keywords = keyword_libraries.get("weak_category_keywords", [])
+    generic_keywords = keyword_libraries.get("generic_keywords", [])
+    car_keywords = keyword_libraries.get("car_keywords", [])
+    own_variants = config.get("own_variants", [])
+
+    total_keywords = (
+        len(irrelevant_keywords)
+        + len(weak_category_keywords)
+        + len(generic_keywords)
+        + len(car_keywords)
+    )
+
+    return {
+        "title": "关键词库配置",
+        "description": "把搜索词识别里最稳定的人工经验沉淀成词库：先分相关性，再补自家变体，减少每次都从头判断。",
+        "chips": [
+            f"词库总词数 {total_keywords}",
+            f"不相关词 {len(irrelevant_keywords)}",
+            f"弱相关词 {len(weak_category_keywords)}",
+            f"自家变体 {len(own_variants)}",
+        ],
+    }
+
+
+def _build_data_management_summary(
+    term_count: int,
+    result_count: int,
+    campaign_count: int,
+) -> dict[str, str | list[str]]:
+    """构建数据管理页的摘要信息。"""
+    return {
+        "title": "数据管理",
+        "description": "这里处理的是重跑、清空、导入导出和备份。先看数据规模，再决定是重算、导出还是危险操作。",
+        "chips": [
+            f"搜索词 {term_count}",
+            f"分析结果 {result_count}",
+            f"广告活动 {campaign_count}",
+        ],
+    }
+
+
+def build_rule_config_export_payload(db, product_id: int) -> dict | None:
+    """构建规则配置的直接下载载荷。"""
+    product = db.get_product(product_id)
+    if not product:
+        return None
+
+    export_data = {
+        "export_type": "rule_config",
+        "product_name": product.get("name", ""),
+        "config": product.get("config", {}),
+    }
+    return {
+        "data": json.dumps(export_data, ensure_ascii=False, indent=2).encode("utf-8"),
+        "file_name": f"rules_{product.get('name', 'config')}.json",
+        "mime": "application/json",
+    }
+
+
+def build_full_backup_export_payload(db, product_id: int) -> dict | None:
+    """构建完整数据备份的直接下载载荷。"""
+    import datetime
+
+    product = db.get_product(product_id)
+    if not product:
+        return None
+
+    backup_data = {
+        "export_type": "full_backup",
+        "export_time": datetime.datetime.now().isoformat(),
+        "product": {
+            "name": product.get("name", ""),
+            "asin": product.get("asin", ""),
+            "category": product.get("category", ""),
+            "config": product.get("config", {}),
+        },
+        "campaigns": [],
+        "search_terms_count": 0,
+        "analysis_results_count": 0,
+    }
+
+    cursor = db.execute(
+        "SELECT id, name, match_type, bid_strategy FROM campaigns WHERE product_id = ?",
+        (product_id,),
+    )
+    backup_data["campaigns"] = [dict(c) for c in cursor.fetchall()]
+
+    cursor = db.execute(
+        """
+        SELECT COUNT(*) as count FROM search_terms st
+        JOIN campaigns c ON st.campaign_id = c.id
+        WHERE c.product_id = ?
+        """,
+        (product_id,),
+    )
+    backup_data["search_terms_count"] = cursor.fetchone()["count"]
+
+    cursor = db.execute(
+        """
+        SELECT COUNT(*) as count FROM analysis_results ar
+        JOIN search_terms st ON ar.search_term_id = st.id
+        JOIN campaigns c ON st.campaign_id = c.id
+        WHERE c.product_id = ?
+        """,
+        (product_id,),
+    )
+    backup_data["analysis_results_count"] = cursor.fetchone()["count"]
+
+    return {
+        "data": json.dumps(backup_data, ensure_ascii=False, indent=2).encode("utf-8"),
+        "file_name": f"backup_{product.get('name', 'data')}_{datetime.datetime.now().strftime('%Y%m%d')}.json",
+        "mime": "application/json",
+        "summary": {
+            "search_terms_count": backup_data["search_terms_count"],
+            "analysis_results_count": backup_data["analysis_results_count"],
+        },
+    }
+
+
 def render_keyword_library_settings(db, product_id: int):
     """渲染关键词库配置"""
-    st.write("### 关键词库配置")
-
     if not product_id:
         st.warning("请先选择产品")
         return
@@ -25,83 +147,84 @@ def render_keyword_library_settings(db, product_id: int):
     product = db.get_product(product_id)
     config = product.get("config", {}) if product else {}
     keyword_libraries = config.get("keyword_libraries", {})
+    summary = _build_keyword_library_summary(config)
 
-    st.info("""
-    **关键词库说明**
-    - 规则引擎会根据关键词库自动判断搜索词的相关性
-    - 不相关词 → 否定精准
-    - 弱相关类目词 → 否定词组
-    - 太泛的词 → 否定精准（避免误伤）
-    - 汽车相关词 → 否定精准（特殊处理）
-    """)
+    st.write(f"### {summary['title']}")
+    st.caption(summary["description"])
+    chip_cols = st.columns(len(summary["chips"]))
+    for col, chip in zip(chip_cols, summary["chips"], strict=False):
+        with col:
+            st.info(chip)
 
     # 不相关词库
-    st.write("#### 不相关词库")
     irrelevant_keywords = keyword_libraries.get("irrelevant_keywords", [])
-    irrelevant_text = st.text_area(
-        "明显不相关的词（每行一个）",
-        value="\n".join(irrelevant_keywords) if irrelevant_keywords else "",
-        height=100,
-        placeholder="massage\nbrace\nheating pad",
-        key="irrelevant_keywords",
-        help="包含这些词的搜索词会被判定为不相关，建议否定精准",
-    )
-
-    st.divider()
+    with st.container(border=True):
+        st.write("#### 不相关词库")
+        st.caption("这类词会被判成明显不相关，适合沉淀那些你已经拍过板的硬否词经验。")
+        irrelevant_text = st.text_area(
+            "明显不相关的词（每行一个）",
+            value="\n".join(irrelevant_keywords) if irrelevant_keywords else "",
+            height=100,
+            placeholder="massage\nbrace\nheating pad",
+            key="irrelevant_keywords",
+            help="包含这些词的搜索词会被判定为不相关，建议否定精准",
+        )
 
     # 弱相关类目词库
-    st.write("#### 弱相关类目词库")
     weak_category_keywords = keyword_libraries.get("weak_category_keywords", [])
-    weak_text = st.text_area(
-        "弱相关的类目词（每行一个）",
-        value="\n".join(weak_category_keywords) if weak_category_keywords else "",
-        height=100,
-        placeholder="massager\nblanket\nstuffable",
-        key="weak_category_keywords",
-        help="包含这些词的搜索词会被判定为弱相关，建议否定词组",
-    )
-
-    st.divider()
+    with st.container(border=True):
+        st.write("#### 弱相关类目词库")
+        st.caption("这些词和类目沾边，但通常会带来不够精准的流量，适合按词组层面控制。")
+        weak_text = st.text_area(
+            "弱相关的类目词（每行一个）",
+            value="\n".join(weak_category_keywords) if weak_category_keywords else "",
+            height=100,
+            placeholder="massager\nblanket\nstuffable",
+            key="weak_category_keywords",
+            help="包含这些词的搜索词会被判定为弱相关，建议否定词组",
+        )
 
     # 太泛的词库
-    st.write("#### 太泛的词库")
     generic_keywords = keyword_libraries.get("generic_keywords", [])
-    generic_text = st.text_area(
-        "太泛泛的词（每行一个，完全匹配）",
-        value="\n".join(generic_keywords) if generic_keywords else "",
-        height=100,
-        placeholder="pillow\npillows\nneck\nhome",
-        key="generic_keywords",
-        help="完全匹配这些词会被判定为太泛，建议否定精准（避免误伤长尾词）",
-    )
-
-    st.divider()
+    with st.container(border=True):
+        st.write("#### 太泛的词库")
+        st.caption("这里收的是过于宽泛、容易误伤预算的核心泛词，建议保持为完全匹配视角。")
+        generic_text = st.text_area(
+            "太泛泛的词（每行一个，完全匹配）",
+            value="\n".join(generic_keywords) if generic_keywords else "",
+            height=100,
+            placeholder="pillow\npillows\nneck\nhome",
+            key="generic_keywords",
+            help="完全匹配这些词会被判定为太泛，建议否定精准（避免误伤长尾词）",
+        )
 
     # 汽车相关词库
-    st.write("#### 汽车相关词库")
     car_keywords = keyword_libraries.get("car_keywords", [])
-    car_text = st.text_area(
-        "汽车相关词（每行一个）",
-        value="\n".join(car_keywords) if car_keywords else "",
-        height=80,
-        placeholder="car\nvehicle\nautomotive",
-        key="car_keywords",
-        help="包含这些词的搜索词会被判定为汽车相关，建议否定精准",
-    )
-
-    st.divider()
+    with st.container(border=True):
+        st.write("#### 汽车相关词库")
+        st.caption("这是特殊处理区，适合放那些你明确不想让靠“车载/汽车”方向跑偏的词。")
+        car_text = st.text_area(
+            "汽车相关词（每行一个）",
+            value="\n".join(car_keywords) if car_keywords else "",
+            height=80,
+            placeholder="car\nvehicle\nautomotive",
+            key="car_keywords",
+            help="包含这些词的搜索词会被判定为汽车相关，建议否定精准",
+        )
 
     # 自家变体ASIN
-    st.write("#### 自家变体ASIN")
     own_variants = config.get("own_variants", [])
-    variants_text = st.text_area(
-        "自家变体ASIN列表（每行一个）",
-        value="\n".join(own_variants) if own_variants else "",
-        height=80,
-        placeholder="B0XXXXXXXX\nB0YYYYYYYY",
-        key="own_variants",
-        help="自家变体ASIN会被推荐手动商品定位（互相防御）",
-    )
+    with st.container(border=True):
+        st.write("#### 自家变体ASIN")
+        st.caption("把自家变体沉淀在这里，系统才知道哪些 ASIN 值得互相防守，而不是误判成普通竞品。")
+        variants_text = st.text_area(
+            "自家变体ASIN列表（每行一个）",
+            value="\n".join(own_variants) if own_variants else "",
+            height=80,
+            placeholder="B0XXXXXXXX\nB0YYYYYYYY",
+            key="own_variants",
+            help="自家变体ASIN会被推荐手动商品定位（互相防御）",
+        )
 
     st.divider()
 
@@ -148,7 +271,6 @@ def render_keyword_library_settings(db, product_id: int):
             safe_error("关键词库保存", e)
 
     # 统计信息
-    st.divider()
     st.write("#### 当前配置统计")
 
     col1, col2, col3, col4 = st.columns(4)
@@ -164,14 +286,9 @@ def render_keyword_library_settings(db, product_id: int):
 
 def render_data_management(db, product_id: int):
     """渲染数据管理"""
-    st.write("### 数据管理")
-
     if not product_id:
         st.warning("请先选择产品")
         return
-
-    # 数据统计
-    st.write("#### 数据统计")
 
     try:
         # 搜索词数量 - search_terms 没有 product_id，需要通过 campaigns 关联
@@ -203,36 +320,77 @@ def render_data_management(db, product_id: int):
             (product_id,),
         )
         campaign_count = cursor.fetchone()["count"]
+        summary = _build_data_management_summary(term_count, result_count, campaign_count)
 
-        col1, col2, col3 = st.columns(3)
+        st.write(f"### {summary['title']}")
+        st.caption(summary["description"])
+        chip_cols = st.columns(len(summary["chips"]))
+        for col, chip in zip(chip_cols, summary["chips"], strict=False):
+            with col:
+                st.info(chip)
 
-        with col1:
-            st.metric("搜索词记录", term_count)
+        # 数据统计
+        with st.container(border=True):
+            st.write("#### 数据统计")
+            st.caption("先确认当前产品的数据规模，再决定是重跑、导出还是清空。")
 
-        with col2:
-            st.metric("分析结果", result_count)
+            col1, col2, col3 = st.columns(3)
 
-        with col3:
-            st.metric("广告活动", campaign_count)
+            with col1:
+                st.metric("搜索词记录", term_count)
+
+            with col2:
+                st.metric("分析结果", result_count)
+
+            with col3:
+                st.metric("广告活动", campaign_count)
 
     except Exception as e:
         logger.error(f"获取数据统计失败: {e}")
         st.error("无法获取数据统计")
+        return
 
     st.divider()
 
     # 数据操作
-    st.write("#### 数据操作")
+    with st.container(border=True):
+        st.write("#### 数据操作")
+        st.caption("这一区处理的是“重算”与“清结果”，适合在你更新规则或刚导入新判定表之后使用。")
 
-    col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-    with col1:
-        if st.button("重新运行分析", width="stretch"):
-            with st.spinner("正在分析..."):
+        with col1:
+            if st.button("重新运行分析", width="stretch"):
+                with st.spinner("正在分析..."):
+                    try:
+                        from src.ui.pages.upload import (
+                            _render_analysis_run_feedback,
+                            run_analysis,
+                        )
+
+                        # 清除旧结果 - 通过 search_term_id 关联删除
+                        db.execute(
+                            """
+                            DELETE FROM analysis_results
+                            WHERE search_term_id IN (
+                                SELECT st.id FROM search_terms st
+                                JOIN campaigns c ON st.campaign_id = c.id
+                                WHERE c.product_id = ?
+                            )
+                            """,
+                            (product_id,),
+                        )
+                        db.commit()
+
+                        analysis_state = run_analysis(db, product_id)
+                        _render_analysis_run_feedback(analysis_state)
+                    except Exception as e:
+                        safe_error("数据分析", e)
+
+        with col2:
+            if st.button("清除分析结果", width="stretch"):
                 try:
-                    from src.ui.pages.upload import run_analysis
-
-                    # 清除旧结果 - 通过 search_term_id 关联删除
+                    # 通过 search_term_id 关联删除
                     db.execute(
                         """
                         DELETE FROM analysis_results
@@ -245,157 +403,150 @@ def render_data_management(db, product_id: int):
                         (product_id,),
                     )
                     db.commit()
-
-                    run_analysis(db, product_id)
-                    st.success("分析完成")
+                    st.success("分析结果已清除")
                 except Exception as e:
-                    safe_error("数据分析", e)
-
-    with col2:
-        if st.button("清除分析结果", width="stretch"):
-            try:
-                # 通过 search_term_id 关联删除
-                db.execute(
-                    """
-                    DELETE FROM analysis_results
-                    WHERE search_term_id IN (
-                        SELECT st.id FROM search_terms st
-                        JOIN campaigns c ON st.campaign_id = c.id
-                        WHERE c.product_id = ?
-                    )
-                    """,
-                    (product_id,),
-                )
-                db.commit()
-                st.success("分析结果已清除")
-            except Exception as e:
-                safe_error("分析结果清除", e)
+                    safe_error("分析结果清除", e)
 
     st.divider()
 
     # 清空所有数据（保留产品配置）
-    st.write("#### 清空数据（保留产品）")
-    st.info(
-        "清空该产品的所有搜索词和分析数据，但保留产品配置。适合上传新类目数据时使用。"
-    )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("清空所有搜索词数据", width="stretch", type="secondary"):
-            try:
-                # 1. 先删除 action_plans（依赖 analysis_results）
-                db.execute(
-                    """
-                    DELETE FROM action_plans
-                    WHERE analysis_result_id IN (
-                        SELECT ar.id FROM analysis_results ar
-                        JOIN search_terms st ON ar.search_term_id = st.id
-                        JOIN campaigns c ON st.campaign_id = c.id
-                        WHERE c.product_id = ?
-                    )
-                    """,
-                    (product_id,),
-                )
-                # 2. 删除 analysis_results
-                db.execute(
-                    """
-                    DELETE FROM analysis_results
-                    WHERE search_term_id IN (
-                        SELECT st.id FROM search_terms st
-                        JOIN campaigns c ON st.campaign_id = c.id
-                        WHERE c.product_id = ?
-                    )
-                    """,
-                    (product_id,),
-                )
-                # 3. 删除 search_terms
-                db.execute(
-                    """
-                    DELETE FROM search_terms
-                    WHERE campaign_id IN (
-                        SELECT id FROM campaigns WHERE product_id = ?
-                    )
-                    """,
-                    (product_id,),
-                )
-                # 4. 删除 manual_reviews (相关性审核记录)
-                db.execute(
-                    "DELETE FROM manual_reviews WHERE product_id = ?", (product_id,)
-                )
-                # 5. 删除 campaigns
-                db.execute("DELETE FROM campaigns WHERE product_id = ?", (product_id,))
-                db.commit()
-                st.success(
-                    "所有搜索词数据已清空，产品配置已保留。您现在可以上传新数据。"
-                )
-                st.rerun()
-            except Exception as e:
-                safe_error("数据清空", e)
-
-    with col2:
-        st.caption(
-            "此操作会删除：搜索词记录、广告活动、分析结果、操作计划、相关性审核记录"
+    with st.container(border=True):
+        st.write("#### 清空数据（保留产品）")
+        st.caption("适合切换类目或重新开始一轮分析时使用：删掉运行数据，但保留产品配置。")
+        st.info(
+            "清空该产品的所有搜索词和分析数据，但保留产品配置。适合上传新类目数据时使用。"
         )
-        st.caption("保留：产品名称、ASIN、规则配置")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("清空所有搜索词数据", width="stretch", type="secondary"):
+                try:
+                    # 1. 先删除 action_plans（依赖 analysis_results）
+                    db.execute(
+                        """
+                        DELETE FROM action_plans
+                        WHERE analysis_result_id IN (
+                            SELECT ar.id FROM analysis_results ar
+                            JOIN search_terms st ON ar.search_term_id = st.id
+                            JOIN campaigns c ON st.campaign_id = c.id
+                            WHERE c.product_id = ?
+                        )
+                        """,
+                        (product_id,),
+                    )
+                    # 2. 删除 analysis_results
+                    db.execute(
+                        """
+                        DELETE FROM analysis_results
+                        WHERE search_term_id IN (
+                            SELECT st.id FROM search_terms st
+                            JOIN campaigns c ON st.campaign_id = c.id
+                            WHERE c.product_id = ?
+                        )
+                        """,
+                        (product_id,),
+                    )
+                    # 3. 删除 search_terms
+                    db.execute(
+                        """
+                        DELETE FROM search_terms
+                        WHERE campaign_id IN (
+                            SELECT id FROM campaigns WHERE product_id = ?
+                        )
+                        """,
+                        (product_id,),
+                    )
+                    # 4. 删除 manual_reviews (相关性审核记录)
+                    db.execute(
+                        "DELETE FROM manual_reviews WHERE product_id = ?", (product_id,)
+                    )
+                    # 5. 删除 campaigns
+                    db.execute(
+                        "DELETE FROM campaigns WHERE product_id = ?", (product_id,)
+                    )
+                    db.commit()
+                    st.success(
+                        "所有搜索词数据已清空，产品配置已保留。您现在可以上传新数据。"
+                    )
+                    st.rerun()
+                except Exception as e:
+                    safe_error("数据清空", e)
+
+        with col2:
+            st.caption(
+                "此操作会删除：搜索词记录、广告活动、分析结果、操作计划、相关性审核记录"
+            )
+            st.caption("保留：产品名称、ASIN、规则配置")
 
     st.divider()
 
     # 数据导出
-    st.write("#### 数据导出")
+    with st.container(border=True):
+        st.write("#### 数据导出与规则导入")
+        st.caption("先导出当前配置和备份，再导入历史规则，避免一边回滚一边心里没底。")
 
-    col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-    with col1:
-        if st.button("导出规则配置", width="stretch"):
+        with col1:
             try:
-                product = db.get_product(product_id)
-                config = product.get("config", {}) if product else {}
-                export_data = {
-                    "export_type": "rule_config",
-                    "product_name": product.get("name", ""),
-                    "config": config,
-                }
-                json_str = json.dumps(export_data, ensure_ascii=False, indent=2)
-                st.download_button(
-                    "下载规则配置JSON",
-                    data=json_str,
-                    file_name=f"rules_{product.get('name', 'config')}.json",
-                    mime="application/json",
-                )
+                rule_payload = build_rule_config_export_payload(db, product_id)
+                if rule_payload:
+                    st.download_button(
+                        "导出规则配置",
+                        data=rule_payload["data"],
+                        file_name=rule_payload["file_name"],
+                        mime=rule_payload["mime"],
+                        width="stretch",
+                    )
+                else:
+                    st.button("导出规则配置", disabled=True, width="stretch")
             except Exception as e:
                 safe_error("规则导出", e)
 
-    with col2:
-        if st.button("导出完整数据备份", width="stretch"):
+        with col2:
             try:
-                export_full_backup(db, product_id)
+                backup_payload = build_full_backup_export_payload(db, product_id)
+                if backup_payload:
+                    st.download_button(
+                        "导出完整数据备份",
+                        data=backup_payload["data"],
+                        file_name=backup_payload["file_name"],
+                        mime=backup_payload["mime"],
+                        width="stretch",
+                    )
+                    st.caption(
+                        f"备份内容：{backup_payload['summary']['search_terms_count']} 条搜索词，"
+                        f"{backup_payload['summary']['analysis_results_count']} 条分析结果"
+                    )
+                else:
+                    st.button("导出完整数据备份", disabled=True, width="stretch")
             except Exception as e:
                 safe_error("数据备份", e)
 
-    # 规则导入
-    uploaded_config = st.file_uploader(
-        "导入规则配置",
-        type=["json"],
-        help="上传之前导出的规则配置JSON文件",
-        key="import_rules",
-    )
+        # 规则导入
+        uploaded_config = st.file_uploader(
+            "导入规则配置",
+            type=["json"],
+            help="上传之前导出的规则配置JSON文件",
+            key="import_rules",
+        )
 
-    if uploaded_config:
-        try:
-            import_data = json.load(uploaded_config)
-            if import_data.get("export_type") == "rule_config":
-                config_to_import = import_data.get("config", {})
-                st.json(config_to_import)
+        if uploaded_config:
+            try:
+                import_data = json.load(uploaded_config)
+                if import_data.get("export_type") == "rule_config":
+                    config_to_import = import_data.get("config", {})
+                    st.json(config_to_import)
 
-                if st.button("确认导入此规则配置", type="primary"):
-                    db.update_product_config(product_id, config_to_import)
-                    st.success("规则配置已导入")
-                    st.rerun()
-            else:
-                st.warning("文件格式不正确，请选择规则配置文件")
-        except Exception as e:
-            safe_error("规则导入", e)
+                    if st.button("确认导入此规则配置", type="primary"):
+                        db.update_product_config(product_id, config_to_import)
+                        st.success("规则配置已导入")
+                        st.rerun()
+                else:
+                    st.warning("文件格式不正确，请选择规则配置文件")
+            except Exception as e:
+                safe_error("规则导入", e)
 
     st.divider()
 
@@ -597,67 +748,18 @@ def render_config_history(db, product_id: int):
 
 def export_full_backup(db, product_id: int):
     """导出产品完整数据备份"""
-    import datetime
-
-    product = db.get_product(product_id)
-    if not product:
+    payload = build_full_backup_export_payload(db, product_id)
+    if not payload:
         st.error("产品不存在")
         return
 
-    backup_data = {
-        "export_type": "full_backup",
-        "export_time": datetime.datetime.now().isoformat(),
-        "product": {
-            "name": product.get("name", ""),
-            "asin": product.get("asin", ""),
-            "category": product.get("category", ""),
-            "config": product.get("config", {}),
-        },
-        "campaigns": [],
-        "search_terms_count": 0,
-        "analysis_results_count": 0,
-    }
-
-    # 获取广告活动
-    cursor = db.execute(
-        "SELECT id, name, campaign_type FROM campaigns WHERE product_id = ?",
-        (product_id,),
-    )
-    campaigns = cursor.fetchall()
-    backup_data["campaigns"] = [dict(c) for c in campaigns]
-
-    # 获取搜索词统计
-    cursor = db.execute(
-        """
-        SELECT COUNT(*) as count FROM search_terms st
-        JOIN campaigns c ON st.campaign_id = c.id
-        WHERE c.product_id = ?
-        """,
-        (product_id,),
-    )
-    backup_data["search_terms_count"] = cursor.fetchone()["count"]
-
-    # 获取分析结果统计
-    cursor = db.execute(
-        """
-        SELECT COUNT(*) as count FROM analysis_results ar
-        JOIN search_terms st ON ar.search_term_id = st.id
-        JOIN campaigns c ON st.campaign_id = c.id
-        WHERE c.product_id = ?
-        """,
-        (product_id,),
-    )
-    backup_data["analysis_results_count"] = cursor.fetchone()["count"]
-
-    # 生成JSON
-    json_str = json.dumps(backup_data, ensure_ascii=False, indent=2)
-
     st.download_button(
         "下载完整备份JSON",
-        data=json_str,
-        file_name=f"backup_{product.get('name', 'data')}_{datetime.datetime.now().strftime('%Y%m%d')}.json",
-        mime="application/json",
+        data=payload["data"],
+        file_name=payload["file_name"],
+        mime=payload["mime"],
     )
     st.success(
-        f"备份已准备就绪：{backup_data['search_terms_count']} 条搜索词，{backup_data['analysis_results_count']} 条分析结果"
+        f"备份已准备就绪：{payload['summary']['search_terms_count']} 条搜索词，"
+        f"{payload['summary']['analysis_results_count']} 条分析结果"
     )

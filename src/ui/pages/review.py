@@ -3,12 +3,32 @@
 v2.0: 支持人工标记搜索词的相关性等级
 """
 
+import json
+from html import escape
+
 import streamlit as st
 
-from src.ai.analyzer import AIAnalyzer
+from src.ai.copilot import build_ai_context_pack, build_review_ai_brief
+from src.ai.analyzer import AIAnalyzer, RelevanceSuggestion
 from src.config.logger import get_logger
+from src.ui.pages.actions import ACTIONS_PAGE_CSS
+from src.ui.pages.analysis import _render_ai_brief_card
 
 logger = get_logger(__name__)
+
+
+REVIEW_PAGE_CSS = """
+<style>
+.review-hero {
+    padding: 1.6rem 1.8rem;
+    border-radius: 26px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,255,0.96) 100%);
+    border: 1px solid rgba(59, 91, 219, 0.10);
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.06);
+    margin-bottom: 1.1rem;
+}
+</style>
+"""
 
 
 # 相关性等级显示映射
@@ -55,10 +75,98 @@ COMPETITION_DISPLAY = {
 }
 
 
+def _build_review_dashboard_state(
+    pending_count: dict[str, int], review_mode: str
+) -> dict[str, str | list[str]]:
+    """构建审核页概览文案。"""
+    mode_label = "批量模式" if review_mode == "batch" else "单条模式"
+    total = pending_count.get("total", 0)
+    keywords = pending_count.get("keywords", 0)
+    asins = pending_count.get("asins", 0)
+    return {
+        "eyebrow": "审核面板",
+        "title": "相关性审核",
+        "description": "把待审核项按词类型和花费收窄后逐条处理，避免在批量模式里误伤本该细看的词。",
+        "chips": [
+            f"待审核 {total} 项",
+            f"关键词 {keywords} 项",
+            f"ASIN {asins} 项",
+            f"当前模式：{mode_label}",
+        ],
+    }
+
+
+def _build_review_empty_state() -> dict[str, str]:
+    """构建审核页完成态文案。"""
+    return {
+        "title": "所有词都已审核完成",
+        "description": "这批数据已经完成人工校准，可以直接回到首页看待处理项，或进入操作清单执行。",
+        "badge": "审核闭环已完成",
+    }
+
+
+def _build_review_upsert_payload(
+    *,
+    product_id: int,
+    term: str,
+    term_type: str,
+    scope: str,
+    selected_relevance: str | None,
+    selected_competition: str | None,
+    notes: str | None,
+) -> dict:
+    """统一构建审核页保存时的人工校准写入载荷。"""
+    payload = {
+        "product_id": product_id,
+        "term": term,
+        "term_type": term_type,
+        "scope": scope,
+        "reviewed": True,
+        "review_source": "ui_calibration",
+    }
+    if term_type == "asin":
+        payload["competition_level"] = selected_competition
+        payload["competition_notes"] = notes if notes else None
+    else:
+        payload["relevance"] = selected_relevance
+        payload["relevance_notes"] = notes if notes else None
+    return payload
+
+
+def _resolve_review_role_context(db, product_id: int) -> dict[str, str | int]:
+    """解析审核页当前用户与工作区角色上下文。"""
+    current_user_id = st.session_state.get("current_user_id")
+    current_user = (
+        db.get_user(user_id=current_user_id) if current_user_id is not None else None
+    )
+    if current_user is None:
+        current_user = db.get_or_create_local_owner()
+
+    current_role = db.get_workspace_role(product_id, current_user["id"]) or "viewer"
+    return {
+        "current_user_name": current_user.get("display_name") or current_user["email"],
+        "current_role": current_role,
+        "current_user_id": current_user["id"],
+    }
+
+
+def _build_review_access_meta(current_role: str) -> dict[str, object]:
+    """构建审核页角色门控摘要。"""
+    can_review = current_role in {"admin", "editor"}
+    return {
+        "title": "当前审核权限",
+        "description": "相关性审核会直接写入人工校准结果。管理员和编辑者可以处理审核队列，查看者保留概览只读视图，避免误改最终结论。",
+        "chips": [
+            f"当前角色：{current_role}",
+            "可执行人工校准" if can_review else "只读查看",
+        ],
+        "can_review": can_review,
+        "blocked_message": "当前角色只能查看审核概览，保存人工校准需要管理员或编辑者权限。",
+    }
+
+
 def render_review():
     """渲染相关性审核页面"""
-    st.title("相关性审核")
-
     db = st.session_state.get("db")
     product_id = st.session_state.get("current_product_id")
 
@@ -70,8 +178,28 @@ def render_review():
         st.warning("请先选择产品")
         return
 
+    if "review_mode" not in st.session_state:
+        st.session_state.review_mode = "single"
+
     # 获取待审核统计
     pending_count = db.get_pending_reviews_count(product_id)
+    state = _build_review_dashboard_state(pending_count, st.session_state.review_mode)
+    chips_html = "".join(
+        f'<div class="review-hero__chip">{escape(chip)}</div>' for chip in state["chips"]
+    )
+
+    st.markdown(ACTIONS_PAGE_CSS + REVIEW_PAGE_CSS, unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <section class="review-hero">
+            <div class="review-hero__eyebrow">{escape(state["eyebrow"])}</div>
+            <h1>{escape(state["title"])}</h1>
+            <p>{escape(state["description"])}</p>
+            <div class="review-hero__chips">{chips_html}</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # 顶部统计卡片
     col1, col2, col3, col4 = st.columns(4)
@@ -83,8 +211,6 @@ def render_review():
         st.metric("ASIN", pending_count.get("asins", 0))
     with col4:
         # 模式切换
-        if "review_mode" not in st.session_state:
-            st.session_state.review_mode = "single"
         mode_label = (
             "批量模式" if st.session_state.review_mode == "single" else "单条模式"
         )
@@ -97,9 +223,52 @@ def render_review():
 
     st.divider()
 
+    access_context = _resolve_review_role_context(db, product_id)
+    access_meta = _build_review_access_meta(access_context["current_role"])
+    chips_html = "".join(
+        f'<div class="review-hero__chip">{escape(str(chip))}</div>'
+        for chip in access_meta["chips"]
+    )
+    st.markdown(
+        f"""
+        <section class="review-hero">
+            <div class="review-hero__eyebrow">{escape(str(access_meta["title"]))}</div>
+            <p>{escape(str(access_meta["description"]))}</p>
+            <div class="review-hero__chips">{chips_html}</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if not access_meta["can_review"]:
+        st.info(access_meta["blocked_message"])
+        if pending_count.get("total", 0) == 0:
+            empty_state = _build_review_empty_state()
+            st.markdown(
+                f"""
+                <section class="review-completion">
+                    <div class="review-completion__badge">{escape(empty_state["badge"])}</div>
+                    <h3>{escape(empty_state["title"])}</h3>
+                    <p>{escape(empty_state["description"])}</p>
+                </section>
+                """,
+                unsafe_allow_html=True,
+            )
+        return
+
     # 检查是否有待审核项
     if pending_count.get("total", 0) == 0:
-        st.success("所有词都已审核完成！")
+        empty_state = _build_review_empty_state()
+        st.markdown(
+            f"""
+            <section class="review-completion">
+                <div class="review-completion__badge">{escape(empty_state["badge"])}</div>
+                <h3>{escape(empty_state["title"])}</h3>
+                <p>{escape(empty_state["description"])}</p>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
         return
 
     # 获取待审核列表（移除100条限制，支持分页）
@@ -111,6 +280,10 @@ def render_review():
 
     # ========== T51: 筛选搜索功能 ==========
     with st.expander("筛选与搜索", expanded=False):
+        st.markdown(
+            '<p class="review-section-note">先用词类型和花费范围缩小集合，再用搜索词精准定位，能大幅减少批量审核时误点的概率。</p>',
+            unsafe_allow_html=True,
+        )
         filter_col1, filter_col2, filter_col3 = st.columns([1, 1, 2])
 
         with filter_col1:
@@ -553,22 +726,28 @@ def _render_batch_form(db, product_id: int, pending_list: list):
                     if term_type == "asin":
                         # ASIN: 保存竞争力评估
                         db.upsert_manual_review(
-                            product_id=product_id,
-                            term=term,
-                            term_type=term_type,
-                            competition_level=selected_competition,
-                            relevance_notes=batch_notes if batch_notes else None,
-                            scope=selected_scope,
+                            **_build_review_upsert_payload(
+                                product_id=product_id,
+                                term=term,
+                                term_type=term_type,
+                                scope=selected_scope,
+                                selected_relevance=None,
+                                selected_competition=selected_competition,
+                                notes=batch_notes,
+                            )
                         )
                     else:
                         # 关键词: 保存相关性标记
                         db.upsert_manual_review(
-                            product_id=product_id,
-                            term=term,
-                            term_type=term_type,
-                            relevance=selected_relevance,
-                            relevance_notes=batch_notes if batch_notes else None,
-                            scope=selected_scope,
+                            **_build_review_upsert_payload(
+                                product_id=product_id,
+                                term=term,
+                                term_type=term_type,
+                                scope=selected_scope,
+                                selected_relevance=selected_relevance,
+                                selected_competition=None,
+                                notes=batch_notes,
+                            )
                         )
                     success_count += 1
                 except Exception as e:
@@ -628,21 +807,27 @@ def _request_ai_suggestion(db, product_id: int, term: str, item: dict):
                 performance_data=performance_data,
             )
 
+        request_state = _build_ai_request_state(suggestion=suggestion)
+
         # 保存到session state
         ai_suggestion_key = f"ai_suggestion_{term}"
-        st.session_state[ai_suggestion_key] = {
-            "relevance": suggestion.suggested_relevance,
-            "confidence": suggestion.confidence,
-            "reasoning": suggestion.reasoning,
-        }
+        st.session_state[ai_suggestion_key] = request_state
 
         # 同时保存到数据库（用于后续参考）
         try:
-            db.update_manual_review_ai_suggestion(
+            db.save_manual_review_ai_suggestion(
                 product_id=product_id,
                 term=term,
-                ai_suggestion=suggestion.suggested_relevance,
-                ai_confidence=suggestion.confidence,
+                term_type=item.get("term_type", "keyword"),
+                ai_suggestion=request_state["relevance"],
+                ai_confidence=request_state["confidence"],
+                ai_reasoning=request_state["reasoning"],
+                ai_suggested_action=request_state["suggested_action"],
+                ai_status=request_state["status"],
+                ai_status_message=request_state["status_message"],
+                ai_can_retry=request_state["can_retry"],
+                campaign_id=item.get("campaign_id"),
+                asin_identifier=item.get("asin_identifier"),
             )
         except Exception as e:
             logger.warning(f"保存AI建议到数据库失败: {e}")
@@ -651,7 +836,126 @@ def _request_ai_suggestion(db, product_id: int, term: str, item: dict):
 
     except Exception as e:
         logger.error(f"获取AI建议失败: {e}")
-        st.error(f"获取AI建议失败: {e}")
+        request_state = _build_ai_request_state(error=e)
+        st.session_state[f"ai_suggestion_{term}"] = request_state
+        try:
+            db.save_manual_review_ai_suggestion(
+                product_id=product_id,
+                term=term,
+                term_type=item.get("term_type", "keyword"),
+                ai_suggestion=request_state["relevance"],
+                ai_confidence=request_state["confidence"],
+                ai_reasoning=request_state["reasoning"],
+                ai_suggested_action=request_state["suggested_action"],
+                ai_status=request_state["status"],
+                ai_status_message=request_state["status_message"],
+                ai_can_retry=request_state["can_retry"],
+                campaign_id=item.get("campaign_id"),
+                asin_identifier=item.get("asin_identifier"),
+            )
+        except Exception as persist_error:
+            logger.warning(f"保存AI失败状态到数据库失败: {persist_error}")
+
+        st.rerun()
+
+
+def _build_ai_request_state(
+    suggestion: RelevanceSuggestion | None = None,
+    error: Exception | None = None,
+) -> dict:
+    """构建可持久化的 AI 建议/失败状态。"""
+    if error is not None:
+        error_message = str(error)
+        lowered = error_message.lower()
+        if "gemini_api_key" in lowered:
+            return {
+                "relevance": "pending",
+                "confidence": 0.0,
+                "reasoning": "未配置 GEMINI_API_KEY",
+                "suggested_action": "请先配置 AI 密钥后重试",
+                "status": "error",
+                "status_message": "未配置 GEMINI_API_KEY，暂时无法使用 AI 建议。",
+                "can_retry": False,
+            }
+        if "timeout" in lowered or "超时" in error_message:
+            return {
+                "relevance": "pending",
+                "confidence": 0.0,
+                "reasoning": error_message,
+                "suggested_action": "请稍后重试",
+                "status": "warning",
+                "status_message": "AI 请求超时，请稍后重试。",
+                "can_retry": True,
+            }
+        return {
+            "relevance": "pending",
+            "confidence": 0.0,
+            "reasoning": error_message,
+            "suggested_action": "请稍后重试",
+            "status": "error",
+            "status_message": "获取AI建议失败，请稍后重试。",
+            "can_retry": True,
+        }
+
+    if suggestion is None:
+        return {
+            "relevance": "pending",
+            "confidence": 0.0,
+            "reasoning": "",
+            "suggested_action": "",
+            "status": "warning",
+            "status_message": "AI 本次未返回有效建议。",
+            "can_retry": True,
+        }
+
+    reasoning = suggestion.reasoning or ""
+    state = {
+        "relevance": suggestion.suggested_relevance,
+        "confidence": suggestion.confidence,
+        "reasoning": reasoning,
+        "suggested_action": suggestion.suggested_action or "",
+        "status": "success",
+        "status_message": "",
+        "can_retry": False,
+    }
+
+    if suggestion.suggested_relevance == "pending" and suggestion.confidence <= 0:
+        state["status"] = "warning"
+        state["can_retry"] = True
+        if "限流" in reasoning:
+            state["status_message"] = "AI 当前请求较多，请稍后重试。"
+        elif "失败" in reasoning:
+            state["status_message"] = "AI 本次未返回有效建议，请稍后重试。"
+        else:
+            state["status_message"] = "AI 建议暂时不可用，请稍后重试。"
+
+    return state
+
+
+def _build_ai_suggestion_state(item: dict | None) -> dict | None:
+    """从待审核记录中恢复可回显的 AI 建议状态。"""
+    if not item or not item.get("ai_suggestion"):
+        return None
+
+    evidence_payload = item.get("evidence_payload")
+    payload = {}
+    if isinstance(evidence_payload, dict):
+        payload = evidence_payload
+    elif isinstance(evidence_payload, str) and evidence_payload:
+        try:
+            payload = json.loads(evidence_payload)
+        except json.JSONDecodeError:
+            payload = {}
+
+    return {
+        "relevance": item.get("ai_suggestion", "pending"),
+        "confidence": item.get("ai_confidence", 0) or 0,
+        "reasoning": payload.get("ai_reasoning", ""),
+        "suggested_action": payload.get("ai_suggested_action", ""),
+        "status": payload.get("ai_status", "success"),
+        "status_message": payload.get("ai_status_message", ""),
+        "can_retry": bool(payload.get("ai_can_retry", False)),
+    }
 
 
 def _render_review_form(db, product_id: int, item: dict, pending_list: list):
@@ -677,46 +981,44 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
     ai_suggestion = st.session_state.get(ai_suggestion_key)
 
     # 也检查item中的预存建议
-    if not ai_suggestion and item.get("ai_suggestion"):
-        ai_suggestion = {
-            "relevance": item.get("ai_suggestion"),
-            "confidence": item.get("ai_confidence", 0),
-            "reasoning": item.get("ai_reasoning", ""),
-        }
+    if not ai_suggestion:
+        ai_suggestion = _build_ai_suggestion_state(item)
 
     # AI建议展示区
     with st.container():
         col_ai_btn, col_ai_result = st.columns([1, 3])
 
         with col_ai_btn:
-            if st.button("获取AI建议", key=f"ai_btn_{term}"):
+            button_label = (
+                "重试AI建议"
+                if ai_suggestion and ai_suggestion.get("can_retry")
+                else "获取AI建议"
+            )
+            if st.button(button_label, key=f"ai_btn_{term}"):
                 _request_ai_suggestion(db, product_id, term, item)
 
         with col_ai_result:
-            if ai_suggestion:
-                relevance_label = RELEVANCE_DISPLAY.get(
-                    ai_suggestion.get("relevance", "pending"),
-                    ai_suggestion.get("relevance", "待定"),
-                )
-                confidence = ai_suggestion.get("confidence", 0)
-                reasoning = ai_suggestion.get("reasoning", "")
-
-                # 根据置信度显示不同颜色
-                if confidence >= 0.8:
-                    st.success(
-                        f"AI建议: **{relevance_label}** (置信度: {confidence:.0%})"
-                    )
-                elif confidence >= 0.5:
-                    st.info(f"AI建议: **{relevance_label}** (置信度: {confidence:.0%})")
-                else:
-                    st.warning(
-                        f"AI建议: **{relevance_label}** (置信度: {confidence:.0%})"
-                    )
-
-                if reasoning:
-                    st.caption(f"理由: {reasoning}")
-            else:
-                st.caption("点击按钮获取AI相关性建议")
+            context_pack = build_ai_context_pack(
+                db,
+                product_id,
+                page_key="review",
+                page_title="相关性审核",
+            )
+            review_brief = build_review_ai_brief(
+                term=term,
+                term_type=term_type,
+                item=item,
+                ai_suggestion=ai_suggestion,
+                context_label=(
+                    f"当前产品：{context_pack.product_name} · 上下文："
+                    f"{'最近一次分析结果（审核）' if context_pack.context_source == 'latest_snapshot' else '仅产品基础信息（审核）'}"
+                ),
+            )
+            _render_ai_brief_card(
+                title="AI 审核建议",
+                brief=review_brief,
+                key_prefix=f"review_ai_brief_{term}",
+            )
     # ========== AI建议功能结束 ==========
 
     st.divider()
@@ -862,23 +1164,29 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
             if term_type == "asin":
                 # ASIN: 保存竞争力评估
                 db.upsert_manual_review(
-                    product_id=product_id,
-                    term=term,
-                    term_type=term_type,
-                    competition_level=selected_competition,
-                    relevance_notes=notes if notes else None,
-                    scope=selected_scope,
+                    **_build_review_upsert_payload(
+                        product_id=product_id,
+                        term=term,
+                        term_type=term_type,
+                        scope=selected_scope,
+                        selected_relevance=None,
+                        selected_competition=selected_competition,
+                        notes=notes,
+                    )
                 )
                 st.success(f"已保存 ASIN '{term}' 的竞争力评估")
             else:
                 # 关键词: 保存相关性标记
                 db.upsert_manual_review(
-                    product_id=product_id,
-                    term=term,
-                    term_type=term_type,
-                    relevance=selected_relevance,
-                    relevance_notes=notes if notes else None,
-                    scope=selected_scope,
+                    **_build_review_upsert_payload(
+                        product_id=product_id,
+                        term=term,
+                        term_type=term_type,
+                        scope=selected_scope,
+                        selected_relevance=selected_relevance,
+                        selected_competition=None,
+                        notes=notes,
+                    )
                 )
                 st.success(f"已保存 '{term}' 的相关性标记")
 
@@ -900,3 +1208,4 @@ def _go_to_next(pending_list: list):
     else:
         st.session_state.review_current_index = 0
     st.rerun()
+

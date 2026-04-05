@@ -173,9 +173,11 @@ class RuleEngine:
         -1. 人工审核标记（最高优先级）
         0. 核心词精确匹配 - 用户明确标为强相关的词优先保留
         1. 泛词精确匹配 - 太泛的词（pillow, neck等）
-        2. 弱相关类目词 - 完全不同类目（massager, blanket等）
-        3. 汽车相关词 - car相关词
-        4. 核心词子串匹配 - 包含核心词的长尾词
+        2. 弱相关精准词 - 明确需要精准否定的边界词（neck support 等）
+        3. 不相关词检查 - 明显不相关词
+        4. 弱相关类目词 - 完全不同类目（massager, blanket等）
+        5. 汽车相关词 - car相关词
+        6. 核心词子串匹配 - 包含核心词的长尾词
 
         例如: "travel neck pillow for car" 如果在core_keywords中有精确匹配
               则优先保留为STRONG，否则因为包含car归类为CAR
@@ -222,25 +224,31 @@ class RuleEngine:
         if any(term_lower == k.lower() for k in generic_keywords):
             return RelevanceLevel.GENERIC
 
-        # ==================== 2. 不相关词检查 ====================
+        # ==================== 2. 弱相关精准词检查 ====================
+        # 明确需要精准否定的边界词（neck support, pillow for neck 等）
+        weak_exact_keywords = keyword_libraries.get("weak_exact_keywords", [])
+        if any(term_lower == k.lower() for k in weak_exact_keywords):
+            return "weak_exact"
+
+        # ==================== 3. 不相关词检查 ====================
         # 明显不相关词（否定词组）
         irrelevant_keywords = keyword_libraries.get("irrelevant_keywords", [])
         if any(k.lower() in term_lower for k in irrelevant_keywords):
             return RelevanceLevel.IRRELEVANT
 
-        # ==================== 3. 弱相关类目词检查 ====================
+        # ==================== 4. 弱相关类目词检查 ====================
         # 弱相关词（massager, blanket, neck support等）→ 词组否定
         weak_category_keywords = keyword_libraries.get("weak_category_keywords", [])
         if any(k.lower() in term_lower for k in weak_category_keywords):
             return RelevanceLevel.WEAK
 
-        # ==================== 4. 汽车相关词检查 ====================
+        # ==================== 5. 汽车相关词检查 ====================
         # car相关词 → 否定精准
         car_keywords = keyword_libraries.get("car_keywords", [])
         if any(k.lower() in term_lower for k in car_keywords):
             return RelevanceLevel.CAR
 
-        # ==================== 5. 核心词子串匹配 ====================
+        # ==================== 6. 核心词子串匹配 ====================
         # 包含核心词的长尾词 → 强相关
         if any(
             k.lower() in term_lower or term_lower in k.lower() for k in core_keywords
@@ -389,6 +397,18 @@ class RuleEngine:
                 else None
             )
             if actual_category != required_relevance:
+                return False
+
+        # ==================== 评估类规则保护 (v2.2) ====================
+        # 强相关词应优先走 strong 专属规则，不被泛化“评估”规则抢走。
+        if "评估" in rule.get("action", ""):
+            actual_relevance = self._get_term_relevance(term, campaign_id=campaign_id)
+            actual_category = (
+                RelevanceLevel.to_category(actual_relevance)
+                if actual_relevance
+                else None
+            )
+            if actual_category == RelevanceLevel.STRONG:
                 return False
 
         # ==================== 相关性排除条件 (v2.1新增) ====================
@@ -784,6 +804,7 @@ class RuleEngine:
 
 def analyze_search_terms(db: Database, product_id: int = None) -> list[AnalysisResult]:
     """便捷函数：分析搜索词（汇总模式，跨活动聚合）"""
+    from src.analysis.truth_replay import apply_reviewed_truth
     from src.data.aggregator import DataAggregator
 
     # 获取聚合数据
@@ -792,7 +813,7 @@ def analyze_search_terms(db: Database, product_id: int = None) -> list[AnalysisR
 
     # 规则分析
     engine = RuleEngine(db, product_id)
-    return engine.analyze(df)
+    return apply_reviewed_truth(db, product_id, engine.analyze(df))
 
 
 def analyze_search_terms_by_campaign(
@@ -810,6 +831,7 @@ def analyze_search_terms_by_campaign(
     Returns:
         按活动分析结果列表
     """
+    from src.analysis.truth_replay import apply_reviewed_truth
     from src.data.aggregator import DataAggregator
 
     # 获取按活动+关键词聚合的数据
@@ -818,7 +840,7 @@ def analyze_search_terms_by_campaign(
 
     # 规则分析
     engine = RuleEngine(db, product_id)
-    return engine.analyze_by_campaign(df)
+    return apply_reviewed_truth(db, product_id, engine.analyze_by_campaign(df))
 
 
 @dataclass
@@ -864,6 +886,7 @@ def analyze_search_terms_by_asin(
     Returns:
         按ASIN分析结果列表
     """
+    from src.analysis.truth_replay import apply_reviewed_truth
     from src.data.aggregator import DataAggregator
 
     # 获取按ASIN+关键词聚合的数据
@@ -936,4 +959,4 @@ def analyze_search_terms_by_asin(
         )
 
     logger.info(f"按ASIN分析完成，生成 {len(results)} 条结果")
-    return results
+    return apply_reviewed_truth(db, product_id, results)

@@ -3,18 +3,128 @@
 从 analysis.py 拆分
 """
 
+from typing import Any
+
 import pandas as pd
 import streamlit as st
 
+from src.ai.copilot import build_ai_context_pack, build_campaign_ai_brief
 from src.config.logger import get_logger
-from src.ui.pages.analysis import AUTO_ACTION_DISPLAY, save_campaign_review_changes
+from src.ui.pages.analysis import (
+    AUTO_ACTION_DISPLAY,
+    _render_ai_brief_card,
+    _resolve_analysis_role_context,
+    save_campaign_review_changes,
+)
 
 logger = get_logger(__name__)
+
+
+
+
+def _build_campaign_analysis_access_meta(current_role: str) -> dict[str, object]:
+    """构建按活动分析视图的角色门控摘要。"""
+    can_review = current_role in {"admin", "editor"}
+    can_export = current_role in {"admin", "editor"}
+    return {
+        "title": "当前活动分析权限",
+        "description": "按活动模式会保留广告组差异，适合逐条核对同一搜索词在不同活动里的动作；管理员和编辑者可以批量审核并导出已确认结果，查看者保留只读浏览。",
+        "chips": [
+            f"当前角色：{current_role}",
+            "可批量审核" if can_review else "只读查看活动结果",
+            "可导出按活动结果" if can_export else "不可导出按活动结果",
+        ],
+        "can_review": can_review,
+        "can_export": can_export,
+        "review_blocked_message": "当前角色只能查看按活动分析结果，批量审核与人工确认需要管理员或编辑者权限。",
+        "export_blocked_message": "当前角色只能查看按活动分析结果，导出按活动分析结果需要管理员或编辑者权限。",
+    }
+
+def _matches_campaign_action_filter(action_type: str, filters: list[str]) -> bool:
+    if not filters:
+        return True
+    if "negative" in str(action_type):
+        return "negative" in filters
+    if "manual" in str(action_type):
+        return "manual" in filters
+    if action_type == "observe":
+        return "observe" in filters
+    return "evaluate" in filters
+
+
+def _build_snapshot_campaign_rows(snapshot_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """将最近一次有效快照转换为按活动页可直接消费的数据结构。"""
+    from src.analysis.truth_replay import action_type_to_auto_action
+
+    campaign_rows: list[dict[str, Any]] = []
+    for row in snapshot_rows:
+        campaign_id = str(row.get("campaign_id") or "").strip()
+        campaign_name = str(row.get("campaign_name") or "").strip()
+        if not campaign_id or not campaign_name:
+            continue
+
+        action_type = str(row.get("action_type") or "").strip()
+        campaign_rows.append(
+            {
+                "term": str(row.get("term") or "").strip(),
+                "term_type": str(row.get("term_type") or "keyword").strip() or "keyword",
+                "campaign_id": campaign_id,
+                "campaign_name": campaign_name,
+                "triggered_rule": str(row.get("triggered_rule") or "").strip(),
+                "suggested_action": str(row.get("suggested_action") or "").strip(),
+                "auto_action": str(row.get("auto_action") or "").strip()
+                or action_type_to_auto_action(action_type),
+                "action_type": action_type,
+                "confidence": float(row.get("confidence") or 0.0),
+                "clicks": int(float(row.get("clicks") or 0)),
+                "orders": int(float(row.get("orders") or 0)),
+                "spend": float(row.get("spend") or 0.0),
+                "sales": float(row.get("sales") or 0.0),
+                "cvr": float(row.get("cvr") or 0.0),
+                "acos": float(row.get("acos") or 0.0),
+            }
+        )
+
+    return sorted(
+        campaign_rows,
+        key=lambda item: (
+            {"negate": 0, "keep": 1, "observe": 2}.get(item.get("auto_action"), 3),
+            item.get("campaign_name", ""),
+            item.get("term", ""),
+        ),
+    )
+
+
+def _build_latest_snapshot_campaign_rows(db, product_id: int) -> list[dict[str, Any]] | None:
+    """按活动页优先读取最近一次包含广告组信息的有效快照。"""
+    snapshots = db.list_analysis_run_snapshots(product_id, limit=20)
+    for snapshot in snapshots:
+        rows = _build_snapshot_campaign_rows(snapshot.get("rows") or [])
+        if rows:
+            return rows
+    return None
 
 
 def render_campaign_analysis(db, product_id: int):
     """渲染按活动分析模式页面"""
     from src.rules.engine import analyze_search_terms_by_campaign
+    from src.analysis.truth_replay import get_truth_first_campaign_rows
+
+    access_context = _resolve_analysis_role_context(db, product_id)
+    access_meta = _build_campaign_analysis_access_meta(access_context["current_role"])
+    st.markdown(f"#### {access_meta['title']}")
+    st.caption(str(access_meta["description"]))
+    if not access_meta["can_review"]:
+        st.info(str(access_meta["review_blocked_message"]))
+    if not access_meta["can_export"]:
+        st.caption(str(access_meta["export_blocked_message"]))
+
+    truth_rows = get_truth_first_campaign_rows(db, product_id)
+    if truth_rows is not None:
+        _render_truth_first_campaign_analysis(truth_rows)
+        return
+
+    snapshot_rows = _build_latest_snapshot_campaign_rows(db, product_id)
 
     # 筛选面板
     with st.expander("筛选条件", expanded=True):
@@ -62,46 +172,52 @@ def render_campaign_analysis(db, product_id: int):
                 key="campaign_search_term",
             )
 
-    # 获取按活动分析结果
-    with st.spinner("正在加载按活动分析数据..."):
-        try:
-            results = analyze_search_terms_by_campaign(db, product_id)
-        except Exception as e:
-            logger.error(f"按活动分析失败: {e}")
-            st.error(f"分析失败: {e}")
+    if snapshot_rows:
+        results_data = snapshot_rows
+    else:
+        # 获取按活动分析结果
+        with st.spinner("正在加载按活动分析数据..."):
+            try:
+                results = analyze_search_terms_by_campaign(db, product_id)
+            except Exception as e:
+                logger.error(f"按活动分析失败: {e}")
+                st.error(f"分析失败: {e}")
+                return
+
+        if not results:
+            st.info("暂无按活动分析结果。请先上传数据。")
             return
 
-    if not results:
-        st.info("暂无按活动分析结果。请先上传数据。")
-        return
-
-    # 转换为字典列表以便筛选
-    results_data = [
-        {
-            "term": r.term,
-            "term_type": r.term_type,
-            "campaign_id": r.campaign_id,
-            "campaign_name": r.campaign_name,
-            "triggered_rule": r.triggered_rule,
-            "suggested_action": r.suggested_action,
-            "auto_action": r.auto_action,
-            "action_type": r.action_type,
-            "confidence": r.confidence,
-            "clicks": r.clicks,
-            "orders": r.orders,
-            "spend": r.spend,
-            "cvr": r.cvr,
-            "acos": r.acos,
-        }
-        for r in results
-    ]
+        # 转换为字典列表以便筛选
+        results_data = [
+            {
+                "term": r.term,
+                "term_type": r.term_type,
+                "campaign_id": r.campaign_id,
+                "campaign_name": r.campaign_name,
+                "triggered_rule": r.triggered_rule,
+                "suggested_action": r.suggested_action,
+                "auto_action": r.auto_action,
+                "action_type": r.action_type,
+                "confidence": r.confidence,
+                "clicks": r.clicks,
+                "orders": r.orders,
+                "spend": r.spend,
+                "sales": getattr(r, "sales", 0.0),
+                "cvr": r.cvr,
+                "acos": r.acos,
+            }
+            for r in results
+        ]
 
     # 应用筛选
     filtered_results = results_data
 
     if action_filter:
         filtered_results = [
-            r for r in filtered_results if r.get("action_type") in action_filter
+            r
+            for r in filtered_results
+            if _matches_campaign_action_filter(r.get("action_type"), action_filter)
         ]
 
     if auto_action_filter:
@@ -122,6 +238,28 @@ def render_campaign_analysis(db, product_id: int):
             if search_lower in str(r.get("term", "")).lower()
             or search_lower in str(r.get("campaign_name", "")).lower()
         ]
+
+    if filtered_results:
+        context_pack = build_ai_context_pack(
+            db,
+            product_id,
+            page_key="campaign",
+            page_title="按活动分析",
+        )
+        brief = build_campaign_ai_brief(
+            filtered_results,
+            product_name=context_pack.product_name,
+            context_label=(
+                f"当前产品：{context_pack.product_name} · 上下文："
+                f"{'最近一次分析结果（按活动）' if snapshot_rows else '实时活动分析结果'}"
+            ),
+        )
+        _render_ai_brief_card(
+            title="AI 活动解释",
+            brief=brief,
+            key_prefix="campaign_ai_brief",
+        )
+        st.divider()
 
     # 显示结果统计
     st.subheader(f"按活动分析结果 ({len(filtered_results)} 条)")
@@ -231,22 +369,26 @@ def render_campaign_analysis(db, product_id: int):
     )
 
     # 使用 data_editor 支持勾选
+    disabled_columns = [
+        "搜索词",
+        "广告活动",
+        "活动ID",
+        "类型",
+        "触发规则",
+        "主动作",
+        "自动处理",
+        "点击",
+        "订单",
+        "CVR",
+    ]
+    if not access_meta["can_review"]:
+        disabled_columns = ["已审核", *disabled_columns]
+
     edited_df = st.data_editor(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
-        disabled=[
-            "搜索词",
-            "广告活动",
-            "活动ID",
-            "类型",
-            "触发规则",
-            "主动作",
-            "自动处理",
-            "点击",
-            "订单",
-            "CVR",
-        ],
+        disabled=disabled_columns,
         column_config={
             "已审核": st.column_config.CheckboxColumn(
                 "已审核",
@@ -280,9 +422,10 @@ def render_campaign_analysis(db, product_id: int):
     )
 
     # 保存审核状态变更（按活动模式）
-    save_campaign_review_changes(
-        db, product_id, display_df, edited_df, filtered_results
-    )
+    if access_meta["can_review"]:
+        save_campaign_review_changes(
+            db, product_id, display_df, edited_df, filtered_results
+        )
 
     st.divider()
 
@@ -341,7 +484,7 @@ def render_campaign_analysis(db, product_id: int):
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("全部标记为已审核", key="campaign_mark_all_reviewed"):
+        if st.button("全部标记为已审核", key="campaign_mark_all_reviewed", disabled=not access_meta["can_review"]):
             count = 0
             for r in filtered_results:
                 try:
@@ -362,7 +505,7 @@ def render_campaign_analysis(db, product_id: int):
                 st.rerun()
 
     with col2:
-        if st.button("清除所有审核标记", key="campaign_clear_all_reviewed"):
+        if st.button("清除所有审核标记", key="campaign_clear_all_reviewed", disabled=not access_meta["can_review"]):
             count = 0
             for r in filtered_results:
                 try:
@@ -391,12 +534,195 @@ def render_campaign_analysis(db, product_id: int):
     col4, col5 = st.columns(2)
 
     with col4:
-        if st.button("导出按活动分析结果", key="export_campaign_results"):
+        if st.button("导出按活动分析结果", key="export_campaign_results", disabled=not access_meta["can_export"]):
             export_campaign_reviewed_results(filtered_results, existing_reviews)
 
     with col5:
-        if st.button("导出否定清单（按活动）", key="export_campaign_negatives"):
+        if st.button("导出否定清单（按活动）", key="export_campaign_negatives", disabled=not access_meta["can_export"]):
             export_campaign_reviewed_negatives(filtered_results, existing_reviews)
+
+
+def _render_truth_first_campaign_analysis(rows: list[dict]) -> None:
+    """渲染广告组级 truth-first 视图。"""
+    with st.expander("筛选条件", expanded=True):
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            action_filter = st.multiselect(
+                "动作类型",
+                options=["negative", "manual", "observe"],
+                default=[],
+                format_func=lambda x: {
+                    "negative": "建议否定",
+                    "manual": "建议手动投放",
+                    "observe": "继续观察",
+                }.get(x, x),
+                key="campaign_truth_action_filter",
+            )
+
+        with col2:
+            auto_action_filter = st.multiselect(
+                "自动处理",
+                options=["keep", "negate", "observe"],
+                default=[],
+                format_func=lambda x: AUTO_ACTION_DISPLAY.get(x, x),
+                key="campaign_truth_auto_action_filter",
+            )
+
+        with col3:
+            term_type_filter = st.multiselect(
+                "词类型",
+                options=["keyword", "asin"],
+                default=[],
+                format_func=lambda x: {
+                    "keyword": "关键词",
+                    "asin": "ASIN",
+                }.get(x, x),
+                key="campaign_truth_term_type_filter",
+            )
+
+        with col4:
+            search_term = st.text_input(
+                "搜索关键词",
+                placeholder="输入搜索...",
+                key="campaign_truth_search_term",
+            )
+
+    filtered_rows = rows
+
+    if action_filter:
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if _matches_campaign_action_filter(row.get("action_type"), action_filter)
+        ]
+
+    if auto_action_filter:
+        filtered_rows = [
+            row for row in filtered_rows if row.get("auto_action") in auto_action_filter
+        ]
+
+    if term_type_filter:
+        filtered_rows = [
+            row for row in filtered_rows if row.get("term_type") in term_type_filter
+        ]
+
+    if search_term:
+        search_lower = search_term.lower()
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if search_lower in str(row.get("term", "")).lower()
+            or search_lower in str(row.get("campaign_name", "")).lower()
+        ]
+
+    st.info("已检测到广告组 workbook truth，当前展示已切换为真相优先活动视图。")
+    st.subheader(f"按活动真相视图 ({len(filtered_rows)} 条)")
+
+    if not filtered_rows:
+        st.warning("筛选后无数据")
+        return
+
+    unique_terms = len({row["term"] for row in filtered_rows})
+    unique_campaigns = len({row["campaign_id"] for row in filtered_rows})
+    keep_count = len([row for row in filtered_rows if row.get("auto_action") == "keep"])
+    negate_count = len(
+        [row for row in filtered_rows if row.get("auto_action") == "negate"]
+    )
+    observe_count = len(
+        [row for row in filtered_rows if row.get("auto_action") == "observe"]
+    )
+
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    with col1:
+        st.metric("唯一搜索词", unique_terms)
+    with col2:
+        st.metric("涉及活动", unique_campaigns)
+    with col3:
+        st.metric("自动保留", keep_count)
+    with col4:
+        st.metric("自动否定", negate_count)
+    with col5:
+        st.metric("继续观察", observe_count)
+    with col6:
+        st.metric("已审核", f"{len(filtered_rows)}/{len(filtered_rows)}")
+
+    st.divider()
+
+    display_df = pd.DataFrame(filtered_rows)[
+        [
+            "term",
+            "campaign_name",
+            "term_type",
+            "triggered_rule",
+            "suggested_action",
+            "auto_action",
+            "clicks",
+            "orders",
+            "cvr",
+        ]
+    ].copy()
+    display_df.columns = [
+        "搜索词",
+        "广告活动",
+        "类型",
+        "触发规则",
+        "主动作",
+        "自动处理",
+        "点击",
+        "订单",
+        "CVR",
+    ]
+    display_df["自动处理"] = display_df["自动处理"].apply(
+        lambda value: AUTO_ACTION_DISPLAY.get(value, "-")
+    )
+    display_df["CVR"] = display_df["CVR"].apply(
+        lambda value: f"{value:.1%}" if pd.notna(value) and value > 0 else "-"
+    )
+    display_df["已审核"] = True
+
+    st.data_editor(
+        display_df,
+        width="stretch",
+        hide_index=True,
+        disabled=[
+            "已审核",
+            "搜索词",
+            "广告活动",
+            "类型",
+            "触发规则",
+            "主动作",
+            "自动处理",
+            "点击",
+            "订单",
+            "CVR",
+        ],
+        column_config={
+            "已审核": st.column_config.CheckboxColumn("已审核", width="small"),
+            "搜索词": st.column_config.TextColumn("搜索词", width="medium"),
+            "广告活动": st.column_config.TextColumn("广告活动", width="large"),
+            "类型": st.column_config.TextColumn("类型", width="small"),
+            "触发规则": st.column_config.TextColumn("触发规则", width="medium"),
+            "主动作": st.column_config.TextColumn("主动作", width="medium"),
+            "自动处理": st.column_config.TextColumn("自动处理", width="small"),
+            "点击": st.column_config.NumberColumn("点击", width="small"),
+            "订单": st.column_config.NumberColumn("订单", width="small"),
+            "CVR": st.column_config.TextColumn("CVR", width="small"),
+        },
+        column_order=[
+            "已审核",
+            "搜索词",
+            "广告活动",
+            "类型",
+            "触发规则",
+            "主动作",
+            "自动处理",
+            "点击",
+            "订单",
+            "CVR",
+        ],
+        key="campaign_truth_editor",
+    )
 
 
 def export_campaign_results(results: list[dict]):

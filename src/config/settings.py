@@ -12,10 +12,10 @@ from dotenv import load_dotenv
 # 可用的Gemini模型列表 (model_id, display_name)
 # 注意：Gemini 3 系列需要使用 -preview 后缀
 AVAILABLE_GEMINI_MODELS = [
-    ("gemini-2.5-flash", "Gemini 2.5 Flash (推荐)"),
+    ("gemini-2.5-flash", "Gemini 2.5 Flash"),
     ("gemini-2.5-pro", "Gemini 2.5 Pro"),
     ("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite"),
-    ("gemini-3-flash-preview", "Gemini 3 Flash Preview (最新)"),
+    ("gemini-3-flash-preview", "Gemini 3 Flash Preview (推荐/最新)"),
     ("gemini-3-pro-preview", "Gemini 3 Pro Preview (最新)"),
 ]
 
@@ -41,7 +41,7 @@ class Settings:
 
         # ==================== Gemini API 配置 ====================
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
-        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 
         # ==================== 数据库配置 ====================
         self.database_path = os.getenv("DATABASE_PATH", "data/db/app.db")

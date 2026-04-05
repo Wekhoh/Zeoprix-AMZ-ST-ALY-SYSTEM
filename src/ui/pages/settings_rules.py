@@ -18,6 +18,60 @@ from src.ui.utils import safe_error
 logger = get_logger(__name__)
 
 
+def _build_rule_settings_summary(
+    config: dict | None,
+    thresholds: dict | None,
+) -> dict[str, str | list[str]]:
+    """构建规则配置页的人话摘要。"""
+    config = config or {}
+    thresholds = thresholds or {}
+    stage_label = "新品期" if config.get("is_new_product", False) else "常规期"
+    analysis_clicks = int(thresholds.get("min_clicks_for_analysis", 20))
+    asin_clicks = int(thresholds.get("min_clicks_for_asin_neg", 6))
+    asin_spend = float(thresholds.get("high_spend_no_order", 20.0))
+    good_cvr = float(thresholds.get("good_cvr", 0.10))
+    return {
+        "title": "规则阈值配置",
+        "description": "先确定产品阶段和样本量门槛，再微调 CVR、否词、手动投放和竞品 ASIN 规则，避免把整页输入框当 Excel 填。",
+        "chips": [
+            f"当前阶段：{stage_label}",
+            f"可靠分析点击门槛 {analysis_clicks}",
+            f"ASIN 否定门槛 {asin_clicks} 点击 / ${asin_spend:.0f}",
+            f"好转化率 {good_cvr:.0%}",
+        ],
+    }
+
+
+def _build_rule_section_meta() -> list[dict[str, str]]:
+    """构建规则配置分区说明，帮助长表单更容易阅读。"""
+    return [
+        {
+            "title": "产品阶段",
+            "description": "先决定当前产品是新品期还是常规期，这会影响你接下来对样本量和利润阈值的理解方式。",
+        },
+        {
+            "title": "样本量阈值",
+            "description": "先把“多少点击才值得认真判断”定住，避免还没到样本量就提前否词或放词。",
+        },
+        {
+            "title": "转化率阈值 (CVR)",
+            "description": "这组阈值决定系统怎么看待“表现好”和“表现差”，建议按你当前产品阶段微调。",
+        },
+        {
+            "title": "否词规则",
+            "description": "这里只定义可直接触发否词的硬阈值，适合控制浪费，别把跨 ASIN 分歧也塞进来。",
+        },
+        {
+            "title": "手动投放规则",
+            "description": "这组参数决定哪些词已经值得升级到手动精准或商品定位，偏向放量动作。",
+        },
+        {
+            "title": "竞品ASIN规则",
+            "description": "这里只处理竞品 ASIN 的硬门槛，适合挡住明显不值得继续投放的对手。",
+        },
+    ]
+
+
 def reapply_rules_to_data(db, product_id: int) -> int:
     """重新应用规则到现有数据
 
@@ -93,8 +147,6 @@ def reapply_rules_to_data(db, product_id: int) -> int:
 
 def render_rule_settings(db, product_id: int):
     """渲染规则配置"""
-    st.write("### 规则阈值配置")
-
     if not product_id:
         st.warning("请先选择产品")
         return
@@ -103,183 +155,195 @@ def render_rule_settings(db, product_id: int):
     product = db.get_product(product_id)
     config = product.get("config", {}) if product else {}
     thresholds = config.get("thresholds", {})
+    summary = _build_rule_settings_summary(config, thresholds)
+    section_meta = {
+        item["title"]: item["description"] for item in _build_rule_section_meta()
+    }
+    st.write(f"### {summary['title']}")
+    st.caption(summary["description"])
+    chip_cols = st.columns(len(summary["chips"]))
+    for col, chip in zip(chip_cols, summary["chips"], strict=False):
+        with col:
+            st.info(chip)
 
     # 新品期设置
-    st.write("#### 产品阶段")
+    with st.container(border=True):
+        st.write("#### 产品阶段")
+        st.caption(section_meta["产品阶段"])
 
-    is_new_product = st.checkbox(
-        "新品期模式",
-        value=config.get("is_new_product", False),
-        help="新品期主要看样本量，不侧重ACOS",
-    )
+        is_new_product = st.checkbox(
+            "新品期模式",
+            value=config.get("is_new_product", False),
+            help="新品期主要看样本量，不侧重ACOS",
+        )
 
-    if is_new_product:
-        st.info("新品期模式：分析更注重点击样本量，ACOS阈值会放宽")
-
-    st.divider()
+        if is_new_product:
+            st.info("新品期模式：分析更注重点击样本量，ACOS阈值会放宽")
 
     # 样本量阈值（新增）
-    st.write("#### 样本量阈值")
+    with st.container(border=True):
+        st.write("#### 样本量阈值")
+        st.caption(section_meta["样本量阈值"])
 
-    col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-    with col1:
-        min_clicks_for_analysis = st.number_input(
-            "可靠分析最小点击数",
-            min_value=1,
-            max_value=100,
-            value=int(thresholds.get("min_clicks_for_analysis", 20)),
-            step=1,
-            help="点击数达到此值才进行可靠分析（建议20+）",
-        )
+        with col1:
+            min_clicks_for_analysis = st.number_input(
+                "可靠分析最小点击数",
+                min_value=1,
+                max_value=100,
+                value=int(thresholds.get("min_clicks_for_analysis", 20)),
+                step=1,
+                help="点击数达到此值才进行可靠分析（建议20+）",
+            )
 
-        min_clicks_for_asin_neg = st.number_input(
-            "ASIN否定最小点击数",
-            min_value=1,
-            max_value=50,
-            value=int(thresholds.get("min_clicks_for_asin_neg", 6)),
-            step=1,
-            help="ASIN点击数达到此值才考虑否定",
-        )
+            min_clicks_for_asin_neg = st.number_input(
+                "ASIN否定最小点击数",
+                min_value=1,
+                max_value=50,
+                value=int(thresholds.get("min_clicks_for_asin_neg", 6)),
+                step=1,
+                help="ASIN点击数达到此值才考虑否定",
+            )
 
-    with col2:
-        high_spend_no_order = st.number_input(
-            "高花费无订单阈值 ($)",
-            min_value=0.0,
-            max_value=200.0,
-            value=float(thresholds.get("high_spend_no_order", 20.0)),
-            step=1.0,
-            help="ASIN花费超过此值且零订单则否定",
-        )
-
-    st.divider()
+        with col2:
+            high_spend_no_order = st.number_input(
+                "高花费无订单阈值 ($)",
+                min_value=0.0,
+                max_value=200.0,
+                value=float(thresholds.get("high_spend_no_order", 20.0)),
+                step=1.0,
+                help="ASIN花费超过此值且零订单则否定",
+            )
 
     # 转化率阈值（新增）
-    st.write("#### 转化率阈值 (CVR)")
+    with st.container(border=True):
+        st.write("#### 转化率阈值 (CVR)")
+        st.caption(section_meta["转化率阈值 (CVR)"])
 
-    col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-    with col1:
-        good_cvr = st.number_input(
-            "好转化率 (CVR)",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(thresholds.get("good_cvr", 0.10)),
-            step=0.01,
-            format="%.2f",
-            help="CVR高于此值视为表现好（建议10%）",
-        )
+        with col1:
+            good_cvr = st.number_input(
+                "好转化率 (CVR)",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(thresholds.get("good_cvr", 0.10)),
+                step=0.01,
+                format="%.2f",
+                help="CVR高于此值视为表现好（建议10%）",
+            )
 
-    with col2:
-        bad_cvr = st.number_input(
-            "差转化率 (CVR)",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(thresholds.get("bad_cvr", 0.05)),
-            step=0.01,
-            format="%.2f",
-            help="CVR低于此值视为表现差（建议5%）",
-        )
-
-    st.divider()
+        with col2:
+            bad_cvr = st.number_input(
+                "差转化率 (CVR)",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(thresholds.get("bad_cvr", 0.05)),
+                step=0.01,
+                format="%.2f",
+                help="CVR低于此值视为表现差（建议5%）",
+            )
 
     # 否词规则（原有）
-    st.write("#### 否词规则")
+    with st.container(border=True):
+        st.write("#### 否词规则")
+        st.caption(section_meta["否词规则"])
 
-    col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-    with col1:
-        high_spend_threshold = st.number_input(
-            "关键词高花费阈值 ($)",
-            min_value=0.0,
-            max_value=1000.0,
-            value=float(config.get("high_spend_threshold", 10.0)),
-            step=1.0,
-            help="关键词花费超过此值且零转化则建议否定",
-        )
+        with col1:
+            high_spend_threshold = st.number_input(
+                "关键词高花费阈值 ($)",
+                min_value=0.0,
+                max_value=1000.0,
+                value=float(config.get("high_spend_threshold", 10.0)),
+                step=1.0,
+                help="关键词花费超过此值且零转化则建议否定",
+            )
 
-        low_ctr_threshold = st.number_input(
-            "低点击率阈值",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(config.get("low_ctr_threshold", 0.001)),
-            step=0.001,
-            format="%.3f",
-            help="点击率低于此值建议否定",
-        )
+            low_ctr_threshold = st.number_input(
+                "低点击率阈值",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(config.get("low_ctr_threshold", 0.001)),
+                step=0.001,
+                format="%.3f",
+                help="点击率低于此值建议否定",
+            )
 
-    with col2:
-        min_clicks_threshold = st.number_input(
-            "最小点击数（统计有效性）",
-            min_value=1,
-            max_value=100,
-            value=int(config.get("min_clicks_threshold", 10)),
-            step=1,
-            help="点击数需达到此值才进行分析",
-        )
+        with col2:
+            min_clicks_threshold = st.number_input(
+                "最小点击数（统计有效性）",
+                min_value=1,
+                max_value=100,
+                value=int(config.get("min_clicks_threshold", 10)),
+                step=1,
+                help="点击数需达到此值才进行分析",
+            )
 
-        high_acos_threshold = st.number_input(
-            "高ACOS阈值",
-            min_value=0.0,
-            max_value=5.0,
-            value=float(config.get("high_acos_threshold", 0.5)),
-            step=0.05,
-            format="%.2f",
-            help="ACOS超过此值建议否定或降低出价",
-        )
-
-    st.divider()
+            high_acos_threshold = st.number_input(
+                "高ACOS阈值",
+                min_value=0.0,
+                max_value=5.0,
+                value=float(config.get("high_acos_threshold", 0.5)),
+                step=0.05,
+                format="%.2f",
+                help="ACOS超过此值建议否定或降低出价",
+            )
 
     # 手动投放规则
-    st.write("#### 手动投放规则")
+    with st.container(border=True):
+        st.write("#### 手动投放规则")
+        st.caption(section_meta["手动投放规则"])
 
-    col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-    with col1:
-        min_orders_for_manual = st.number_input(
-            "最小订单数",
-            min_value=1,
-            max_value=50,
-            value=int(config.get("min_orders_for_manual", 2)),
-            step=1,
-            help="订单数达到此值才建议手动投放",
-        )
+        with col1:
+            min_orders_for_manual = st.number_input(
+                "最小订单数",
+                min_value=1,
+                max_value=50,
+                value=int(config.get("min_orders_for_manual", 2)),
+                step=1,
+                help="订单数达到此值才建议手动投放",
+            )
 
-        target_acos = st.number_input(
-            "目标ACOS",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(config.get("target_acos", 0.25)),
-            step=0.05,
-            format="%.2f",
-            help="低于此ACOS值视为表现良好",
-        )
+            target_acos = st.number_input(
+                "目标ACOS",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(config.get("target_acos", 0.25)),
+                step=0.05,
+                format="%.2f",
+                help="低于此ACOS值视为表现良好",
+            )
 
-    with col2:
-        min_conversion_rate = st.number_input(
-            "最小转化率",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(config.get("min_conversion_rate", 0.05)),
-            step=0.01,
-            format="%.2f",
-            help="转化率需达到此值才建议手动投放",
-        )
-
-    st.divider()
+        with col2:
+            min_conversion_rate = st.number_input(
+                "最小转化率",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(config.get("min_conversion_rate", 0.05)),
+                step=0.01,
+                format="%.2f",
+                help="转化率需达到此值才建议手动投放",
+            )
 
     # 竞品规则
-    st.write("#### 竞品ASIN规则")
+    with st.container(border=True):
+        st.write("#### 竞品ASIN规则")
+        st.caption(section_meta["竞品ASIN规则"])
 
-    competitor_high_acos = st.number_input(
-        "竞品高ACOS阈值",
-        min_value=0.0,
-        max_value=5.0,
-        value=float(config.get("competitor_high_acos", 0.4)),
-        step=0.05,
-        format="%.2f",
-        help="竞品ASIN的ACOS超过此值建议停止投放",
-    )
+        competitor_high_acos = st.number_input(
+            "竞品高ACOS阈值",
+            min_value=0.0,
+            max_value=5.0,
+            value=float(config.get("competitor_high_acos", 0.4)),
+            step=0.05,
+            format="%.2f",
+            help="竞品ASIN的ACOS超过此值建议停止投放",
+        )
 
     st.divider()
 
@@ -343,6 +407,7 @@ def render_rule_settings(db, product_id: int):
 def render_rule_management(db, product_id: int):
     """渲染规则管理界面 - 支持增删改查自定义规则"""
     st.write("### 规则管理")
+    st.caption("这里处理的是规则本身：优先级、启用状态和重新应用。要改阈值，请回到“规则配置”；要改词库，请去“关键词库”。")
 
     st.info("""
     **规则说明**

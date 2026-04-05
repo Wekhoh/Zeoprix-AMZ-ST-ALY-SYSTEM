@@ -8,6 +8,7 @@ from enum import Enum
 
 from src.ai.client import GeminiClient
 from src.config.logger import get_logger
+from src.data.models import ActionType
 from src.data.db import Database
 from src.rules.engine import analyze_search_terms
 
@@ -235,7 +236,7 @@ class ChatAssistant:
         """获取需否定的关键词数据（使用实时分析）"""
         # 使用实时分析结果（与搜索词分析页面保持一致）
         analysis_results = analyze_search_terms(self.db, self.product_id)
-        negative_results = [r for r in analysis_results if r.action_type == "negative"]
+        negative_results = [r for r in analysis_results if ActionType.is_negative(r.action_type)]
 
         if not negative_results:
             return "当前没有需要否定的关键词。"
@@ -254,7 +255,7 @@ class ChatAssistant:
         """获取高转化关键词数据（使用实时分析）"""
         # 使用实时分析结果（与搜索词分析页面保持一致）
         analysis_results = analyze_search_terms(self.db, self.product_id)
-        manual_results = [r for r in analysis_results if r.action_type == "manual"]
+        manual_results = [r for r in analysis_results if ActionType.is_manual(r.action_type)]
 
         if not manual_results:
             return "当前没有识别到高转化关键词。"

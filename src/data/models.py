@@ -75,6 +75,36 @@ class ActionType:
     CONTINUE_OBSERVE = "continue_observe"  # 继续观察（样本不足）
     EVALUATE = "evaluate"  # 评估（需要人工判断）
 
+    @classmethod
+    def is_negative(cls, value: str | None) -> bool:
+        """Return whether an action includes a negative component."""
+        return value in {
+            "negative",
+            cls.NEGATIVE_EXACT,
+            cls.NEGATIVE_PHRASE,
+            cls.MANUAL_EXACT_WITH_NEG,
+            cls.MANUAL_PRODUCT_WITH_NEG,
+        }
+
+    @classmethod
+    def is_manual(cls, value: str | None) -> bool:
+        """Return whether an action includes a manual targeting component."""
+        return value in {
+            "manual",
+            cls.MANUAL_EXACT,
+            cls.MANUAL_PRODUCT,
+            cls.MANUAL_EXACT_NO_NEG,
+            cls.MANUAL_EXACT_WITH_NEG,
+            cls.MANUAL_PRODUCT_NO_NEG,
+            cls.MANUAL_PRODUCT_WITH_NEG,
+        }
+
+    @classmethod
+    def is_observe(cls, value: str | None) -> bool:
+        """Return whether an action is an observe-style action."""
+        return value in {cls.OBSERVE, cls.CONTINUE_OBSERVE}
+
+
 
 # ==================== 产品配置结构说明 ====================
 # 产品的config字段应包含以下结构:
@@ -123,6 +153,33 @@ CREATE TABLE IF NOT EXISTS products (
     config JSON DEFAULT '{}',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# 用户表（多人协作骨架）
+USERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    display_name TEXT,
+    status TEXT DEFAULT 'active',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# 产品工作区成员关系表（当前以 products 作为工作区）
+WORKSPACE_MEMBERSHIPS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS workspace_memberships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(product_id, user_id),
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 """
 
@@ -191,6 +248,22 @@ CREATE TABLE IF NOT EXISTS rule_versions (
 );
 """
 
+# 可复用策略组合表
+STRATEGY_PROFILES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS strategy_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    lifecycle TEXT,
+    goal TEXT,
+    config_snapshot JSON NOT NULL,
+    notes TEXT,
+    source_product_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (source_product_id) REFERENCES products(id) ON DELETE SET NULL
+);
+"""
+
 # 分析结果表
 ANALYSIS_RESULTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS analysis_results (
@@ -230,6 +303,7 @@ CREATE TABLE IF NOT EXISTS manual_reviews (
     term TEXT NOT NULL,
     term_type TEXT DEFAULT 'keyword',  -- keyword | asin
     campaign_id INTEGER,  -- NULL = 全局, 有值 = 仅该活动
+    asin_identifier TEXT,  -- NULL = 不区分ASIN汇总, 有值 = BLK/DBL级 truth
 
     -- ==================== 相关性人工审核字段 ====================
     -- 相关性标记（人工判断）
@@ -249,6 +323,17 @@ CREATE TABLE IF NOT EXISTS manual_reviews (
     ai_suggestion TEXT,  -- AI建议的相关性
     ai_confidence REAL,  -- AI置信度 (0.0-1.0)
 
+    -- 已审核真相回放/导入字段
+    review_source TEXT,  -- upload_pending | campaign_truth | aggregate_truth | ui_review
+    truth_action_type TEXT,  -- 规范化动作类型，用于回放
+    manual_action TEXT,  -- workbook中的手动动作
+    auto_action TEXT,  -- workbook中的自动动作
+    negate_keyword TEXT,  -- workbook中的否定关键词
+    negate_asin TEXT,  -- workbook中的否定ASIN
+    action_matrix TEXT,  -- 广告组动作矩阵
+    conflict_flag INTEGER DEFAULT 0,  -- 是否存在活动冲突
+    evidence_payload TEXT,  -- JSON结构化证据
+
     -- ==================== 原有字段 ====================
     system_action TEXT,  -- 系统建议
     final_action TEXT,   -- 用户最终决定
@@ -266,10 +351,13 @@ CREATE TABLE IF NOT EXISTS manual_reviews (
 # 所有表Schema的有序列表（按依赖顺序）
 ALL_SCHEMAS = [
     ("products", PRODUCTS_SCHEMA),
+    ("users", USERS_SCHEMA),
+    ("workspace_memberships", WORKSPACE_MEMBERSHIPS_SCHEMA),
     ("campaigns", CAMPAIGNS_SCHEMA),
     ("search_terms", SEARCH_TERMS_SCHEMA),
     ("rules", RULES_SCHEMA),
     ("rule_versions", RULE_VERSIONS_SCHEMA),
+    ("strategy_profiles", STRATEGY_PROFILES_SCHEMA),
     ("analysis_results", ANALYSIS_RESULTS_SCHEMA),
     ("action_plans", ACTION_PLANS_SCHEMA),
     ("manual_reviews", MANUAL_REVIEWS_SCHEMA),
@@ -277,17 +365,22 @@ ALL_SCHEMAS = [
 
 # 创建索引以提升查询性能
 INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);",
+    "CREATE INDEX IF NOT EXISTS idx_workspace_memberships_product_id ON workspace_memberships(product_id);",
+    "CREATE INDEX IF NOT EXISTS idx_workspace_memberships_user_id ON workspace_memberships(user_id);",
     "CREATE INDEX IF NOT EXISTS idx_campaigns_product_id ON campaigns(product_id);",
     "CREATE INDEX IF NOT EXISTS idx_search_terms_campaign_id ON search_terms(campaign_id);",
     "CREATE INDEX IF NOT EXISTS idx_search_terms_term ON search_terms(term);",
     "CREATE INDEX IF NOT EXISTS idx_rules_product_id ON rules(product_id);",
     "CREATE INDEX IF NOT EXISTS idx_analysis_results_search_term_id ON analysis_results(search_term_id);",
     "CREATE INDEX IF NOT EXISTS idx_manual_reviews_product_term ON manual_reviews(product_id, term);",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_reviews_unique ON manual_reviews(product_id, term, COALESCE(campaign_id, 0));",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_reviews_unique ON manual_reviews(product_id, term, COALESCE(campaign_id, 0), COALESCE(asin_identifier, ''));",
     # v2.0: 相关性人工审核索引
     "CREATE INDEX IF NOT EXISTS idx_manual_reviews_relevance ON manual_reviews(product_id, relevance);",
     "CREATE INDEX IF NOT EXISTS idx_manual_reviews_scope ON manual_reviews(product_id, scope);",
     "CREATE INDEX IF NOT EXISTS idx_manual_reviews_reviewed ON manual_reviews(product_id, reviewed);",
+    "CREATE INDEX IF NOT EXISTS idx_manual_reviews_truth_action ON manual_reviews(product_id, truth_action_type);",
+    "CREATE INDEX IF NOT EXISTS idx_strategy_profiles_name ON strategy_profiles(name);",
 ]
 
 # 默认规则配置（系统初始化时插入）

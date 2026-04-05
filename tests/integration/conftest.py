@@ -3,20 +3,71 @@
 提供内存数据库、测试数据等共用资源
 """
 
-import tempfile
+import os
+import shutil
+import uuid
 from pathlib import Path
 
 import pandas as pd
 import pytest
+from _pytest import pathlib as pytest_pathlib
+from _pytest import tmpdir as pytest_tmpdir
 
 from src.data.db import Database
+
+
+TEST_TEMP_ROOT = Path.home() / ".codex" / "memories" / "amz_pytest_tmp"
+TEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+
+PYTEST_DEBUG_ROOT = TEST_TEMP_ROOT / f"pytest_root_{uuid.uuid4().hex}"
+PYTEST_DEBUG_ROOT.mkdir(parents=True, exist_ok=True)
+os.environ["PYTEST_DEBUG_TEMPROOT"] = str(PYTEST_DEBUG_ROOT)
+
+_ORIGINAL_CLEANUP_DEAD_SYMLINKS = pytest_pathlib.cleanup_dead_symlinks
+_ORIGINAL_FIND_PREFIXED = pytest_pathlib.find_prefixed
+_ORIGINAL_GETBASETEMP = pytest_tmpdir.TempPathFactory.getbasetemp
+
+
+def _safe_cleanup_dead_symlinks(root: Path) -> None:
+    """忽略当前 Windows 沙箱下 basetemp 目录的误报权限异常。"""
+    try:
+        _ORIGINAL_CLEANUP_DEAD_SYMLINKS(root)
+    except PermissionError:
+        return
+
+
+def _safe_find_prefixed(root: Path, prefix: str):
+    """在 OneDrive/沙箱目录被占用时，允许 pytest 回退为创建新的编号目录。"""
+    try:
+        yield from _ORIGINAL_FIND_PREFIXED(root, prefix)
+    except PermissionError:
+        return
+
+
+def _safe_getbasetemp(self):
+    """跳过 pytest 默认的 numbered dir 流程，避免 Windows/OneDrive 下的 basetemp 权限异常。"""
+    if self._basetemp is None and self._given_basetemp is None:
+        basetemp = TEST_TEMP_ROOT / f"basetemp_{uuid.uuid4().hex}"
+        basetemp.mkdir(parents=True, exist_ok=False)
+        self._basetemp = basetemp.resolve()
+    return _ORIGINAL_GETBASETEMP(self)
+
+
+pytest_pathlib.cleanup_dead_symlinks = _safe_cleanup_dead_symlinks
+pytest_tmpdir.cleanup_dead_symlinks = _safe_cleanup_dead_symlinks
+pytest_pathlib.find_prefixed = _safe_find_prefixed
+pytest_tmpdir.TempPathFactory.getbasetemp = _safe_getbasetemp
 
 
 @pytest.fixture
 def temp_db_path():
     """创建临时数据库文件路径"""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield str(Path(tmpdir) / "test.db")
+    tmpdir = TEST_TEMP_ROOT / f"db_{uuid.uuid4().hex}"
+    tmpdir.mkdir(parents=True, exist_ok=False)
+    try:
+        yield str(tmpdir / "test.db")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 @pytest.fixture
