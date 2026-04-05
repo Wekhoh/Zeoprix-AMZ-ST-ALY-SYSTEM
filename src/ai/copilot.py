@@ -38,6 +38,7 @@ class AIResponseEnvelope:
     confidence: str = "medium"
     recommended_next_actions: list[str] = field(default_factory=list)
     follow_up_prompts: list[str] = field(default_factory=list)
+    draft_payload: dict[str, str] = field(default_factory=dict)
     warning: str | None = None
     context_label: str = ""
     raw_message: str = ""
@@ -152,6 +153,15 @@ def _default_next_actions(page_key: str) -> list[str]:
     return mapping.get(page_key, ["继续追问具体问题", "切到相关页面继续处理"])
 
 
+def build_ai_context_badges(context_pack: AIContextPack) -> list[str]:
+    """把统一上下文整理成轻量徽标，供侧边栏与页面卡片共享。"""
+    source_label = "最近一次分析结果" if context_pack.context_source == "latest_snapshot" else "仅产品基础信息"
+    badges = [context_pack.page_title, source_label]
+    if context_pack.snapshot_created_at:
+        badges.append(f"快照：{str(context_pack.snapshot_created_at)[:16]}")
+    return [badge for badge in badges if str(badge).strip()]
+
+
 def build_chat_response_envelope(
     response: ChatResponse,
     context_pack: AIContextPack,
@@ -171,6 +181,7 @@ def build_chat_response_envelope(
         confidence=confidence,
         recommended_next_actions=_default_next_actions(context_pack.page_key),
         follow_up_prompts=[option.label.strip() for option in response.options if option.label.strip()],
+        draft_payload={},
         warning=warning,
         context_label=context_pack.context_label,
         raw_message=response.message,
@@ -249,12 +260,48 @@ def build_actions_ai_brief(action_context: dict[str, Any]) -> dict[str, Any]:
         if items:
             evidence.append(items[0])
 
+    top_negative = (
+        buckets.get("negative_keyword_exact")
+        or buckets.get("negative_keyword_phrase")
+        or buckets.get("negative_asin")
+        or [None]
+    )[0]
+    top_manual = (
+        buckets.get("manual_keywords")
+        or buckets.get("manual_products")
+        or [None]
+    )[0]
+    conflict_items = buckets.get("cross_asin_conflicts") or []
+    top_negative_note = ""
+    if isinstance(top_negative, dict) and top_negative.get("term"):
+        top_negative_note = (
+            f" 当前最优先的止损词是 {top_negative.get('term')}，已累计花费 ${float(top_negative.get('spend') or 0):.2f}。"
+        )
+    top_manual_note = ""
+    if isinstance(top_manual, dict) and top_manual.get("term"):
+        top_manual_note = f" 当前最值得补量的词是 {top_manual.get('term')}。"
+    draft_payload = {
+        "boss_summary": (
+            f"{product_name} 当前已整理出 {int(counts.get('negative', 0) or 0)} 个可直接否定项和 "
+            f"{int(counts.get('manual', 0) or 0)} 个手动投放机会，建议本轮先止损再补量，"
+            f"并对 {int(counts.get('conflict', 0) or 0)} 个分歧词保留人工复核。"
+        ),
+        "execution_note": (
+            "先执行否词清单，再处理手动投放机会，最后回到审核页确认分歧词。"
+            f"{top_negative_note}{top_manual_note}"
+        ).strip(),
+        "handoff_note": (
+            f"本轮保留 {len(conflict_items)} 个冲突词给人工最终拍板，避免把边界词直接推到广告后台。"
+        ),
+    }
+
     return {
         "headline": headline,
         "bullets": bullets,
         "evidence": evidence[:3],
         "recommended_next_actions": _default_next_actions("actions"),
         "follow_up_prompts": ["先执行哪些动作？", "给我老板汇报摘要", "哪些词还需要人工判断？"],
+        "draft_payload": draft_payload,
         "context_label": context_label,
         "warning": None,
     }

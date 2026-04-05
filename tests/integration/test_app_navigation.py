@@ -22,6 +22,7 @@ from src.ai.chat import ChatResponse, GuidedOption
 from src.ai.copilot import (
     build_actions_ai_brief,
     build_asin_ai_brief,
+    build_ai_context_badges,
     build_ai_context_pack,
     build_campaign_ai_brief,
     build_chat_response_envelope,
@@ -301,6 +302,44 @@ def test_build_actions_ai_brief_uses_action_context_counts():
     assert "桌面验收产品" in brief["headline"]
     assert any("4" in item for item in brief["bullets"])
     assert brief["recommended_next_actions"]
+    assert "boss_summary" in brief["draft_payload"]
+    assert "执行" in brief["draft_payload"]["execution_note"]
+
+
+def test_build_ai_context_badges_include_page_source_and_snapshot_time(db, product_id):
+    """上下文徽标应体现页面、来源与快照时间，供成熟 Copilot 统一显示。"""
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={"negative": 1, "manual": 0, "conflict": 0},
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "clicks": 12,
+                "orders": 0,
+                "spend": 24.0,
+                "sales": 0.0,
+            }
+        ],
+    )
+
+    context_pack = build_ai_context_pack(
+        db,
+        product_id,
+        page_key="actions",
+        page_title="操作清单",
+    )
+
+    badges = build_ai_context_badges(context_pack)
+
+    assert badges[0] == "操作清单"
+    assert "最近一次分析结果" in badges[1]
+    assert any("快照：" in badge for badge in badges)
 
 
 def test_build_upload_ai_brief_guides_next_steps_after_successful_import_analysis():
@@ -469,6 +508,8 @@ def test_normalize_ai_chat_message_preserves_structured_fields():
             "recommended_next_actions": ["先否定 travel pillow"],
             "follow_up_prompts": ["解释为什么"],
             "context_label": "当前产品：桌面验收产品 · 上下文：最近一次分析结果",
+            "context_badges": ["汇总分析", "最近一次分析结果"],
+            "draft_payload": {"boss_summary": "先止损再补量"},
         }
     )
 
@@ -478,6 +519,8 @@ def test_normalize_ai_chat_message_preserves_structured_fields():
     assert normalized["recommended_next_actions"] == ["先否定 travel pillow"]
     assert normalized["follow_up_prompts"] == ["解释为什么"]
     assert "最近一次分析结果" in normalized["context_label"]
+    assert normalized["context_badges"] == ["汇总分析", "最近一次分析结果"]
+    assert normalized["draft_payload"]["boss_summary"] == "先止损再补量"
 
 
 def test_queue_ai_message_sets_pending_generation_state():

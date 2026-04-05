@@ -1379,6 +1379,26 @@ def _render_ai_brief_card(
         for item in next_actions:
             st.markdown(f"- {item}")
 
+    draft_payload = {
+        str(key).strip(): str(value).strip()
+        for key, value in (brief.get("draft_payload") or {}).items()
+        if str(key).strip() and str(value).strip()
+    }
+    if draft_payload:
+        st.markdown("**执行草稿**")
+        draft_labels = {
+            "boss_summary": "老板汇报摘要",
+            "execution_note": "执行备注",
+            "handoff_note": "交接提醒",
+        }
+        for draft_key, draft_value in draft_payload.items():
+            st.text_area(
+                draft_labels.get(draft_key, draft_key.replace("_", " ").title()),
+                value=draft_value,
+                height=96,
+                key=f"{key_prefix}_draft_{draft_key}",
+            )
+
     prompts = [str(item).strip() for item in brief.get("follow_up_prompts") or [] if str(item).strip()]
     if prompts:
         st.markdown("**继续追问**")

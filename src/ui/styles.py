@@ -2031,6 +2031,25 @@ div[data-testid="stPopoverBody"] .stButton > button {
     border: 1px solid rgba(255, 255, 255, 0.22);
 }
 
+.ai-chat-context-badges {
+    margin-top: 0.55rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.ai-chat-context-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.22rem 0.56rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
 .ai-chat-empty-state {
     padding: 0.55rem 0.2rem 0.15rem;
 }

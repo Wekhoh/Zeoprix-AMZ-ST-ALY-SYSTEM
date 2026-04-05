@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 
 from src.ai.copilot import (
+    build_ai_context_badges,
     build_ai_context_pack,
     build_chat_response_envelope,
     format_ai_context_hint,
@@ -44,6 +45,69 @@ AI_CHAT_QUICK_PROMPTS = [
     ("推荐手动投放的关键词", "有哪些词值得手动投放"),
     ("优化广告投放建议", "给我一些广告优化建议"),
 ]
+
+AI_CHAT_CONTEXT_PROMPTS: dict[str, list[tuple[str, str]]] = {
+    "summary": [
+        (
+            "解释 ACOS 为什么高",
+            "请基于当前汇总分析结果，解释为什么 ACOS 偏高，并给我 3 条最优先动作。",
+        ),
+        (
+            "哪些词最浪费",
+            "请根据最近一次分析结果，告诉我当前最浪费预算的词，并按优先级列出。",
+        ),
+    ],
+    "actions": [
+        (
+            "生成老板汇报摘要",
+            "请基于当前操作清单，给我一段老板能快速看懂的汇报摘要。",
+        ),
+        (
+            "整理执行备注",
+            "请基于当前操作清单，生成一段给执行同事的操作备注。",
+        ),
+    ],
+    "review": [
+        (
+            "解释这条词为什么这样判",
+            "请结合当前审核上下文，解释这条词为什么应该这样判断，并告诉我最稳妥的下一步。",
+        ),
+        (
+            "给我更保守建议",
+            "请结合当前审核上下文，给我一个更保守的处理建议，并说明风险。",
+        ),
+    ],
+    "campaign": [
+        (
+            "解释最差活动",
+            "请基于当前活动分析结果，解释当前最差的活动为什么表现差。",
+        ),
+        (
+            "哪些活动值得补量",
+            "请基于当前活动分析结果，告诉我哪些活动更值得继续补量。",
+        ),
+    ],
+    "asin": [
+        (
+            "找出最弱 ASIN",
+            "请基于当前 ASIN 分析结果，找出最拖后腿的 ASIN，并解释原因。",
+        ),
+        (
+            "判断是词问题还是页面问题",
+            "请基于当前 ASIN 分析结果，帮我判断当前问题更像词意图不准还是页面承接不足。",
+        ),
+    ],
+    "upload": [
+        (
+            "判断这批数据够不够分析",
+            "请结合当前上传批次，告诉我这批数据是否已经足够支持规则分析。",
+        ),
+        (
+            "导入后下一步做什么",
+            "请结合当前上传批次和分析状态，告诉我导入后最合理的下一步。",
+        ),
+    ],
+}
 
 # 页面配置
 st.set_page_config(
@@ -698,6 +762,8 @@ def _normalize_ai_chat_message(message: dict) -> dict:
         "recommended_next_actions",
         "follow_up_prompts",
         "context_label",
+        "context_badges",
+        "draft_payload",
         "warning",
         "confidence",
     ):
@@ -720,6 +786,8 @@ def _append_ai_chat_message(
     recommended_next_actions: list[str] | None = None,
     follow_up_prompts: list[str] | None = None,
     context_label: str | None = None,
+    context_badges: list[str] | None = None,
+    draft_payload: dict[str, str] | None = None,
     warning: str | None = None,
     confidence: str | None = None,
 ):
@@ -737,6 +805,8 @@ def _append_ai_chat_message(
             "recommended_next_actions": recommended_next_actions,
             "follow_up_prompts": follow_up_prompts,
             "context_label": context_label,
+            "context_badges": context_badges,
+            "draft_payload": draft_payload,
             "warning": warning,
             "confidence": confidence,
         }
@@ -942,6 +1012,8 @@ def _drain_pending_ai_message() -> bool:
             recommended_next_actions=envelope.recommended_next_actions,
             follow_up_prompts=envelope.follow_up_prompts,
             context_label=envelope.context_label,
+            context_badges=build_ai_context_badges(context_pack),
+            draft_payload=envelope.draft_payload,
             warning=envelope.warning,
             confidence=envelope.confidence,
         )
@@ -984,6 +1056,29 @@ def _render_ai_follow_up_prompts(
                     st.rerun()
 
 
+def _render_ai_draft_payload(draft_payload: dict[str, str], *, key_prefix: str) -> None:
+    """把 AI 生成的草稿以便于复制的文本块展示出来。"""
+    if not draft_payload:
+        return
+
+    labels = {
+        "boss_summary": "老板汇报摘要",
+        "execution_note": "执行备注",
+        "handoff_note": "交接提醒",
+    }
+    st.markdown("**执行草稿**")
+    for index, (payload_key, raw_value) in enumerate(draft_payload.items()):
+        value = str(raw_value or "").strip()
+        if not value:
+            continue
+        st.text_area(
+            labels.get(payload_key, payload_key.replace("_", " ").title()),
+            value=value,
+            height=96,
+            key=f"{key_prefix}-draft-{payload_key}-{index}",
+        )
+
+
 def _render_ai_chat_message(
     message: dict,
     *,
@@ -1006,15 +1101,30 @@ def _render_ai_chat_message(
             )
         else:
             context_label = str(message.get("context_label") or "").strip()
+            context_badges = [
+                str(item).strip()
+                for item in message.get("context_badges") or []
+                if str(item).strip()
+            ]
             if context_label:
                 st.markdown(
                     f'<div class="ai-chat-context-pill">{escape(context_label)}</div>',
+                    unsafe_allow_html=True,
+                )
+            if context_badges:
+                badge_html = "".join(
+                    f'<span class="ai-chat-context-badge">{escape(badge)}</span>'
+                    for badge in context_badges
+                )
+                st.markdown(
+                    f'<div class="ai-chat-context-badges">{badge_html}</div>',
                     unsafe_allow_html=True,
                 )
             headline = str(message.get("headline") or "").strip()
             bullets = message.get("bullets") or []
             evidence = message.get("evidence") or []
             next_actions = message.get("recommended_next_actions") or []
+            draft_payload = message.get("draft_payload") or {}
             warning = str(message.get("warning") or "").strip()
 
             if headline or bullets or evidence or next_actions or warning:
@@ -1046,6 +1156,11 @@ def _render_ai_chat_message(
                     st.markdown("**建议动作**")
                     for action in next_actions:
                         st.markdown(f"- {action}")
+                if draft_payload:
+                    _render_ai_draft_payload(
+                        draft_payload,
+                        key_prefix=f"{surface_key}-message-{message_index}",
+                    )
                 if warning:
                     st.warning(warning)
                 _render_ai_follow_up_prompts(
@@ -1063,8 +1178,9 @@ def _render_ai_chat_message(
 
 def _render_ai_quick_prompts(*, key_prefix: str, disabled: bool):
     """渲染快捷提问按钮。"""
+    prompts = _get_contextual_quick_prompts()
     st.markdown('<div class="ai-chat-quick-grid">', unsafe_allow_html=True)
-    for idx, (label, prompt) in enumerate(AI_CHAT_QUICK_PROMPTS):
+    for idx, (label, prompt) in enumerate(prompts):
         if st.button(
             label,
             key=f"{key_prefix}-quick-{idx}",
@@ -1074,6 +1190,15 @@ def _render_ai_quick_prompts(*, key_prefix: str, disabled: bool):
             if _queue_ai_message(prompt):
                 st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _get_contextual_quick_prompts() -> list[tuple[str, str]]:
+    """根据当前页面返回更自然的推荐提问。"""
+    page_key, _ = _get_ai_page_descriptor()
+    contextual = AI_CHAT_CONTEXT_PROMPTS.get(page_key) or []
+    if not contextual:
+        return AI_CHAT_QUICK_PROMPTS
+    return contextual + AI_CHAT_QUICK_PROMPTS[:2]
 
 
 def _render_ai_chat_shell(
@@ -1091,6 +1216,11 @@ def _render_ai_chat_shell(
     )
 
     context_pack = _get_ai_context_pack()
+    context_badges = build_ai_context_badges(context_pack)
+    badge_html = "".join(
+        f'<span class="ai-chat-context-badge">{escape(badge)}</span>'
+        for badge in context_badges
+    )
     st.markdown(
         f"""
         <div class="ai-chat-shell">
@@ -1098,6 +1228,7 @@ def _render_ai_chat_shell(
                 <div class="ai-chat-header-title">{escape(title)}</div>
                 <div class="ai-chat-header-subtitle">{escape(subtitle)}</div>
                 <div class="ai-chat-context-row">{escape(context_pack.context_label)}</div>
+                <div class="ai-chat-context-badges">{badge_html}</div>
             </div>
         </div>
         """,
