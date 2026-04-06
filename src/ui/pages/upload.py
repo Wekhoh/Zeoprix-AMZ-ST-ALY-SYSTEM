@@ -262,6 +262,53 @@ def _render_analysis_run_feedback(state: dict[str, object]) -> None:
         st.warning(message)
 
 
+def _render_upload_ai_brief_section(
+    *,
+    current_product_id: int | None,
+    current_product_name: str,
+    parsed_files_count: int,
+    total_terms: int,
+    total_spend: float,
+    total_clicks: int,
+    total_orders: int,
+) -> None:
+    """在上传页统一渲染 AI 导入摘要，保证无文件状态也有页面内嵌 AI。"""
+    upload_ai_brief_state = st.session_state.get(UPLOAD_AI_BRIEF_STATE_KEY)
+    if (
+        not isinstance(upload_ai_brief_state, dict)
+        or int(upload_ai_brief_state.get("product_id") or 0)
+        != int(current_product_id or 0)
+    ):
+        upload_ai_brief_state = {}
+
+    analysis_state_for_brief = upload_ai_brief_state.get("analysis_state")
+    parsed_meta = upload_ai_brief_state.get("parsed_meta") or {}
+    parsed_files_count_for_brief = int(
+        parsed_meta.get("parsed_files_count") or parsed_files_count
+    )
+    total_terms_for_brief = int(parsed_meta.get("total_terms") or total_terms)
+    total_spend_for_brief = float(parsed_meta.get("total_spend") or total_spend)
+    total_clicks_for_brief = int(parsed_meta.get("total_clicks") or total_clicks)
+    total_orders_for_brief = int(parsed_meta.get("total_orders") or total_orders)
+
+    upload_ai_brief = build_upload_ai_brief(
+        product_name=current_product_name,
+        parsed_files_count=parsed_files_count_for_brief,
+        total_terms=total_terms_for_brief,
+        total_spend=total_spend_for_brief,
+        total_clicks=total_clicks_for_brief,
+        total_orders=total_orders_for_brief,
+        analysis_state=analysis_state_for_brief
+        if isinstance(analysis_state_for_brief, dict)
+        else None,
+    )
+    _render_ai_brief_card(
+        title="AI 导入摘要",
+        brief=upload_ai_brief,
+        key_prefix="upload_ai_brief",
+    )
+
+
 def _persist_uploaded_file(uploaded_file, target_dir: Path) -> Path:
     """将 Streamlit 上传文件持久化到临时目录，供现有导入逻辑复用。"""
     suffix = Path(uploaded_file.name).suffix or ".xlsx"
@@ -429,6 +476,15 @@ def render_upload():
     st.subheader("2. 导入人工校准表（可选）")
 
     if not current_product_id:
+        _render_upload_ai_brief_section(
+            current_product_id=None,
+            current_product_name="当前产品",
+            parsed_files_count=0,
+            total_terms=0,
+            total_spend=0.0,
+            total_clicks=0,
+            total_orders=0,
+        )
         st.info("请先选择或创建产品工作区，再按需导入广告组人工判定表和最终汇总结论表。")
     else:
         st.caption(
@@ -537,6 +593,15 @@ def render_upload():
     st.subheader("3. 上传搜索词报告")
 
     if not access_meta["can_import"]:
+        _render_upload_ai_brief_section(
+            current_product_id=current_product_id,
+            current_product_name=current_product_name,
+            parsed_files_count=0,
+            total_terms=0,
+            total_spend=0.0,
+            total_clicks=0,
+            total_orders=0,
+        )
         st.info(access_meta["import_blocked_message"])
         return
 
@@ -644,34 +709,14 @@ def render_upload():
                 unsafe_allow_html=True,
             )
 
-            upload_ai_brief_state = st.session_state.get(UPLOAD_AI_BRIEF_STATE_KEY)
-            if (
-                not isinstance(upload_ai_brief_state, dict)
-                or int(upload_ai_brief_state.get("product_id") or 0) != int(current_product_id or 0)
-            ):
-                upload_ai_brief_state = {}
-
-            analysis_state_for_brief = upload_ai_brief_state.get("analysis_state")
-            parsed_meta = upload_ai_brief_state.get("parsed_meta") or {}
-            parsed_files_count = int(parsed_meta.get("parsed_files_count") or len(parsed_files))
-            total_terms_for_brief = int(parsed_meta.get("total_terms") or total_terms)
-            total_spend_for_brief = float(parsed_meta.get("total_spend") or total_spend)
-            total_clicks_for_brief = int(parsed_meta.get("total_clicks") or total_clicks)
-            total_orders_for_brief = int(parsed_meta.get("total_orders") or total_orders)
-
-            upload_ai_brief = build_upload_ai_brief(
-                product_name=current_product_name,
-                parsed_files_count=parsed_files_count,
-                total_terms=total_terms_for_brief,
-                total_spend=total_spend_for_brief,
-                total_clicks=total_clicks_for_brief,
-                total_orders=total_orders_for_brief,
-                analysis_state=analysis_state_for_brief if isinstance(analysis_state_for_brief, dict) else None,
-            )
-            _render_ai_brief_card(
-                title="AI 导入摘要",
-                brief=upload_ai_brief,
-                key_prefix="upload_ai_brief",
+            _render_upload_ai_brief_section(
+                current_product_id=current_product_id,
+                current_product_name=current_product_name,
+                parsed_files_count=len(parsed_files),
+                total_terms=total_terms,
+                total_spend=total_spend,
+                total_clicks=total_clicks,
+                total_orders=total_orders,
             )
 
             st.divider()
@@ -744,6 +789,25 @@ def render_upload():
 
         else:
             st.error("所有文件解析失败")
+            _render_upload_ai_brief_section(
+                current_product_id=current_product_id,
+                current_product_name=current_product_name,
+                parsed_files_count=0,
+                total_terms=0,
+                total_spend=0.0,
+                total_clicks=0,
+                total_orders=0,
+            )
+    else:
+        _render_upload_ai_brief_section(
+            current_product_id=current_product_id,
+            current_product_name=current_product_name,
+            parsed_files_count=0,
+            total_terms=0,
+            total_spend=0.0,
+            total_clicks=0,
+            total_orders=0,
+        )
 
     # 使用说明
     with st.expander("使用说明"):

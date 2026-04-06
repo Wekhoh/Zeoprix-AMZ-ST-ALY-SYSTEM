@@ -1624,6 +1624,37 @@ def test_upload_page_blocks_sensitive_actions_for_viewer(
     assert "当前角色只能查看导入流程" in infos
 
 
+def test_upload_page_renders_ai_brief_before_file_selection(
+    monkeypatch, db, product_id, campaign_id
+):
+    """上传页在未选择文件前，也应展示 AI 导入摘要并提示先上传文件。"""
+    _seed_minimal_search_term(db, campaign_id)
+    local_owner = db.get_or_create_local_owner()
+    db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email=db.DEFAULT_LOCAL_OWNER_EMAIL,
+        role="admin",
+        display_name="本地工作区管理员",
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_product_id"] = product_id
+    app.session_state["current_user_id"] = local_owner["id"]
+    app.session_state["current_user_name"] = (
+        local_owner.get("display_name") or "本地工作区管理员"
+    )
+    app.run(timeout=20)
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("文件上传").run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    assert _get_current_page_heading(app) == "文件上传"
+
+    assert "AI 导入摘要" in joined
+    assert "还没有可分析的导入文件" in joined
+
+
 def test_review_page_blocks_sensitive_actions_for_viewer(
     monkeypatch, db, product_id, campaign_id
 ):
