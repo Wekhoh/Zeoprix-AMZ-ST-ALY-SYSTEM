@@ -377,6 +377,16 @@ def _render_actions_ai_brief_card(
             "boss_summary": "老板汇报摘要",
             "execution_note": "执行备注",
             "handoff_note": "交接提醒",
+            "priority_plan": "优先动作草稿",
+            "campaign_focus_note": "活动复盘备注",
+            "budget_shift_note": "预算调整备注",
+            "variant_focus_note": "变体归因备注",
+            "landing_page_note": "页面承接备注",
+            "review_decision_note": "审核决策备注",
+            "risk_note": "风险提示",
+            "data_quality_note": "数据质量备注",
+            "analysis_next_step": "下一步建议草稿",
+            "import_readout": "导入摘要草稿",
         }
         for draft_key, draft_value in draft_payload.items():
             st.text_area(

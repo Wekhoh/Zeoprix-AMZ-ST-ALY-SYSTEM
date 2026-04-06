@@ -211,11 +211,24 @@ def build_summary_ai_brief(db, product_id: int) -> dict[str, Any]:
             bullets.append(
                 f"当前最突出的证据词是 {first['term']}，触发规则为“{first['triggered_rule'] or '规则分析'}”，已累计花费 ${first['spend']:.2f}。"
             )
+        draft_payload = {
+            "boss_summary": (
+                f"{context_pack.product_name} 当前建议优先止损高浪费词，同时把已识别的手动投放机会纳入下一轮预算分配。"
+            ),
+            "priority_plan": (
+                f"先确认 {metrics['negative_count']} 个高浪费词的否定动作，再复核 {metrics['manual_count']} 个补量机会，最后处理 "
+                f"{metrics['conflict_count']} 个冲突项。"
+            ),
+        }
     else:
         headline = f"{context_pack.product_name} 还缺少最近一次有效分析结果，建议先完成上传和规则分析，再让 AI 解释趋势。"
         bullets = [
             "当前只能基于产品基础信息给出概括性建议，无法引用最近一次分析快照里的具体词、花费和动作分布。",
         ]
+        draft_payload = {
+            "boss_summary": f"{context_pack.product_name} 当前还没有最新分析快照，建议先完成规则分析后再输出经营结论。",
+            "priority_plan": "先确认导入批次无误，再重新运行分析并回到汇总页查看 AI 简报。",
+        }
 
     return {
         "headline": headline,
@@ -224,6 +237,7 @@ def build_summary_ai_brief(db, product_id: int) -> dict[str, Any]:
         "recommended_next_actions": _default_next_actions("summary"),
         "follow_up_prompts": ["为什么 ACOS 高？", "哪些词最浪费？", "先做哪 3 个动作？"],
         "context_label": context_pack.context_label,
+        "draft_payload": draft_payload,
         "warning": (
             "当前没有最近一次有效分析结果，建议先重新运行分析。"
             if context_pack.context_source != "latest_snapshot"
@@ -341,6 +355,9 @@ def build_upload_ai_brief(
             "recommended_next_actions": _default_next_actions("upload"),
             "follow_up_prompts": ["上传前要准备哪些列？", "支持哪些文件格式？"],
             "context_label": context_label,
+            "draft_payload": {
+                "data_quality_note": "当前没有导入任何可解析文件，请先准备原始报表后再开始数据质量检查。",
+            },
             "warning": "当前还没有导入任何可解析文件。",
         }
 
@@ -358,6 +375,12 @@ def build_upload_ai_brief(
             "recommended_next_actions": _default_next_actions("upload"),
             "follow_up_prompts": follow_up_prompts,
             "context_label": context_label,
+            "draft_payload": {
+                "import_readout": (
+                    f"{product_name} 当前已完成 {parsed_files_count} 个文件的导入预检，覆盖 {total_terms} 个搜索词，建议先运行规则分析后再进入结果页。"
+                ),
+                "analysis_next_step": "优先确认导入批次无误，然后运行分析，接着查看汇总页与审核页的重点结论。",
+            },
             "warning": None,
         }
 
@@ -379,6 +402,12 @@ def build_upload_ai_brief(
             "recommended_next_actions": _default_next_actions("upload"),
             "follow_up_prompts": ["帮我总结当前最核心的问题", "先去汇总页还是审核页？", "哪些词最值得先处理？"],
             "context_label": context_label,
+            "draft_payload": {
+                "import_readout": (
+                    f"{product_name} 本次导入已完成分析，共处理 {terms_analyzed} 个聚合词，生成 {results_saved} 条建议，并保留 {pending_reviews} 条待审核项。"
+                ),
+                "analysis_next_step": "先查看汇总页定位主要浪费点，再进入审核页确认边界词，最后回到操作清单页整理执行动作。",
+            },
             "warning": None,
         }
 
@@ -397,6 +426,12 @@ def build_upload_ai_brief(
             ],
             "follow_up_prompts": ["为什么分析失败？", "我应该先检查什么？"],
             "context_label": context_label,
+            "draft_payload": {
+                "data_quality_note": (
+                    f"{product_name} 当前导入已完成，但分析未成功。建议先检查文件字段、数据量级和解析结果后再重试。"
+                ),
+                "analysis_next_step": "优先核对导入文件内容与必要字段，确认无误后重新运行分析。",
+            },
             "warning": message or "规则分析失败，请稍后重试。",
         }
 
@@ -412,6 +447,12 @@ def build_upload_ai_brief(
         ],
         "follow_up_prompts": ["为什么这批数据还不够？", "我应该补哪些数据？", "下一步先去哪一页？"],
         "context_label": context_label,
+        "draft_payload": {
+            "data_quality_note": (
+                f"{product_name} 当前导入批次已运行分析，但没有形成可保存建议，说明数据量级、词结构或表现信号还不足以支持明确动作。"
+            ),
+            "analysis_next_step": "建议先检查词量级、点击与转化分布，再决定是否补充更多数据后重新分析。",
+        },
         "warning": message or "当前导入批次暂未生成可保存的建议。",
     }
 
@@ -456,6 +497,12 @@ def build_campaign_ai_brief(
         "recommended_next_actions": _default_next_actions("campaign"),
         "follow_up_prompts": ["为什么这个活动最差？", "哪些活动该先减预算？", "哪些活动值得补量？"],
         "context_label": context_label,
+        "draft_payload": {
+            "campaign_focus_note": (
+                f"{product_name} 当前应先复盘 {top_spend.get('campaign_name') or '该活动'}，重点确认高花费词是否真的不匹配当前投放目标。"
+            ),
+            "budget_shift_note": "先收紧高浪费活动预算，再把预算向已验证更高转化的活动倾斜。",
+        },
         "warning": None,
     }
 
@@ -497,6 +544,12 @@ def build_asin_ai_brief(
         "recommended_next_actions": _default_next_actions("asin"),
         "follow_up_prompts": ["哪个 ASIN 最拖后腿？", "这是词不准还是页面问题？", "哪些变体值得继续放量？"],
         "context_label": context_label,
+        "draft_payload": {
+            "variant_focus_note": (
+                f"{product_name} 当前建议优先复盘 {top_spend.get('asin_identifier') or '该 ASIN'} 对应的高花费词，确认是否存在词意图不准或变体定位偏差。"
+            ),
+            "landing_page_note": "如果词意图基本准确但转化弱，优先检查主图、标题、价格与变体承接是否匹配当前流量。",
+        },
         "warning": None,
     }
 
@@ -531,6 +584,14 @@ def build_review_ai_brief(
             bullets.append(f"建议动作：{suggested_action}")
         warning = str(ai_suggestion.get('status_message') or "").strip() or None
         headline = f"{term_label} 当前已有 AI 审核建议，下一步重点是确认这条判断是否适合作为最终人工结论。"
+        draft_payload = {
+            "review_decision_note": (
+                f"{term_label} 当前 AI 建议为 {ai_label}，人工应结合现有流量与转化信号确认是否采纳。"
+            ),
+            "risk_note": (
+                f"如果直接采纳“{suggested_action or ai_label}”前未复核边界，可能会误伤仍有潜力的词流量。"
+            ),
+        }
     else:
         bullets = [
             f"人工当前标记：{current_manual or '尚未定稿'}。",
@@ -538,6 +599,9 @@ def build_review_ai_brief(
         ]
         warning = "当前尚未获取 AI 建议。"
         headline = f"{term_label} 当前还没有 AI 审核建议，建议先生成建议再决定最终标记。"
+        draft_payload = {
+            "review_decision_note": f"{term_label} 当前尚未形成 AI 建议，建议先获取建议后再做人工最终判断。",
+        }
 
     return {
         "headline": headline,
@@ -557,6 +621,7 @@ def build_review_ai_brief(
         "recommended_next_actions": _default_next_actions("review"),
         "follow_up_prompts": ["为什么这么判断？", "如果不采纳会怎样？", "给我一个更保守的建议"],
         "context_label": context_label,
+        "draft_payload": draft_payload,
         "warning": warning,
     }
 

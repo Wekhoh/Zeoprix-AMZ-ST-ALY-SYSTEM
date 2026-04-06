@@ -287,6 +287,8 @@ def test_build_summary_ai_brief_uses_snapshot_counts(db, product_id):
     assert any("3" in item for item in brief["bullets"])
     assert brief["recommended_next_actions"]
     assert brief["context_label"].endswith("最近一次分析结果")
+    assert "boss_summary" in brief["draft_payload"]
+    assert "priority_plan" in brief["draft_payload"]
 
 
 def test_build_actions_ai_brief_uses_action_context_counts():
@@ -364,6 +366,8 @@ def test_build_upload_ai_brief_guides_next_steps_after_successful_import_analysi
     assert any("54" in item for item in brief["bullets"])
     assert any("审核页" in item or "汇总页" in item for item in brief["follow_up_prompts"])
     assert brief["warning"] is None
+    assert "import_readout" in brief["draft_payload"]
+    assert "analysis_next_step" in brief["draft_payload"]
 
 
 def test_build_upload_ai_brief_warns_when_import_has_no_actionable_analysis():
@@ -387,6 +391,8 @@ def test_build_upload_ai_brief_warns_when_import_has_no_actionable_analysis():
     assert "桌面验收产品" in brief["headline"]
     assert brief["warning"]
     assert any("没有生成可保存的建议" in item for item in brief["bullets"])
+    assert "data_quality_note" in brief["draft_payload"]
+    assert "analysis_next_step" in brief["draft_payload"]
 
 
 def test_build_campaign_ai_brief_highlights_top_campaign_signal():
@@ -426,6 +432,8 @@ def test_build_campaign_ai_brief_highlights_top_campaign_signal():
     assert any("Brand Exact" in item for item in brief["bullets"])
     assert brief["evidence"][0]["term"] == "travel pillow"
     assert "按活动" in brief["context_label"]
+    assert "campaign_focus_note" in brief["draft_payload"]
+    assert "budget_shift_note" in brief["draft_payload"]
 
 
 def test_build_asin_ai_brief_surfaces_variant_focus():
@@ -463,6 +471,8 @@ def test_build_asin_ai_brief_surfaces_variant_focus():
     assert any("B0TESTASIN1" in item for item in brief["bullets"])
     assert brief["evidence"][0]["term"] == "travel pillow"
     assert "按 ASIN" in brief["context_label"]
+    assert "variant_focus_note" in brief["draft_payload"]
+    assert "landing_page_note" in brief["draft_payload"]
 
 
 def test_build_review_ai_brief_distinguishes_ai_and_manual_state():
@@ -492,6 +502,8 @@ def test_build_review_ai_brief_distinguishes_ai_and_manual_state():
     assert any("人工当前标记" in item for item in brief["bullets"])
     assert brief["evidence"][0]["term"] == "travel pillow"
     assert any("为什么这么判断" in prompt for prompt in brief["follow_up_prompts"])
+    assert "review_decision_note" in brief["draft_payload"]
+    assert "risk_note" in brief["draft_payload"]
 
 
 def test_normalize_ai_chat_message_preserves_structured_fields():
