@@ -306,6 +306,9 @@ def test_build_actions_ai_brief_uses_action_context_counts():
     assert brief["recommended_next_actions"]
     assert "boss_summary" in brief["draft_payload"]
     assert "执行" in brief["draft_payload"]["execution_note"]
+    assert "negative_batch_note" in brief["draft_payload"]
+    assert "manual_batch_note" in brief["draft_payload"]
+    assert "conflict_resolution_note" in brief["draft_payload"]
 
 
 def test_build_ai_context_badges_include_page_source_and_snapshot_time(db, product_id):

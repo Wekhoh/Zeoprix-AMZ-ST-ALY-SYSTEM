@@ -1400,6 +1400,9 @@ def _render_ai_brief_card(
             "landing_page_note": "页面承接备注",
             "review_decision_note": "审核决策备注",
             "risk_note": "风险提示",
+            "negative_batch_note": "批量否词说明",
+            "manual_batch_note": "批量手动投放说明",
+            "conflict_resolution_note": "分歧词处理提示",
         }
         for draft_key, draft_value in draft_payload.items():
             st.text_area(

@@ -387,6 +387,9 @@ def _render_actions_ai_brief_card(
             "data_quality_note": "数据质量备注",
             "analysis_next_step": "下一步建议草稿",
             "import_readout": "导入摘要草稿",
+            "negative_batch_note": "批量否词说明",
+            "manual_batch_note": "批量手动投放说明",
+            "conflict_resolution_note": "分歧词处理提示",
         }
         for draft_key, draft_value in draft_payload.items():
             st.text_area(

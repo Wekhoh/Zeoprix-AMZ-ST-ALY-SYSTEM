@@ -63,3 +63,5 @@
 - 2026-04-05: 继续收尾侧边栏 Copilot 体验：补自动滚到底部、保留最近一次追问来源提示，并让汇总页 / 操作清单页的推荐追问直接携带来源上下文进入侧边栏。
 - 2026-04-05: 已扩展页面 AI brief 的动作草稿层第二版：汇总页增加“优先动作草稿”，上传页增加“导入摘要 / 下一步建议 / 数据质量备注”，按活动页增加“活动复盘备注 / 预算调整备注”，按 ASIN 页增加“变体归因备注 / 页面承接备注”，审核页增加“审核决策备注 / 风险提示”。
 - 2026-04-05: 验证补充：draft_payload 定向回归 7 passed；全量 pytest 354 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
+- 2026-04-06: 已完成动作草稿层第三版：操作清单 AI brief 新增“批量否词说明 / 批量手动投放说明 / 分歧词处理提示”，让 AI 输出更贴近实际批量执行、复盘与交接场景。
+- 2026-04-06: 验证补充：actions draft v3 定向回归 8 passed；全量 pytest 354 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。

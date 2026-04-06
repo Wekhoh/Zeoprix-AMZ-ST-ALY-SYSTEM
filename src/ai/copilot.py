@@ -294,11 +294,14 @@ def build_actions_ai_brief(action_context: dict[str, Any]) -> dict[str, Any]:
     top_manual_note = ""
     if isinstance(top_manual, dict) and top_manual.get("term"):
         top_manual_note = f" 当前最值得补量的词是 {top_manual.get('term')}。"
+    negative_count = int(counts.get("negative", 0) or 0)
+    manual_count = int(counts.get("manual", 0) or 0)
+    conflict_count = int(counts.get("conflict", 0) or 0)
     draft_payload = {
         "boss_summary": (
-            f"{product_name} 当前已整理出 {int(counts.get('negative', 0) or 0)} 个可直接否定项和 "
-            f"{int(counts.get('manual', 0) or 0)} 个手动投放机会，建议本轮先止损再补量，"
-            f"并对 {int(counts.get('conflict', 0) or 0)} 个分歧词保留人工复核。"
+            f"{product_name} 当前已整理出 {negative_count} 个可直接否定项和 "
+            f"{manual_count} 个手动投放机会，建议本轮先止损再补量，"
+            f"并对 {conflict_count} 个分歧词保留人工复核。"
         ),
         "execution_note": (
             "先执行否词清单，再处理手动投放机会，最后回到审核页确认分歧词。"
@@ -306,6 +309,26 @@ def build_actions_ai_brief(action_context: dict[str, Any]) -> dict[str, Any]:
         ).strip(),
         "handoff_note": (
             f"本轮保留 {len(conflict_items)} 个冲突词给人工最终拍板，避免把边界词直接推到广告后台。"
+        ),
+        "negative_batch_note": (
+            f"否词批次建议先处理 {negative_count} 个止损项。"
+            + (
+                f" 优先从 {top_negative.get('term')} 开始，当前累计花费 ${float(top_negative.get('spend') or 0):.2f}。"
+                if isinstance(top_negative, dict) and top_negative.get("term")
+                else " 若批量执行前有疑虑，请先抽样复核高花费词。"
+            )
+        ),
+        "manual_batch_note": (
+            f"手动投放批次建议优先处理 {manual_count} 个补量机会。"
+            + (
+                f" 当前首选词是 {top_manual.get('term')}，建议先转入精准或词组进行验证。"
+                if isinstance(top_manual, dict) and top_manual.get("term")
+                else " 可以优先选择转化更强的词做小规模试投。"
+            )
+        ),
+        "conflict_resolution_note": (
+            f"当前有 {conflict_count} 个分歧词不建议自动执行。"
+            " 请先回到审核页确认词意图、广告目标和页面承接是否一致，再决定是否保留、否定或转手动。"
         ),
     }
 
