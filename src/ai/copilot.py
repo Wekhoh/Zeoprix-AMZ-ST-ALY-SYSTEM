@@ -70,6 +70,32 @@ def _normalize_evidence_items(rows: list[dict[str, Any]] | None, limit: int = 3)
     return normalized
 
 
+def build_follow_up_context_hint(brief: dict[str, Any] | None) -> str:
+    """为页面 AI 卡片的追问构造简短上下文提示，便于侧边栏承接。"""
+    if not isinstance(brief, dict):
+        return ""
+
+    headline = str(brief.get("headline") or "").strip()
+    evidence = brief.get("evidence") or []
+    terms = [
+        str(item.get("term") or "").strip()
+        for item in evidence
+        if isinstance(item, dict) and str(item.get("term") or "").strip()
+    ]
+    unique_terms: list[str] = []
+    for term in terms:
+        if term not in unique_terms:
+            unique_terms.append(term)
+    term_hint = "、".join(unique_terms[:3])
+    if len(unique_terms) > 3:
+        term_hint += " 等"
+
+    parts = [headline] if headline else []
+    if term_hint:
+        parts.append(f"重点词：{term_hint}")
+    return "；".join(parts)
+
+
 def _build_metrics(summary: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "negative_count": int(summary.get("negative", 0) or 0),

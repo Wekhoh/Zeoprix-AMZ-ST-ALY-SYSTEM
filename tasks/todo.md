@@ -65,3 +65,5 @@
 - 2026-04-05: 验证补充：draft_payload 定向回归 7 passed；全量 pytest 354 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
 - 2026-04-06: 已完成动作草稿层第三版：操作清单 AI brief 新增“批量否词说明 / 批量手动投放说明 / 分歧词处理提示”，让 AI 输出更贴近实际批量执行、复盘与交接场景。
 - 2026-04-06: 验证补充：actions draft v3 定向回归 8 passed；全量 pytest 354 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
+- 2026-04-06: 已修复汇总页在 truth-first / latest-snapshot 分支提前 return 导致的 AI 汇总简报缺失；现在三条路径（truth-first / snapshot / realtime）都会显示页面内嵌 AI 简报。
+- 2026-04-06: 验证补充：summary AI brief 定向回归 5 passed；全量 pytest 357 passed, 10 skipped, 2 warnings；浏览器快照确认‘AI 汇总简报’与‘优先动作草稿’真实出现在汇总页；评估 objective 99.50 / llm avg 97.00 / total 98.50。

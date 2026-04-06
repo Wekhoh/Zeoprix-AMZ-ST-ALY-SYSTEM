@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import src.analysis.truth_replay as truth_replay_module
+import src.ui.pages.analysis as analysis_page_module
 import streamlit as st
 from fastapi.testclient import TestClient
 from streamlit.testing.v1 import AppTest
@@ -26,6 +28,7 @@ from src.ai.copilot import (
     build_ai_context_pack,
     build_campaign_ai_brief,
     build_chat_response_envelope,
+    build_follow_up_context_hint,
     build_review_ai_brief,
     build_summary_ai_brief,
     build_upload_ai_brief,
@@ -579,10 +582,15 @@ def test_queue_ai_message_tracks_source_hint():
     queued = _queue_ai_message(
         "请解释为什么 ACOS 偏高",
         source_label="汇总页 AI 简报",
+        source_context_hint="当前 ACOS 偏高，重点词：travel pillow、neck support",
     )
 
     assert queued is True
     assert st.session_state.ai_chat_last_routed_from == "汇总页 AI 简报"
+    assert (
+        st.session_state.ai_chat_last_routed_context
+        == "当前 ACOS 偏高，重点词：travel pillow、neck support"
+    )
 
 
 def test_clear_ai_chat_history_resets_source_hint():
@@ -595,11 +603,31 @@ def test_clear_ai_chat_history_resets_source_hint():
     st.session_state.ai_chat_pending_prompt = None
     st.session_state.ai_chat_last_prompt = "hello"
     st.session_state.ai_chat_last_routed_from = "汇总页 AI 简报"
+    st.session_state.ai_chat_last_routed_context = "当前 ACOS 偏高"
 
     _clear_ai_chat_history()
 
     assert st.session_state.chat_messages == []
     assert "ai_chat_last_routed_from" not in st.session_state
+    assert "ai_chat_last_routed_context" not in st.session_state
+
+
+def test_build_follow_up_context_hint_uses_headline_and_terms():
+    """页面 AI 卡片追问应携带简短结论与关键词线索。"""
+    hint = build_follow_up_context_hint(
+        {
+            "headline": "当前 ACOS 偏高，建议先止损后补量。",
+            "evidence": [
+                {"term": "travel pillow"},
+                {"term": "neck support"},
+                {"term": "memory foam pillow"},
+            ],
+        }
+    )
+
+    assert "当前 ACOS 偏高" in hint
+    assert "travel pillow" in hint
+    assert "neck support" in hint
 
 
 def test_get_ai_chat_panel_height_keeps_follow_up_input_visible():
@@ -1673,6 +1701,131 @@ def test_analysis_page_blocks_sensitive_actions_for_viewer(
     assert "当前分析权限" in joined
     assert "当前角色只能查看分析结果" in infos
     assert "导出已审核结果需要管理员或编辑者权限" in captions
+
+
+def test_summary_page_renders_ai_brief_for_truth_first_results(
+    monkeypatch, db, product_id, campaign_id
+):
+    """汇总页在 truth-first 分支也应显示 AI 汇总简报。"""
+    _seed_minimal_search_term(db, campaign_id)
+
+    monkeypatch.setattr(
+        truth_replay_module,
+        "get_truth_first_summary_rows",
+        lambda _db, _product_id: [
+            {
+                "term": "travel pillow",
+                "term_type": "keyword",
+                "asin_identifiers": ["B0TESTASIN"],
+                "asin_count": 1,
+                "triggered_rule": "人工已审核回放",
+                "suggested_action": "否定精准",
+                "action_type": "negative_exact",
+                "action_detail": "否定精准",
+                "confidence": 1.0,
+                "reviewed": True,
+                "has_conflict": False,
+                "clicks": 18,
+                "orders": 0,
+                "spend": 22.4,
+                "sales": 0.0,
+                "cvr": 0.0,
+                "acos": 0.0,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        truth_replay_module, "get_latest_analysis_run_diff_preview", lambda *_: None
+    )
+    monkeypatch.setattr(
+        truth_replay_module, "get_latest_analysis_run_summary_delta", lambda *_: None
+    )
+    monkeypatch.setattr(
+        analysis_page_module,
+        "build_summary_ai_brief",
+        lambda *_: {
+            "headline": "汇总页 AI 已就绪",
+            "context_label": "上下文：人工校准结果",
+            "bullets": ["travel pillow 当前已被人工确认应优先否定。"],
+            "recommended_next_actions": ["先在操作清单确认这批否词。"],
+            "follow_up_prompts": [],
+        },
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["db"] = db
+    app.session_state["current_product_id"] = product_id
+    app.run(timeout=20)
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("搜索词分析").run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    assert "AI 汇总简报" in joined
+    assert "汇总页 AI 已就绪" in joined
+
+
+def test_summary_page_renders_ai_brief_for_snapshot_results(
+    monkeypatch, db, product_id, campaign_id
+):
+    """汇总页在最近一次有效快照分支也应显示 AI 汇总简报。"""
+    _seed_minimal_search_term(db, campaign_id)
+
+    monkeypatch.setattr(truth_replay_module, "get_truth_first_summary_rows", lambda *_: None)
+    monkeypatch.setattr(
+        truth_replay_module, "get_latest_analysis_run_diff_preview", lambda *_: None
+    )
+    monkeypatch.setattr(
+        truth_replay_module, "get_latest_analysis_run_summary_delta", lambda *_: None
+    )
+    monkeypatch.setattr(
+        analysis_page_module,
+        "_build_latest_snapshot_summary_rows",
+        lambda *_: [
+            {
+                "term": "neck support",
+                "term_type": "keyword",
+                "asin_identifiers": [],
+                "asin_count": 0,
+                "triggered_rule": "最近一次有效分析快照",
+                "suggested_action": "手动精准",
+                "action_type": "manual_exact",
+                "action_detail": "手动精准",
+                "confidence": 0.86,
+                "reviewed": False,
+                "has_conflict": False,
+                "clicks": 12,
+                "orders": 3,
+                "spend": 15.8,
+                "sales": 80.0,
+                "cvr": 0.25,
+                "acos": 0.1975,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        analysis_page_module,
+        "build_summary_ai_brief",
+        lambda *_: {
+            "headline": "快照分支也会显示 AI 汇总简报",
+            "context_label": "上下文：最近一次有效分析结果",
+            "bullets": ["neck support 当前值得优先补量。"],
+            "recommended_next_actions": ["先在操作清单确认手动投放动作。"],
+            "follow_up_prompts": [],
+        },
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["db"] = db
+    app.session_state["current_product_id"] = product_id
+    app.run(timeout=20)
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("搜索词分析").run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    assert "AI 汇总简报" in joined
+    assert "快照分支也会显示 AI 汇总简报" in joined
 
 
 def test_campaign_analysis_page_blocks_sensitive_actions_for_viewer(

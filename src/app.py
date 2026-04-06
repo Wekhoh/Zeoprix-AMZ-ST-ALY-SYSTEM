@@ -931,7 +931,11 @@ def _get_ai_context_pack():
     )
 
 
-def _queue_ai_message(message: str, source_label: str | None = None) -> bool:
+def _queue_ai_message(
+    message: str,
+    source_label: str | None = None,
+    source_context_hint: str | None = None,
+) -> bool:
     """将用户输入排入待处理队列，并立即显示在聊天记录中。"""
     prompt = (message or "").strip()
     if not prompt:
@@ -950,6 +954,10 @@ def _queue_ai_message(message: str, source_label: str | None = None) -> bool:
         st.session_state.ai_chat_last_routed_from = source_label.strip()
     else:
         st.session_state.pop("ai_chat_last_routed_from", None)
+    if source_context_hint and source_context_hint.strip():
+        st.session_state.ai_chat_last_routed_context = source_context_hint.strip()
+    else:
+        st.session_state.pop("ai_chat_last_routed_context", None)
     st.session_state.ai_chat_is_generating = True
     return True
 
@@ -966,6 +974,7 @@ def _clear_ai_chat_history():
     st.session_state.ai_chat_pending_prompt = None
     st.session_state.ai_chat_last_prompt = None
     st.session_state.pop("ai_chat_last_routed_from", None)
+    st.session_state.pop("ai_chat_last_routed_context", None)
 
     product_id = st.session_state.get("current_product_id")
     if product_id is not None:
@@ -1002,9 +1011,12 @@ def _drain_pending_ai_message() -> bool:
             )
         assistant = st.session_state[assistant_key]
         context_pack = _get_ai_context_pack()
-        response = assistant.process_message(
-            f"{prompt}\n\n---\n{format_ai_context_hint(context_pack)}"
-        )
+        routed_context_hint = str(st.session_state.get("ai_chat_last_routed_context") or "").strip()
+        prompt_parts = [prompt]
+        if routed_context_hint:
+            prompt_parts.append(f"这条追问直接承接当前页面卡片结论：{routed_context_hint}")
+        prompt_parts.append(format_ai_context_hint(context_pack))
+        response = assistant.process_message("\n\n---\n".join(prompt_parts))
         envelope = build_chat_response_envelope(response, context_pack)
         _append_ai_chat_message(
             "assistant",
@@ -1281,6 +1293,7 @@ def _render_ai_chat_shell(
         for badge in context_badges
     )
     routed_from = str(st.session_state.get("ai_chat_last_routed_from") or "").strip()
+    routed_context_hint = str(st.session_state.get("ai_chat_last_routed_context") or "").strip()
     st.markdown(
         f"""
         <div class="ai-chat-shell">
@@ -1298,6 +1311,11 @@ def _render_ai_chat_shell(
     if routed_from:
         st.markdown(
             f'<div class="ai-chat-route-hint">最近一次追问来自：{escape(routed_from)}</div>',
+            unsafe_allow_html=True,
+        )
+    if routed_context_hint:
+        st.markdown(
+            f'<div class="ai-chat-route-context">承接线索：{escape(routed_context_hint)}</div>',
             unsafe_allow_html=True,
         )
 

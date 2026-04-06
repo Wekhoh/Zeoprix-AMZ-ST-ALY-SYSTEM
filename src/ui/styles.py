@@ -2048,6 +2048,17 @@ div[data-testid="stPopoverBody"] .stButton > button {
     line-height: 1.45;
 }
 
+.ai-chat-route-context {
+    margin: -0.1rem 0 0.5rem;
+    padding: 0.5rem 0.72rem;
+    border-radius: 12px;
+    border: 1px dashed rgba(148, 163, 184, 0.55);
+    background: rgba(248, 250, 252, 0.88);
+    color: #475569;
+    font-size: 0.76rem;
+    line-height: 1.5;
+}
+
 .ai-chat-context-badge {
     display: inline-flex;
     align-items: center;

@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from src.ai.copilot import build_summary_ai_brief
+from src.ai.copilot import build_follow_up_context_hint, build_summary_ai_brief
 from src.config.logger import get_logger
 from src.ui.utils import safe_error
 
@@ -530,6 +530,8 @@ def render_summary_analysis(db, product_id: int, access_meta: dict[str, object] 
     truth_rows = get_truth_first_summary_rows(db, product_id)
     if truth_rows is not None:
         _render_truth_first_summary_analysis(truth_rows, diff_preview, summary_delta)
+        st.divider()
+        _render_summary_ai_brief_card(db, product_id)
         return
 
     latest_snapshot_rows = _build_latest_snapshot_summary_rows(db, product_id)
@@ -539,6 +541,8 @@ def render_summary_analysis(db, product_id: int, access_meta: dict[str, object] 
             diff_preview,
             summary_delta,
         )
+        st.divider()
+        _render_summary_ai_brief_card(db, product_id)
         return
 
     # 筛选面板
@@ -1413,6 +1417,7 @@ def _render_ai_brief_card(
             )
 
     prompts = [str(item).strip() for item in brief.get("follow_up_prompts") or [] if str(item).strip()]
+    follow_up_context_hint = build_follow_up_context_hint(brief)
     if prompts:
         st.markdown("**继续追问**")
         columns = st.columns(min(2, len(prompts)))
@@ -1421,7 +1426,11 @@ def _render_ai_brief_card(
                 if st.button(prompt, key=f"{key_prefix}_prompt_{idx}", width="stretch"):
                     from src.app import _queue_ai_message
 
-                    if _queue_ai_message(prompt, source_label=title):
+                    if _queue_ai_message(
+                        prompt,
+                        source_label=title,
+                        source_context_hint=follow_up_context_hint,
+                    ):
                         st.rerun()
 
 

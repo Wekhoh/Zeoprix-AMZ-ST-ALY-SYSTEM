@@ -8,7 +8,7 @@ from html import escape
 import pandas as pd
 import streamlit as st
 
-from src.ai.copilot import build_actions_ai_brief
+from src.ai.copilot import build_actions_ai_brief, build_follow_up_context_hint
 from src.analysis.truth_replay import (
     action_type_to_auto_action,
     get_truth_first_action_buckets,
@@ -404,6 +404,7 @@ def _render_actions_ai_brief_card(
         for item in brief.get("follow_up_prompts") or []
         if str(item).strip()
     ]
+    follow_up_context_hint = build_follow_up_context_hint(brief)
     if prompts:
         st.markdown("**继续追问**")
         columns = st.columns(min(2, len(prompts)))
@@ -416,7 +417,11 @@ def _render_actions_ai_brief_card(
                 ):
                     from src.app import _queue_ai_message
 
-                    if _queue_ai_message(prompt, source_label="操作清单 AI 执行说明"):
+                    if _queue_ai_message(
+                        prompt,
+                        source_label="操作清单 AI 执行说明",
+                        source_context_hint=follow_up_context_hint,
+                    ):
                         st.rerun()
 
 
