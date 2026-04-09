@@ -1698,6 +1698,36 @@ def test_review_page_blocks_sensitive_actions_for_viewer(
     assert "当前角色只能查看审核概览" in f"{infos}\n{text_joined}"
 
 
+def test_review_page_renders_ai_brief_when_queue_is_empty_for_viewer(
+    monkeypatch, db, product_id
+):
+    """审核页在队列为空且 viewer 只读时，也应显示 AI 审核建议卡。"""
+    viewer_member = db.upsert_workspace_member_by_email(
+        product_id=product_id,
+        email="viewer-review-empty@example.com",
+        role="viewer",
+        display_name="只读审核成员",
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_product_id"] = product_id
+    app.session_state["current_user_id"] = viewer_member["user_id"]
+    app.session_state["current_user_name"] = viewer_member["display_name"]
+    app.run(timeout=20)
+
+    sidebar_radio = _get_sidebar_nav_radio(app)
+    sidebar_radio.set_value("相关性审核").run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    text_joined = "\n".join(element.value or "" for element in app.text)
+    combined = "\n".join(part for part in [joined, text_joined] if part)
+
+    assert "AI 审核建议" in joined
+    assert "当前还没有 AI 审核建议" in joined
+    assert "审核闭环已完成" in joined
+    assert "所有词都已审核完成" in combined
+
+
 def test_analysis_page_blocks_sensitive_actions_for_viewer(
     monkeypatch, db, product_id, campaign_id
 ):

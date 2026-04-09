@@ -165,6 +165,51 @@ def _build_review_access_meta(current_role: str) -> dict[str, object]:
     }
 
 
+def _render_review_ai_brief_section(
+    db,
+    product_id: int,
+    *,
+    item: dict | None = None,
+    ai_suggestion: dict | None = None,
+    key_prefix: str = "review_ai_brief_overview",
+) -> None:
+    """在审核页不同分支下统一渲染 AI 审核建议卡。"""
+    review_item = item or {
+        "term": "当前审核队列",
+        "term_type": "keyword",
+        "total_clicks": 0,
+        "total_orders": 0,
+        "total_spend": 0.0,
+        "sales": 0.0,
+        "triggered_rule": "审核队列概览",
+        "action_type": "observe",
+        "suggested_action": "继续观察",
+    }
+    term = str(review_item.get("term") or "当前审核队列").strip() or "当前审核队列"
+    term_type = str(review_item.get("term_type") or "keyword").strip() or "keyword"
+    context_pack = build_ai_context_pack(
+        db,
+        product_id,
+        page_key="review",
+        page_title="相关性审核",
+    )
+    review_brief = build_review_ai_brief(
+        term=term,
+        term_type=term_type,
+        item=review_item,
+        ai_suggestion=ai_suggestion,
+        context_label=(
+            f"当前产品：{context_pack.product_name} · 上下文："
+            f"{'最近一次分析结果（审核）' if context_pack.context_source == 'latest_snapshot' else '仅产品基础信息（审核）'}"
+        ),
+    )
+    _render_ai_brief_card(
+        title="AI 审核建议",
+        brief=review_brief,
+        key_prefix=key_prefix,
+    )
+
+
 def render_review():
     """渲染相关性审核页面"""
     db = st.session_state.get("db")
@@ -241,6 +286,7 @@ def render_review():
     )
 
     if not access_meta["can_review"]:
+        _render_review_ai_brief_section(db, product_id, key_prefix="review_ai_brief_readonly")
         st.info(access_meta["blocked_message"])
         if pending_count.get("total", 0) == 0:
             empty_state = _build_review_empty_state()
@@ -258,6 +304,7 @@ def render_review():
 
     # 检查是否有待审核项
     if pending_count.get("total", 0) == 0:
+        _render_review_ai_brief_section(db, product_id, key_prefix="review_ai_brief_empty")
         empty_state = _build_review_empty_state()
         st.markdown(
             f"""
@@ -275,6 +322,7 @@ def render_review():
     pending_list = db.get_pending_reviews_list(product_id, limit=500)
 
     if not pending_list:
+        _render_review_ai_brief_section(db, product_id, key_prefix="review_ai_brief_no_list")
         st.info("暂无待审核的词")
         return
 
@@ -998,25 +1046,11 @@ def _render_review_form(db, product_id: int, item: dict, pending_list: list):
                 _request_ai_suggestion(db, product_id, term, item)
 
         with col_ai_result:
-            context_pack = build_ai_context_pack(
+            _render_review_ai_brief_section(
                 db,
                 product_id,
-                page_key="review",
-                page_title="相关性审核",
-            )
-            review_brief = build_review_ai_brief(
-                term=term,
-                term_type=term_type,
                 item=item,
                 ai_suggestion=ai_suggestion,
-                context_label=(
-                    f"当前产品：{context_pack.product_name} · 上下文："
-                    f"{'最近一次分析结果（审核）' if context_pack.context_source == 'latest_snapshot' else '仅产品基础信息（审核）'}"
-                ),
-            )
-            _render_ai_brief_card(
-                title="AI 审核建议",
-                brief=review_brief,
                 key_prefix=f"review_ai_brief_{term}",
             )
     # ========== AI建议功能结束 ==========
