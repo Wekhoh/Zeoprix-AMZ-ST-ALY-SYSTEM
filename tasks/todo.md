@@ -71,3 +71,5 @@
 - 2026-04-06: 验证补充：upload AI brief 定向回归 3 passed；全量 pytest 358 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
 - 2026-04-08: 已修复审核页在空态与只读流程下缺失 `AI 审核建议` 的问题；现在无论 truth-first、latest snapshot、realtime、空队列还是 viewer 只读路径，审核页都会稳定显示页面内嵌 AI 审核建议卡。
 - 2026-04-08: 验证补充：review AI brief 定向回归 4 passed；真实浏览器确认审核页出现 `AI 审核建议`、`当前还没有 AI 审核建议`、`审核闭环已完成`；全量 pytest 359 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
+- 2026-04-10: 已完成最终产品验收走查：真实浏览器确认上传页空态出现 `AI 导入摘要`、汇总页出现 `AI 汇总简报` 与 `优先动作草稿`、侧边栏 AI 助手能显示上下文徽标/等待态/自动滚动，并成功发起一轮真实 Gemini 对话。
+- 2026-04-10: 收尾判断：本轮 AI 融合升级主线已达到“基本完成”状态；后续工作主要属于增强项（更强模板、流式输出、采纳反馈闭环），不再是主线阻塞缺口。
