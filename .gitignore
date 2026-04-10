@@ -87,6 +87,7 @@ logs/
 # 测试和覆盖率
 # ===================
 .pytest_cache/
+.pytest_tmp/
 .coverage
 htmlcov/
 .tox/
@@ -110,3 +111,18 @@ desktop.ini
 *.tmp
 *.temp
 *.bak
+
+# ===================
+# 发布验收生成物 / 本地杂项
+# ===================
+AMZ搜索词分析系统_sync_backups_*/
+patch.txt
+tasks/*.png
+tasks/*.pid
+tasks/ai-*.md
+tasks/playwright-*.md
+tasks/final-*.md
+tasks/*snapshot*.md
+tasks/*work*.md
+tasks/*verify*.md
+tasks/amz_pytest_tmp/
