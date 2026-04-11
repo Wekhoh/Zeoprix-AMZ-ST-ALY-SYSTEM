@@ -113,6 +113,71 @@ ACTIONS_PAGE_CSS = """
     font-size: 0.98rem;
     line-height: 1.75;
 }
+.execution-batch-shell {
+    padding: 1rem 1.05rem;
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(255,255,255,0.95);
+    box-shadow: 0 12px 30px rgba(15,23,42,0.04);
+}
+.execution-batch-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin: 0.85rem 0 1rem 0;
+}
+.execution-batch-chip {
+    padding: 0.48rem 0.78rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148,163,184,0.18);
+    background: rgba(248,250,252,0.92);
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+.execution-batch-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.7rem;
+    margin-bottom: 1rem;
+}
+.execution-batch-summary-card {
+    padding: 0.82rem 0.9rem;
+    border-radius: 16px;
+    border: 1px solid rgba(226,232,240,0.9);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.96) 100%);
+}
+.execution-batch-summary-card small {
+    display: block;
+    color: #94A3B8;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.3rem;
+}
+.execution-batch-summary-card strong {
+    display: block;
+    color: #0F172A;
+    font-size: 0.95rem;
+}
+.execution-batch-verdict {
+    padding: 0.85rem 0.95rem;
+    border-radius: 16px;
+    border: 1px solid rgba(16,185,129,0.18);
+    background: linear-gradient(180deg, rgba(236,253,245,0.92) 0%, rgba(220,252,231,0.95) 100%);
+    margin-bottom: 0.9rem;
+}
+.execution-batch-verdict strong {
+    display: block;
+    color: #14532D;
+    font-size: 0.96rem;
+    margin-bottom: 0.22rem;
+}
+.execution-batch-verdict span {
+    color: #166534;
+    font-size: 0.84rem;
+    line-height: 1.55;
+}
 </style>
 """
 
@@ -1126,15 +1191,36 @@ def render_action_history(db, product_id: int, *, can_manage: bool = True):
                 f"{batch['batch_code']} · {status_labels.get(batch.get('status'), batch.get('status'))} · {batch.get('item_count', 0)} 项",
                 expanded=False,
             ):
-                st.caption(
-                    f"{batch.get('created_at', '')} ｜ {summary.get('context_label', '当前操作清单')}"
+                batch_meta_chips = "".join(
+                    f'<span class="execution-batch-chip">{escape(str(text))}</span>'
+                    for text in [
+                        batch.get("created_at", "")[:16],
+                        f"批次类型：{batch.get('batch_type')}",
+                        f"覆盖项数：{batch.get('item_count', 0)}",
+                    ]
+                    if text
+                )
+                summary_cards = "".join(
+                    f"""
+                    <div class="execution-batch-summary-card">
+                        <small>{escape(label)}</small>
+                        <strong>{escape(value)}</strong>
+                    </div>
+                    """
+                    for label, value in [
+                        ("重点关键词", top_terms),
+                        ("总花费", f"${float(summary.get('total_spend') or 0.0):.2f}"),
+                        ("总销售额", f"${float(summary.get('total_sales') or 0.0):.2f}"),
+                    ]
                 )
                 st.markdown(
-                    f"- 批次类型：{batch.get('batch_type')}\n"
-                    f"- 覆盖项数：{batch.get('item_count', 0)}\n"
-                    f"- 重点关键词：{top_terms}\n"
-                    f"- 总花费：${float(summary.get('total_spend') or 0.0):.2f}\n"
-                    f"- 总销售额：${float(summary.get('total_sales') or 0.0):.2f}"
+                    f"""
+                    <div class="execution-batch-shell">
+                        <div class="execution-batch-meta">{batch_meta_chips}</div>
+                        <div class="execution-batch-summary-grid">{summary_cards}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
                 )
                 effect_preview = get_execution_batch_effect_preview(db, batch)
                 st.write("**前后对比 / 复盘预览**")
@@ -1145,8 +1231,14 @@ def render_action_history(db, product_id: int, *, can_manage: bool = True):
                         f"基线：{effect_preview.get('baseline_created_at', '')} ｜ 当前最新：{effect_preview.get('current_created_at', '')}"
                     )
                     effect_summary = summarize_execution_batch_effect(effect_preview)
-                    st.success(
-                        f"{effect_summary.get('verdict', '继续观察')}｜{effect_summary.get('summary', '')}"
+                    st.markdown(
+                        f"""
+                        <div class="execution-batch-verdict">
+                            <strong>{escape(str(effect_summary.get('verdict', '继续观察')))}</strong>
+                            <span>{escape(str(effect_summary.get('summary', '')))}</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
                     )
                     effect_cards = effect_preview.get("cards") or []
                     if effect_cards:

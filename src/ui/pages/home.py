@@ -389,6 +389,31 @@ HOME_PAGE_CSS = """
     font-size: 0.9rem;
     line-height: 1.55;
 }
+.ops-template-meta {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.7rem;
+    margin-bottom: 1rem;
+}
+.ops-template-meta__card {
+    padding: 0.82rem 0.9rem;
+    border-radius: 16px;
+    border: 1px solid rgba(226, 232, 240, 0.88);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.96) 100%);
+}
+.ops-template-meta__card small {
+    display: block;
+    color: #94A3B8;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.28rem;
+}
+.ops-template-meta__card strong {
+    color: #0F172A;
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
 @media (max-width: 1100px) {
     .dashboard-kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -400,6 +425,9 @@ HOME_PAGE_CSS = """
         grid-template-columns: 1fr;
     }
     .ops-trend-grid {
+        grid-template-columns: 1fr;
+    }
+    .ops-template-meta {
         grid-template-columns: 1fr;
     }
 }
@@ -1147,30 +1175,49 @@ def _build_ops_template_payloads(
 
 
 def _render_ops_templates(templates: dict[str, str]) -> None:
-    labels = {
-        "boss_summary": "老板摘要模板",
-        "handoff_note": "执行交接模板",
-        "weekly_review": "周度复盘模板",
-    }
+    labels = [
+        ("boss_summary", "老板摘要模板", "给老板 / 管理者快速同步当日重点"),
+        ("handoff_note", "执行交接模板", "给执行同事或助理的操作说明"),
+        ("weekly_review", "周度复盘模板", "整理一周变化、动作与风险"),
+    ]
+    meta_cards_html = "".join(
+        f"""
+        <div class="ops-template-meta__card">
+            <small>模板用途</small>
+            <strong>{escape(label)}</strong>
+            <div style="margin-top:0.25rem;color:#64748B;font-size:0.82rem;line-height:1.5;">{escape(description)}</div>
+        </div>
+        """
+        for _, label, description in labels
+    )
     st.markdown(
         """
         <div class="ops-template-shell">
             <h3>运营模板中心</h3>
             <p>把首页已经整理好的判断直接转成可交付文本，减少你再手工整理日报、交接和复盘摘要的时间。</p>
+            <div class="ops-template-meta">
+        """
+        + meta_cards_html
+        + """
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    for key, label in labels.items():
+    tabs = st.tabs([label for _, label, _ in labels])
+    for tab, (key, label, description) in zip(tabs, labels, strict=False):
         value = templates.get(key, "").strip()
         if not value:
             continue
-        st.text_area(
-            label,
-            value=value,
-            height=140,
-            key=f"ops_template_{key}",
-        )
+        with tab:
+            st.caption(description)
+            st.text_area(
+                label,
+                value=value,
+                height=180,
+                key=f"ops_template_{key}",
+            )
+            st.caption("可直接复制后用于日报、交接或复盘。")
 
 
 def _build_pending_notices(pending_stats: dict[str, int]) -> list[tuple[str, str]]:
