@@ -442,10 +442,54 @@ class TestExportIntegration:
                             },
                         ]
                     )
+                if "FROM action_plans ap" in query:
+                    return FakeCursor(rows=[])
+                if "FROM manual_reviews" in query:
+                    return FakeCursor(rows=[])
+                if "FROM analysis_run_snapshots" in query:
+                    return FakeCursor(rows=[])
+                if "FROM rule_versions" in query:
+                    return FakeCursor(rows=[])
+                if "FROM strategy_profiles" in query:
+                    return FakeCursor(rows=[])
                 if "FROM search_terms st" in query:
-                    return FakeCursor(row={"count": 461})
+                    return FakeCursor(
+                        rows=[
+                            {
+                                "id": 11,
+                                "campaign_id": 1,
+                                "term": "travel pillow",
+                                "term_type": "keyword",
+                                "impressions": 100,
+                                "clicks": 12,
+                                "ctr": 0.12,
+                                "spend": 24.5,
+                                "cpc": 2.04,
+                                "orders": 2,
+                                "sales": 68.0,
+                                "acos": 0.36,
+                                "roas": 2.78,
+                                "conversion_rate": 0.16,
+                                "report_date": "2026-04-01",
+                                "created_at": "2026-04-01 12:00:00",
+                            }
+                        ]
+                    )
                 if "FROM analysis_results ar" in query:
-                    return FakeCursor(row={"count": 316})
+                    return FakeCursor(
+                        rows=[
+                            {
+                                "id": 21,
+                                "search_term_id": 11,
+                                "triggered_rule": "测试规则",
+                                "suggested_action": "否定精准",
+                                "action_type": "negative_exact",
+                                "confidence": 0.91,
+                                "ai_reasoning": "测试原因",
+                                "created_at": "2026-04-01 12:05:00",
+                            }
+                        ]
+                    )
                 raise AssertionError(f"Unexpected query: {query}")
 
         fake_db = FakeDb()
@@ -461,6 +505,8 @@ class TestExportIntegration:
         assert backup_payload["file_name"].endswith(".json")
         backup_data = pd.read_json(BytesIO(backup_payload["data"]), typ="series")
         assert backup_data["export_type"] == "full_backup"
+        assert len(backup_data["search_terms"]) == 1
+        assert len(backup_data["analysis_results"]) == 1
 
     def test_export_empty_results_returns_none(self):
         """测试空结果导出返回None"""

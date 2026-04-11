@@ -265,6 +265,33 @@ class Database:
             self.conn.rollback()
             raise RuntimeError(f"插入默认规则失败: {e}") from e
 
+    def ensure_local_owner_admin_memberships(self) -> int:
+        """为历史产品补齐默认本地管理员的 admin 成员关系。"""
+        owner = self.get_or_create_local_owner()
+        cursor = self.conn.execute("SELECT id FROM products")
+        product_ids = [row["id"] for row in cursor.fetchall()]
+        repaired = 0
+
+        for product_id in product_ids:
+            current_role = self.get_workspace_role(product_id, owner["id"])
+            if current_role == "admin":
+                continue
+            self.conn.execute(
+                """
+                INSERT INTO workspace_memberships (product_id, user_id, role)
+                VALUES (?, ?, 'admin')
+                ON CONFLICT(product_id, user_id) DO UPDATE SET
+                    role = 'admin',
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (product_id, owner["id"]),
+            )
+            repaired += 1
+
+        if repaired:
+            self.conn.commit()
+        return repaired
+
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """执行SQL语句"""
         return self._get_connection().execute(sql, params)

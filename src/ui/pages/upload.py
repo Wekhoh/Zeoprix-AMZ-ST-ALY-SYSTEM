@@ -591,6 +591,7 @@ def render_upload():
 
     # 文件上传（支持批量）
     st.subheader("3. 上传搜索词报告")
+    st.caption("当前产品的历史分析结果会持续保留；如果你想完全重新开始，请前往“系统设置 → 数据管理”执行清空或从完整备份恢复。")
 
     if not access_meta["can_import"]:
         _render_upload_ai_brief_section(

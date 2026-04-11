@@ -477,6 +477,11 @@ def _build_sidebar_collaboration_state(
         }
 
     current_user = _ensure_current_user_context(db)
+    if (
+        current_user["email"] == db.DEFAULT_LOCAL_OWNER_EMAIL
+        and db.get_workspace_role(current_product_id, current_user["id"]) is None
+    ):
+        db.add_workspace_member(current_product_id, current_user["id"], "admin")
     workspace_members = db.get_workspace_members(
         current_product_id,
         include_system_members=True,

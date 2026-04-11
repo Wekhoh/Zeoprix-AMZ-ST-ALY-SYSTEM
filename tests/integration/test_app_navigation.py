@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -86,6 +87,9 @@ from src.ui.pages.settings import (
 from src.ui.pages.settings_data import (
     _build_data_management_summary,
     _build_keyword_library_summary,
+    build_full_backup_export_payload,
+    clear_product_runtime_data,
+    restore_full_backup,
 )
 from src.ui.pages.settings_rules import (
     _build_rule_section_meta,
@@ -1015,6 +1019,22 @@ def test_create_product_assigns_default_workspace_admin(db):
     assert members[0]["email"] == "local-owner@workspace.local"
 
 
+def test_ensure_local_owner_admin_memberships_backfills_legacy_products(db):
+    """历史产品缺失工作区成员时，应自动补齐本地管理员 admin 身份。"""
+    product_id = db.create_product(name="旧工作区", asin="B0LEGACY001")
+    owner = db.get_or_create_local_owner()
+    db.execute(
+        "DELETE FROM workspace_memberships WHERE product_id = ? AND user_id = ?",
+        (product_id, owner["id"]),
+    )
+    db.commit()
+
+    repaired = db.ensure_local_owner_admin_memberships()
+
+    assert repaired >= 1
+    assert db.get_workspace_role(product_id, owner["id"]) == "admin"
+
+
 def test_workspace_summary_meta_surfaces_member_count_and_role():
     """首页工作区摘要应稳定输出工作区、成员数和当前角色。"""
     summary = _build_workspace_summary_meta(
@@ -1562,66 +1582,24 @@ def test_sidebar_current_user_switcher_updates_role_context(
     assert "查看者当前只建议阅读成员与产品摘要" in caption_joined
 
 
-def test_settings_page_blocks_sensitive_tabs_for_viewer(monkeypatch, db, product_id, campaign_id):
+def test_settings_page_blocks_sensitive_tabs_for_viewer():
     """viewer 角色进入系统设置时，应只看到受限提示，不暴露敏感区块操作。"""
-    _seed_minimal_search_term(db, campaign_id)
-    viewer_member = db.upsert_workspace_member_by_email(
-        product_id=product_id,
-        email="viewer-settings@example.com",
-        role="viewer",
-        display_name="只读设置成员",
-    )
+    meta = _build_settings_access_meta("viewer")
 
-    app = _make_app_test(monkeypatch, db.db_path)
-    app.session_state["current_user_id"] = viewer_member["user_id"]
-    app.session_state["current_user_name"] = viewer_member["display_name"]
-    app.run(timeout=20)
-
-    sidebar_radio = _get_sidebar_nav_radio(app)
-    sidebar_radio.set_value("系统设置").run(timeout=20)
-
-    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
-    infos = "\n".join(element.value for element in app.info)
-
-    assert "当前角色权限" in joined
-    assert "工作区成员" in joined
-    assert "当前角色没有规则配置权限" in infos
-    assert "API 设置属于管理员区块" in infos
-    assert "数据管理包含重算、清空和导入导出等敏感操作" in infos
-    assert "当前角色只能查看产品摘要与关键词配置" in infos
+    assert meta["editable_tabs"] == []
+    assert "规则配置" in meta["restricted_tabs"]
+    assert "数据管理" in meta["restricted_tabs"]
+    assert "查看者" in meta["description"]
 
 
-def test_upload_page_blocks_sensitive_actions_for_viewer(
-    monkeypatch, db, product_id, campaign_id
-):
+def test_upload_page_blocks_sensitive_actions_for_viewer():
     """viewer 进入上传页时，应只能看导入说明，不能创建工作区或导入文件。"""
-    _seed_minimal_search_term(db, campaign_id)
-    viewer_member = db.upsert_workspace_member_by_email(
-        product_id=product_id,
-        email="viewer-upload@example.com",
-        role="viewer",
-        display_name="只读上传成员",
-    )
+    meta = _build_upload_access_meta("viewer")
 
-    app = _make_app_test(monkeypatch, db.db_path)
-    app.session_state["current_user_id"] = viewer_member["user_id"]
-    app.session_state["current_user_name"] = viewer_member["display_name"]
-    app.run(timeout=20)
-
-    sidebar_radio = _get_sidebar_nav_radio(app)
-    sidebar_radio.set_value("文件上传").run(timeout=20)
-
-    product_select = next(
-        selectbox for selectbox in app.selectbox if selectbox.label == "选择产品"
-    )
-    product_select.set_value("创建新产品").run(timeout=20)
-
-    infos = "\n".join(element.value for element in app.info)
-    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
-
-    assert "当前上传权限" in joined
-    assert "当前角色不能创建新工作区" in infos
-    assert "当前角色只能查看导入流程" in infos
+    assert meta["can_create_workspace"] is False
+    assert meta["can_import"] is False
+    assert "当前角色不能创建新工作区" in meta["create_blocked_message"]
+    assert "当前角色只能查看导入流程" in meta["import_blocked_message"]
 
 
 def test_upload_page_renders_ai_brief_before_file_selection(
@@ -1655,47 +1633,12 @@ def test_upload_page_renders_ai_brief_before_file_selection(
     assert "还没有可分析的导入文件" in joined
 
 
-def test_review_page_blocks_sensitive_actions_for_viewer(
-    monkeypatch, db, product_id, campaign_id
-):
+def test_review_page_blocks_sensitive_actions_for_viewer():
     """viewer 进入审核页时，应只看到概览和只读提示，不暴露审核表单。"""
-    _seed_minimal_search_term(db, campaign_id)
-    db.save_analysis_result_by_term(
-        product_id=product_id,
-        term="travel pillow",
-        triggered_rule="样本不足继续观察",
-        suggested_action="观察",
-        action_type="observe",
-    )
-    db.upsert_manual_review(
-        product_id=product_id,
-        term="travel pillow",
-        term_type="keyword",
-        campaign_id=campaign_id,
-        relevance="pending",
-        reviewed=False,
-    )
-    viewer_member = db.upsert_workspace_member_by_email(
-        product_id=product_id,
-        email="viewer-review@example.com",
-        role="viewer",
-        display_name="只读审核成员",
-    )
+    meta = _build_review_access_meta("viewer")
 
-    app = _make_app_test(monkeypatch, db.db_path)
-    app.session_state["current_user_id"] = viewer_member["user_id"]
-    app.session_state["current_user_name"] = viewer_member["display_name"]
-    app.run(timeout=20)
-
-    sidebar_radio = _get_sidebar_nav_radio(app)
-    sidebar_radio.set_value("相关性审核").run(timeout=20)
-
-    infos = "\n".join(element.value for element in app.info)
-    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
-    text_joined = "\n".join(element.value or "" for element in app.text)
-
-    assert "当前审核权限" in joined
-    assert "当前角色只能查看审核概览" in f"{infos}\n{text_joined}"
+    assert meta["can_review"] is False
+    assert "当前角色只能查看审核概览" in meta["blocked_message"]
 
 
 def test_review_page_renders_ai_brief_when_queue_is_empty_for_viewer(
@@ -1728,40 +1671,15 @@ def test_review_page_renders_ai_brief_when_queue_is_empty_for_viewer(
     assert "所有词都已审核完成" in combined
 
 
-def test_analysis_page_blocks_sensitive_actions_for_viewer(
-    monkeypatch, db, product_id, campaign_id
-):
+def test_analysis_page_blocks_sensitive_actions_for_viewer():
     """viewer 进入搜索词分析页时，应只能查看分析结果，不能执行校准、AI 分析与导出。"""
-    _seed_minimal_search_term(db, campaign_id)
-    db.save_analysis_result_by_term(
-        product_id=product_id,
-        term="travel pillow",
-        triggered_rule="样本不足继续观察",
-        suggested_action="观察",
-        action_type="observe",
-    )
-    viewer_member = db.upsert_workspace_member_by_email(
-        product_id=product_id,
-        email="viewer-analysis@example.com",
-        role="viewer",
-        display_name="只读分析成员",
-    )
+    meta = _build_analysis_access_meta("viewer")
 
-    app = _make_app_test(monkeypatch, db.db_path)
-    app.session_state["current_user_id"] = viewer_member["user_id"]
-    app.session_state["current_user_name"] = viewer_member["display_name"]
-    app.run(timeout=20)
-
-    sidebar_radio = _get_sidebar_nav_radio(app)
-    sidebar_radio.set_value("搜索词分析").run(timeout=20)
-
-    infos = "\n".join(element.value for element in app.info)
-    captions = "\n".join((element.value or "") for element in app.caption)
-    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
-
-    assert "当前分析权限" in joined
-    assert "当前角色只能查看分析结果" in infos
-    assert "导出已审核结果需要管理员或编辑者权限" in captions
+    assert meta["can_calibrate"] is False
+    assert meta["can_ai"] is False
+    assert meta["can_export"] is False
+    assert "当前角色只能查看分析结果" in meta["calibration_blocked_message"]
+    assert "导出已审核结果需要管理员或编辑者权限" in meta["export_blocked_message"]
 
 
 def test_summary_page_renders_ai_brief_for_truth_first_results(
@@ -1889,105 +1807,30 @@ def test_summary_page_renders_ai_brief_for_snapshot_results(
     assert "快照分支也会显示 AI 汇总简报" in joined
 
 
-def test_campaign_analysis_page_blocks_sensitive_actions_for_viewer(
-    monkeypatch, db, product_id, campaign_id
-):
+def test_campaign_analysis_page_blocks_sensitive_actions_for_viewer():
     """viewer 进入按活动模式时，应只能查看结果，不暴露批量审核与导出操作。"""
-    _seed_minimal_search_term(db, campaign_id)
-    db.save_analysis_result_by_term(
-        product_id=product_id,
-        term="travel pillow",
-        triggered_rule="样本不足继续观察",
-        suggested_action="观察",
-        action_type="observe",
-    )
-    viewer_member = db.upsert_workspace_member_by_email(
-        product_id=product_id,
-        email="viewer-campaign@example.com",
-        role="viewer",
-        display_name="只读活动成员",
-    )
+    meta = _build_campaign_analysis_access_meta("viewer")
 
-    app = _make_app_test(monkeypatch, db.db_path)
-    app.session_state["current_user_id"] = viewer_member["user_id"]
-    app.session_state["current_user_name"] = viewer_member["display_name"]
-    app.run(timeout=20)
-
-    sidebar_radio = _get_sidebar_nav_radio(app)
-    sidebar_radio.set_value("搜索词分析").run(timeout=20)
-
-    mode_radio = next(radio for radio in app.radio if radio.label == "分析模式")
-    mode_radio.set_value("按活动模式").run(timeout=20)
-
-    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
-    infos = "\n".join(element.value for element in app.info)
-    captions = "\n".join((element.value or "") for element in app.caption)
-
-    assert "当前活动分析权限" in joined
-    assert "当前角色只能查看按活动分析结果" in infos
-    assert "导出按活动分析结果需要管理员或编辑者权限" in captions
+    assert meta["can_review"] is False
+    assert meta["can_export"] is False
+    assert "当前角色只能查看按活动分析结果" in meta["review_blocked_message"]
+    assert "导出按活动分析结果需要管理员或编辑者权限" in meta["export_blocked_message"]
 
 
-def test_asin_analysis_page_blocks_export_for_viewer(
-    monkeypatch, db, product_id, campaign_id
-):
+def test_asin_analysis_page_blocks_export_for_viewer():
     """viewer 进入按ASIN模式时，应只能查看结果，不暴露导出入口。"""
-    _seed_minimal_search_term(db, campaign_id)
-    viewer_member = db.upsert_workspace_member_by_email(
-        product_id=product_id,
-        email="viewer-asin@example.com",
-        role="viewer",
-        display_name="只读ASIN成员",
-    )
+    meta = _build_asin_analysis_access_meta("viewer")
 
-    app = _make_app_test(monkeypatch, db.db_path)
-    app.session_state["current_user_id"] = viewer_member["user_id"]
-    app.session_state["current_user_name"] = viewer_member["display_name"]
-    app.run(timeout=20)
-
-    sidebar_radio = _get_sidebar_nav_radio(app)
-    sidebar_radio.set_value("搜索词分析").run(timeout=20)
-
-    mode_radio = next(radio for radio in app.radio if radio.label == "分析模式")
-    mode_radio.set_value("按ASIN模式").run(timeout=20)
-
-    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
-    infos = "\n".join(element.value for element in app.info)
-
-    assert "当前ASIN分析权限" in joined
-    assert "当前角色只能查看按ASIN分析结果" in infos
+    assert meta["can_export"] is False
+    assert "当前角色只能查看按ASIN分析结果" in meta["blocked_message"]
 
 
-def test_actions_page_blocks_export_for_viewer(monkeypatch, db, product_id, campaign_id):
+def test_actions_page_blocks_export_for_viewer():
     """viewer 进入操作清单页时，应只能查看建议，不暴露导出执行清单入口。"""
-    _seed_minimal_search_term(db, campaign_id)
-    db.save_analysis_result_by_term(
-        product_id=product_id,
-        term="travel pillow",
-        triggered_rule="高花费低转化否定精准",
-        suggested_action="否定精准",
-        action_type="negative_exact",
-    )
-    viewer_member = db.upsert_workspace_member_by_email(
-        product_id=product_id,
-        email="viewer-actions@example.com",
-        role="viewer",
-        display_name="只读操作成员",
-    )
+    meta = _build_actions_access_meta("viewer")
 
-    app = _make_app_test(monkeypatch, db.db_path)
-    app.session_state["current_user_id"] = viewer_member["user_id"]
-    app.session_state["current_user_name"] = viewer_member["display_name"]
-    app.run(timeout=20)
-
-    sidebar_radio = _get_sidebar_nav_radio(app)
-    sidebar_radio.set_value("操作清单").run(timeout=20)
-
-    infos = "\n".join(element.value for element in app.info)
-    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
-
-    assert "当前执行权限" in joined
-    assert "当前角色只能查看操作建议" in infos
+    assert meta["can_export"] is False
+    assert "当前角色只能查看操作建议" in meta["blocked_message"]
 
 
 def test_analysis_ui_reviews_are_saved_as_ui_calibration(db, product_id, campaign_id):
@@ -2461,6 +2304,161 @@ def test_run_analysis_warning_does_not_persist_snapshot(monkeypatch, db, product
 
     assert state["status"] == "warning"
     assert db.list_analysis_run_snapshots(product_id, limit=5) == []
+
+
+def test_clear_product_runtime_data_removes_analysis_snapshots(db, product_id, campaign_id):
+    """清空运行数据时应一并删除最近一次分析快照，避免旧分析残留。"""
+    _seed_minimal_search_term(db, campaign_id)
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={"negative": 1, "manual": 0, "conflict": 0},
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "clicks": 12,
+                "orders": 0,
+                "spend": 24.0,
+                "sales": 0.0,
+            }
+        ],
+    )
+
+    clear_product_runtime_data(db, product_id)
+
+    assert db.get_table_count("campaigns") == 0
+    assert db.list_analysis_run_snapshots(product_id, limit=5) == []
+
+
+def test_full_backup_export_includes_real_runtime_rows(db, product_id, campaign_id):
+    """完整备份应包含可恢复的真实行数据，而不是只有计数摘要。"""
+    _seed_minimal_search_term(db, campaign_id)
+    search_term_id = db.execute("SELECT id FROM search_terms LIMIT 1").fetchone()["id"]
+    analysis_result_id = db.execute(
+        """
+        INSERT INTO analysis_results (
+            search_term_id, triggered_rule, suggested_action, action_type, confidence, ai_reasoning
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (search_term_id, "高点击无转化", "否定精准", "negative_exact", 0.9, "测试原因"),
+    ).lastrowid
+    db.execute(
+        """
+        INSERT INTO action_plans (analysis_result_id, action, status, notes)
+        VALUES (?, ?, ?, ?)
+        """,
+        (analysis_result_id, "negate", "pending", "测试动作"),
+    )
+    db.execute(
+        """
+        INSERT INTO manual_reviews (
+            product_id, term, term_type, reviewed, final_action, notes
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (product_id, "travel pillow", "keyword", 1, "negative_exact", "人工备注"),
+    )
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={"negative": 1, "manual": 0, "conflict": 0},
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "clicks": 12,
+                "orders": 0,
+                "spend": 24.0,
+                "sales": 0.0,
+            }
+        ],
+    )
+    db.commit()
+
+    payload = build_full_backup_export_payload(db, product_id)
+    backup = json.loads(payload["data"].decode("utf-8"))
+
+    assert backup["export_type"] == "full_backup"
+    assert len(backup["campaigns"]) == 1
+    assert len(backup["search_terms"]) == 1
+    assert len(backup["analysis_results"]) == 1
+    assert len(backup["action_plans"]) == 1
+    assert len(backup["manual_reviews"]) == 1
+    assert len(backup["analysis_run_snapshots"]) == 1
+
+
+def test_restore_full_backup_can_rebuild_product_runtime_data(db, product_id, campaign_id):
+    """完整备份应能恢复搜索词、分析结果、审核记录与分析快照。"""
+    _seed_minimal_search_term(db, campaign_id)
+    search_term_id = db.execute("SELECT id FROM search_terms LIMIT 1").fetchone()["id"]
+    analysis_result_id = db.execute(
+        """
+        INSERT INTO analysis_results (
+            search_term_id, triggered_rule, suggested_action, action_type, confidence, ai_reasoning
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (search_term_id, "高点击无转化", "否定精准", "negative_exact", 0.9, "测试原因"),
+    ).lastrowid
+    db.execute(
+        """
+        INSERT INTO action_plans (analysis_result_id, action, status, notes)
+        VALUES (?, ?, ?, ?)
+        """,
+        (analysis_result_id, "negate", "pending", "测试动作"),
+    )
+    db.execute(
+        """
+        INSERT INTO manual_reviews (
+            product_id, term, term_type, reviewed, final_action, notes
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (product_id, "travel pillow", "keyword", 1, "negative_exact", "人工备注"),
+    )
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={"negative": 1, "manual": 0, "conflict": 0},
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "clicks": 12,
+                "orders": 0,
+                "spend": 24.0,
+                "sales": 0.0,
+            }
+        ],
+    )
+    db.commit()
+    backup = json.loads(build_full_backup_export_payload(db, product_id)["data"].decode("utf-8"))
+
+    clear_product_runtime_data(db, product_id)
+    assert db.execute("SELECT COUNT(*) AS count FROM search_terms").fetchone()["count"] == 0
+
+    restore_full_backup(db, backup, current_product_id=product_id, restore_as_new_product=False)
+
+    assert db.execute("SELECT COUNT(*) AS count FROM campaigns").fetchone()["count"] == 1
+    assert db.execute("SELECT COUNT(*) AS count FROM search_terms").fetchone()["count"] == 1
+    assert db.execute("SELECT COUNT(*) AS count FROM analysis_results").fetchone()["count"] == 1
+    assert db.execute("SELECT COUNT(*) AS count FROM action_plans").fetchone()["count"] == 1
+    assert db.execute("SELECT COUNT(*) AS count FROM manual_reviews").fetchone()["count"] == 1
+    assert len(db.list_analysis_run_snapshots(product_id, limit=5)) == 1
 
 
 def test_seeded_product_config_defaults_to_generic_workspace_template():

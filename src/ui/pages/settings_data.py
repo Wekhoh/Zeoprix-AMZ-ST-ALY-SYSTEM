@@ -13,6 +13,62 @@ from src.ui.utils import safe_error
 logger = get_logger(__name__)
 
 
+def _fetch_rows(db, sql: str, params: tuple = ()) -> list[dict]:
+    """以 dict 列表形式读取查询结果。"""
+    cursor = db.execute(sql, params)
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def clear_product_runtime_data(db, product_id: int) -> None:
+    """清空产品运行数据，保留产品配置与规则配置。"""
+    db.execute(
+        """
+        DELETE FROM action_plans
+        WHERE analysis_result_id IN (
+            SELECT ar.id FROM analysis_results ar
+            JOIN search_terms st ON ar.search_term_id = st.id
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ?
+        )
+        """,
+        (product_id,),
+    )
+    db.execute(
+        """
+        DELETE FROM analysis_results
+        WHERE search_term_id IN (
+            SELECT st.id FROM search_terms st
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ?
+        )
+        """,
+        (product_id,),
+    )
+    db.execute(
+        "DELETE FROM analysis_run_snapshots WHERE product_id = ?",
+        (product_id,),
+    )
+    db.execute(
+        """
+        DELETE FROM search_terms
+        WHERE campaign_id IN (
+            SELECT id FROM campaigns WHERE product_id = ?
+        )
+        """,
+        (product_id,),
+    )
+    db.execute("DELETE FROM manual_reviews WHERE product_id = ?", (product_id,))
+    db.execute("DELETE FROM campaigns WHERE product_id = ?", (product_id,))
+    db.commit()
+
+
+def _delete_product_backup_records(db, product_id: int) -> None:
+    """删除产品级备份/版本数据，供完整恢复覆盖当前产品时使用。"""
+    db.execute("DELETE FROM rule_versions WHERE product_id = ?", (product_id,))
+    db.execute("DELETE FROM strategy_profiles WHERE source_product_id = ?", (product_id,))
+    db.commit()
+
+
 def _build_keyword_library_summary(config: dict | None) -> dict[str, str | list[str]]:
     """构建关键词库页的摘要信息。"""
     config = config or {}
@@ -94,37 +150,96 @@ def build_full_backup_export_payload(db, product_id: int) -> dict | None:
             "category": product.get("category", ""),
             "config": product.get("config", {}),
         },
+        "schema_version": 2,
         "campaigns": [],
+        "search_terms": [],
+        "analysis_results": [],
+        "action_plans": [],
+        "manual_reviews": [],
+        "analysis_run_snapshots": [],
+        "rule_versions": [],
+        "strategy_profiles": [],
         "search_terms_count": 0,
         "analysis_results_count": 0,
     }
-
-    cursor = db.execute(
-        "SELECT id, name, match_type, bid_strategy FROM campaigns WHERE product_id = ?",
+    backup_data["campaigns"] = _fetch_rows(
+        db,
+        "SELECT id, name, match_type, bid_strategy, created_at FROM campaigns WHERE product_id = ? ORDER BY id",
         (product_id,),
     )
-    backup_data["campaigns"] = [dict(c) for c in cursor.fetchall()]
-
-    cursor = db.execute(
+    backup_data["search_terms"] = _fetch_rows(
+        db,
         """
-        SELECT COUNT(*) as count FROM search_terms st
+        SELECT st.*
+        FROM search_terms st
         JOIN campaigns c ON st.campaign_id = c.id
         WHERE c.product_id = ?
+        ORDER BY st.id
         """,
         (product_id,),
     )
-    backup_data["search_terms_count"] = cursor.fetchone()["count"]
-
-    cursor = db.execute(
+    backup_data["analysis_results"] = _fetch_rows(
+        db,
         """
-        SELECT COUNT(*) as count FROM analysis_results ar
+        SELECT ar.*
+        FROM analysis_results ar
         JOIN search_terms st ON ar.search_term_id = st.id
         JOIN campaigns c ON st.campaign_id = c.id
         WHERE c.product_id = ?
+        ORDER BY ar.id
         """,
         (product_id,),
     )
-    backup_data["analysis_results_count"] = cursor.fetchone()["count"]
+    backup_data["action_plans"] = _fetch_rows(
+        db,
+        """
+        SELECT ap.*
+        FROM action_plans ap
+        JOIN analysis_results ar ON ap.analysis_result_id = ar.id
+        JOIN search_terms st ON ar.search_term_id = st.id
+        JOIN campaigns c ON st.campaign_id = c.id
+        WHERE c.product_id = ?
+        ORDER BY ap.id
+        """,
+        (product_id,),
+    )
+    backup_data["manual_reviews"] = _fetch_rows(
+        db,
+        "SELECT * FROM manual_reviews WHERE product_id = ? ORDER BY id",
+        (product_id,),
+    )
+    backup_data["analysis_run_snapshots"] = _fetch_rows(
+        db,
+        """
+        SELECT id, product_id, run_source, summary_json, snapshot_json, created_at
+        FROM analysis_run_snapshots
+        WHERE product_id = ?
+        ORDER BY id
+        """,
+        (product_id,),
+    )
+    backup_data["rule_versions"] = _fetch_rows(
+        db,
+        """
+        SELECT id, version, rules_snapshot, description, created_at
+        FROM rule_versions
+        WHERE product_id = ?
+        ORDER BY version
+        """,
+        (product_id,),
+    )
+    backup_data["strategy_profiles"] = _fetch_rows(
+        db,
+        """
+        SELECT id, name, lifecycle, goal, config_snapshot, notes, source_product_id, created_at, updated_at
+        FROM strategy_profiles
+        WHERE source_product_id = ?
+        ORDER BY id
+        """,
+        (product_id,),
+    )
+    backup_data["search_terms_count"] = len(backup_data["search_terms"])
+    backup_data["analysis_results_count"] = len(backup_data["analysis_results"])
 
     return {
         "data": json.dumps(backup_data, ensure_ascii=False, indent=2).encode("utf-8"),
@@ -133,8 +248,257 @@ def build_full_backup_export_payload(db, product_id: int) -> dict | None:
         "summary": {
             "search_terms_count": backup_data["search_terms_count"],
             "analysis_results_count": backup_data["analysis_results_count"],
+            "manual_reviews_count": len(backup_data["manual_reviews"]),
+            "snapshots_count": len(backup_data["analysis_run_snapshots"]),
         },
     }
+
+
+def restore_full_backup(
+    db,
+    backup_data: dict,
+    *,
+    current_product_id: int | None = None,
+    restore_as_new_product: bool = False,
+) -> int:
+    """从完整备份恢复产品数据，支持覆盖当前产品或恢复为新产品副本。"""
+    if backup_data.get("export_type") != "full_backup":
+        raise ValueError("当前文件不是完整数据备份。")
+
+    product_payload = backup_data.get("product") or {}
+    product_name = str(product_payload.get("name") or "恢复产品").strip() or "恢复产品"
+    product_asin = (product_payload.get("asin") or "").strip() or None
+    product_category = (product_payload.get("category") or "").strip() or None
+    product_config = product_payload.get("config") or {}
+
+    if restore_as_new_product:
+        target_name = f"{product_name}（恢复）"
+        target_product_id = db.create_product(
+            name=target_name,
+            asin=product_asin,
+            category=product_category,
+            config=product_config,
+        )
+    else:
+        if not current_product_id:
+            raise ValueError("覆盖当前产品恢复时必须先选择产品。")
+        target_product_id = current_product_id
+        db.update_product(
+            target_product_id,
+            name=product_name,
+            asin=product_asin,
+            category=product_category,
+            config=product_config,
+        )
+        clear_product_runtime_data(db, target_product_id)
+        _delete_product_backup_records(db, target_product_id)
+
+    campaign_id_map: dict[int, int] = {}
+    for campaign in backup_data.get("campaigns", []):
+        cursor = db.execute(
+            """
+            INSERT INTO campaigns (product_id, name, match_type, bid_strategy, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                target_product_id,
+                campaign.get("name"),
+                campaign.get("match_type"),
+                campaign.get("bid_strategy"),
+                campaign.get("created_at"),
+            ),
+        )
+        campaign_id_map[int(campaign["id"])] = cursor.lastrowid
+
+    search_term_id_map: dict[int, int] = {}
+    for search_term in backup_data.get("search_terms", []):
+        old_campaign_id = search_term.get("campaign_id")
+        new_campaign_id = campaign_id_map.get(int(old_campaign_id)) if old_campaign_id is not None else None
+        cursor = db.execute(
+            """
+            INSERT INTO search_terms (
+                campaign_id, term, term_type, impressions, clicks, ctr, spend, cpc,
+                orders, sales, acos, roas, conversion_rate, report_date, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                new_campaign_id,
+                search_term.get("term"),
+                search_term.get("term_type"),
+                search_term.get("impressions", 0),
+                search_term.get("clicks", 0),
+                search_term.get("ctr", 0.0),
+                search_term.get("spend", 0.0),
+                search_term.get("cpc", 0.0),
+                search_term.get("orders", 0),
+                search_term.get("sales", 0.0),
+                search_term.get("acos", 0.0),
+                search_term.get("roas", 0.0),
+                search_term.get("conversion_rate", 0.0),
+                search_term.get("report_date"),
+                search_term.get("created_at"),
+            ),
+        )
+        search_term_id_map[int(search_term["id"])] = cursor.lastrowid
+
+    analysis_result_id_map: dict[int, int] = {}
+    for result in backup_data.get("analysis_results", []):
+        old_search_term_id = int(result["search_term_id"])
+        cursor = db.execute(
+            """
+            INSERT INTO analysis_results (
+                search_term_id, triggered_rule, suggested_action, action_type,
+                confidence, ai_reasoning, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                search_term_id_map[old_search_term_id],
+                result.get("triggered_rule"),
+                result.get("suggested_action"),
+                result.get("action_type"),
+                result.get("confidence", 1.0),
+                result.get("ai_reasoning"),
+                result.get("created_at"),
+            ),
+        )
+        analysis_result_id_map[int(result["id"])] = cursor.lastrowid
+
+    for action_plan in backup_data.get("action_plans", []):
+        old_result_id = int(action_plan["analysis_result_id"])
+        if old_result_id not in analysis_result_id_map:
+            continue
+        db.execute(
+            """
+            INSERT INTO action_plans (
+                analysis_result_id, action, status, notes, executed_at, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                analysis_result_id_map[old_result_id],
+                action_plan.get("action"),
+                action_plan.get("status", "pending"),
+                action_plan.get("notes"),
+                action_plan.get("executed_at"),
+                action_plan.get("created_at"),
+            ),
+        )
+
+    for review in backup_data.get("manual_reviews", []):
+        old_campaign_id = review.get("campaign_id")
+        new_campaign_id = (
+            campaign_id_map.get(int(old_campaign_id))
+            if old_campaign_id not in (None, "")
+            else None
+        )
+        db.execute(
+            """
+            INSERT INTO manual_reviews (
+                product_id, term, term_type, campaign_id, asin_identifier, relevance,
+                relevance_notes, scope, competition_level, competition_notes,
+                ai_suggestion, ai_confidence, review_source, truth_action_type,
+                manual_action, auto_action, negate_keyword, negate_asin,
+                action_matrix, conflict_flag, evidence_payload, system_action,
+                final_action, reviewed, notes, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                target_product_id,
+                review.get("term"),
+                review.get("term_type", "keyword"),
+                new_campaign_id,
+                review.get("asin_identifier"),
+                review.get("relevance"),
+                review.get("relevance_notes"),
+                review.get("scope", "local"),
+                review.get("competition_level"),
+                review.get("competition_notes"),
+                review.get("ai_suggestion"),
+                review.get("ai_confidence"),
+                review.get("review_source"),
+                review.get("truth_action_type"),
+                review.get("manual_action"),
+                review.get("auto_action"),
+                review.get("negate_keyword"),
+                review.get("negate_asin"),
+                review.get("action_matrix"),
+                review.get("conflict_flag", 0),
+                review.get("evidence_payload"),
+                review.get("system_action"),
+                review.get("final_action"),
+                review.get("reviewed", 0),
+                review.get("notes"),
+                review.get("created_at"),
+                review.get("updated_at"),
+            ),
+        )
+
+    for snapshot in backup_data.get("analysis_run_snapshots", []):
+        db.execute(
+            """
+            INSERT INTO analysis_run_snapshots (
+                product_id, run_source, summary_json, snapshot_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                target_product_id,
+                snapshot.get("run_source", "manual"),
+                snapshot.get("summary_json"),
+                snapshot.get("snapshot_json"),
+                snapshot.get("created_at"),
+            ),
+        )
+
+    for version in backup_data.get("rule_versions", []):
+        db.execute(
+            """
+            INSERT INTO rule_versions (
+                product_id, version, rules_snapshot, description, created_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                target_product_id,
+                version.get("version"),
+                version.get("rules_snapshot"),
+                version.get("description"),
+                version.get("created_at"),
+            ),
+        )
+
+    for profile in backup_data.get("strategy_profiles", []):
+        profile_name = str(profile.get("name") or "").strip()
+        if not profile_name:
+            continue
+        existing = db.get_strategy_profile(name=profile_name)
+        if existing is not None:
+            profile_name = f"{profile_name}（恢复）"
+        db.execute(
+            """
+            INSERT INTO strategy_profiles (
+                name, lifecycle, goal, config_snapshot, notes, source_product_id,
+                created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                profile_name,
+                profile.get("lifecycle"),
+                profile.get("goal"),
+                profile.get("config_snapshot"),
+                profile.get("notes"),
+                target_product_id,
+                profile.get("created_at"),
+                profile.get("updated_at"),
+            ),
+        )
+
+    db.commit()
+    return target_product_id
 
 
 def render_keyword_library_settings(db, product_id: int):
@@ -390,7 +754,19 @@ def render_data_management(db, product_id: int):
         with col2:
             if st.button("清除分析结果", width="stretch"):
                 try:
-                    # 通过 search_term_id 关联删除
+                    # 通过 search_term_id 关联删除，同时移除运行快照，避免页面继续读取旧分析残留
+                    db.execute(
+                        """
+                        DELETE FROM action_plans
+                        WHERE analysis_result_id IN (
+                            SELECT ar.id FROM analysis_results ar
+                            JOIN search_terms st ON ar.search_term_id = st.id
+                            JOIN campaigns c ON st.campaign_id = c.id
+                            WHERE c.product_id = ?
+                        )
+                        """,
+                        (product_id,),
+                    )
                     db.execute(
                         """
                         DELETE FROM analysis_results
@@ -402,8 +778,12 @@ def render_data_management(db, product_id: int):
                         """,
                         (product_id,),
                     )
+                    db.execute(
+                        "DELETE FROM analysis_run_snapshots WHERE product_id = ?",
+                        (product_id,),
+                    )
                     db.commit()
-                    st.success("分析结果已清除")
+                    st.success("分析结果与最近一次分析快照已清除")
                 except Exception as e:
                     safe_error("分析结果清除", e)
 
@@ -422,52 +802,9 @@ def render_data_management(db, product_id: int):
         with col1:
             if st.button("清空所有搜索词数据", width="stretch", type="secondary"):
                 try:
-                    # 1. 先删除 action_plans（依赖 analysis_results）
-                    db.execute(
-                        """
-                        DELETE FROM action_plans
-                        WHERE analysis_result_id IN (
-                            SELECT ar.id FROM analysis_results ar
-                            JOIN search_terms st ON ar.search_term_id = st.id
-                            JOIN campaigns c ON st.campaign_id = c.id
-                            WHERE c.product_id = ?
-                        )
-                        """,
-                        (product_id,),
-                    )
-                    # 2. 删除 analysis_results
-                    db.execute(
-                        """
-                        DELETE FROM analysis_results
-                        WHERE search_term_id IN (
-                            SELECT st.id FROM search_terms st
-                            JOIN campaigns c ON st.campaign_id = c.id
-                            WHERE c.product_id = ?
-                        )
-                        """,
-                        (product_id,),
-                    )
-                    # 3. 删除 search_terms
-                    db.execute(
-                        """
-                        DELETE FROM search_terms
-                        WHERE campaign_id IN (
-                            SELECT id FROM campaigns WHERE product_id = ?
-                        )
-                        """,
-                        (product_id,),
-                    )
-                    # 4. 删除 manual_reviews (相关性审核记录)
-                    db.execute(
-                        "DELETE FROM manual_reviews WHERE product_id = ?", (product_id,)
-                    )
-                    # 5. 删除 campaigns
-                    db.execute(
-                        "DELETE FROM campaigns WHERE product_id = ?", (product_id,)
-                    )
-                    db.commit()
+                    clear_product_runtime_data(db, product_id)
                     st.success(
-                        "所有搜索词数据已清空，产品配置已保留。您现在可以上传新数据。"
+                        "所有搜索词、分析结果、审核记录与分析快照已清空，产品配置已保留。您现在可以上传新数据。"
                     )
                     st.rerun()
                 except Exception as e:
@@ -475,7 +812,7 @@ def render_data_management(db, product_id: int):
 
         with col2:
             st.caption(
-                "此操作会删除：搜索词记录、广告活动、分析结果、操作计划、相关性审核记录"
+                "此操作会删除：搜索词记录、广告活动、分析结果、操作计划、相关性审核记录、分析快照"
             )
             st.caption("保留：产品名称、ASIN、规则配置")
 
@@ -517,7 +854,9 @@ def render_data_management(db, product_id: int):
                     )
                     st.caption(
                         f"备份内容：{backup_payload['summary']['search_terms_count']} 条搜索词，"
-                        f"{backup_payload['summary']['analysis_results_count']} 条分析结果"
+                        f"{backup_payload['summary']['analysis_results_count']} 条分析结果，"
+                        f"{backup_payload['summary']['manual_reviews_count']} 条审核记录，"
+                        f"{backup_payload['summary']['snapshots_count']} 个分析快照"
                     )
                 else:
                     st.button("导出完整数据备份", disabled=True, width="stretch")
@@ -547,6 +886,54 @@ def render_data_management(db, product_id: int):
                     st.warning("文件格式不正确，请选择规则配置文件")
             except Exception as e:
                 safe_error("规则导入", e)
+
+        uploaded_backup = st.file_uploader(
+            "导入完整数据备份",
+            type=["json"],
+            help="上传之前导出的完整备份 JSON，可覆盖当前产品或恢复为新产品副本。",
+            key="import_full_backup",
+        )
+
+        if uploaded_backup:
+            try:
+                backup_data = json.load(uploaded_backup)
+                if backup_data.get("export_type") == "full_backup":
+                    restore_as_new = st.checkbox(
+                        "恢复为新产品副本（推荐保留当前产品时使用）",
+                        value=False,
+                        key="restore_full_backup_as_new",
+                    )
+                    backup_product = backup_data.get("product") or {}
+                    summary = {
+                        "search_terms_count": len(backup_data.get("search_terms", [])),
+                        "analysis_results_count": len(backup_data.get("analysis_results", [])),
+                        "manual_reviews_count": len(backup_data.get("manual_reviews", [])),
+                        "snapshots_count": len(backup_data.get("analysis_run_snapshots", [])),
+                    }
+                    st.caption(
+                        f"备份产品：{backup_product.get('name', '未命名产品')} ｜ "
+                        f"搜索词 {summary['search_terms_count']} 条 ｜ "
+                        f"分析结果 {summary['analysis_results_count']} 条 ｜ "
+                        f"审核记录 {summary['manual_reviews_count']} 条 ｜ "
+                        f"分析快照 {summary['snapshots_count']} 个"
+                    )
+                    if st.button("确认恢复完整备份", type="primary", key="confirm_restore_full_backup"):
+                        restored_product_id = restore_full_backup(
+                            db,
+                            backup_data,
+                            current_product_id=product_id,
+                            restore_as_new_product=restore_as_new,
+                        )
+                        if restore_as_new:
+                            st.session_state.current_product_id = restored_product_id
+                            st.success("完整备份已恢复为新的产品副本。")
+                        else:
+                            st.success("完整备份已覆盖恢复到当前产品。")
+                        st.rerun()
+                else:
+                    st.warning("文件格式不正确，请选择完整数据备份 JSON。")
+            except Exception as e:
+                safe_error("完整备份恢复", e)
 
     st.divider()
 

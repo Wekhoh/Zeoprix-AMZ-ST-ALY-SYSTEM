@@ -476,6 +476,14 @@ def render_home():
                 args=("系统设置",),
             )
 
+            st.button(
+                "数据清理与备份",
+                width="stretch",
+                on_click=_navigate_to,
+                args=("系统设置",),
+                help="进入系统设置 > 数据管理，执行清空、备份与恢复。",
+            )
+
     st.divider()
 
     overview_chart = all_data["overview_chart"]
