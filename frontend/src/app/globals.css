@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+:root {
+  --font-display: "SF Pro Display", "Inter", "Segoe UI", sans-serif;
+  --font-body: "Inter", "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { color-scheme: dark; }
+body { margin: 0; font-family: var(--font-body); background: #090e16; }
+.font-display { font-family: var(--font-display); }
+button, a, input, textarea { font: inherit; }
