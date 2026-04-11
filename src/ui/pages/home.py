@@ -9,8 +9,10 @@ from html import escape
 import streamlit as st
 
 from src.analysis.truth_replay import (
+    get_execution_batch_effect_preview,
     get_truth_first_overview_distribution,
     get_truth_first_pending_stats,
+    summarize_execution_batch_effect,
 )
 from src.config.logger import get_logger
 from src.rules.engine import analyze_search_terms
@@ -346,6 +348,24 @@ HOME_PAGE_CSS = """
     font-size: 1rem;
 }
 .ops-structure-shell p {
+    margin: 0 0 0.9rem 0;
+    color: #64748B;
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+.ops-effect-shell {
+    padding: 1.05rem 1.1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(255,255,255,0.94);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+    margin-bottom: 1.2rem;
+}
+.ops-effect-shell h3 {
+    margin: 0 0 0.35rem 0 !important;
+    font-size: 1rem;
+}
+.ops-effect-shell p {
     margin: 0 0 0.9rem 0;
     color: #64748B;
     font-size: 0.9rem;
@@ -985,6 +1005,64 @@ def _render_keyword_structure_summary(structure_summary: dict[str, object]) -> N
     _render_overview_chart(sorted_counts)
 
 
+def _get_recent_execution_effect_impl(db, product_id: int | None) -> dict[str, object]:
+    """构建首页最近执行效果摘要。"""
+    if not product_id:
+        return {
+            "title": "最近执行效果",
+            "status": "暂无批次",
+            "summary": "当前还没有执行批次，先在操作清单里生成一批可执行动作。",
+            "chips": [],
+        }
+
+    batches = db.list_execution_batches(product_id, limit=1)
+    if not batches:
+        return {
+            "title": "最近执行效果",
+            "status": "暂无批次",
+            "summary": "当前还没有执行批次，先在操作清单里生成一批可执行动作。",
+            "chips": [],
+        }
+
+    batch = batches[0]
+    effect_preview = get_execution_batch_effect_preview(db, batch)
+    summary = summarize_execution_batch_effect(effect_preview)
+    summary["batch_code"] = batch.get("batch_code")
+    summary["batch_status"] = batch.get("status")
+    summary["created_at"] = batch.get("created_at")
+    return summary
+
+
+def _render_recent_execution_effect(effect_summary: dict[str, object]) -> None:
+    chips_html = "".join(
+        f'<span class="dashboard-chip dashboard-chip--neutral">{escape(str(chip))}</span>'
+        for chip in effect_summary.get("chips", [])
+    )
+    meta_line = " ｜ ".join(
+        part
+        for part in [
+            str(effect_summary.get("batch_code") or "").strip(),
+            str(effect_summary.get("batch_status") or "").strip(),
+            str(effect_summary.get("created_at") or "")[:16],
+        ]
+        if part
+    )
+    st.markdown(
+        f"""
+        <div class="ops-effect-shell">
+            <h3>{escape(str(effect_summary.get('title') or '最近执行效果'))}</h3>
+            <p>{escape(str(effect_summary.get('summary') or '当前还没有足够的信息来判断最近执行效果。'))}</p>
+            <div class="dashboard-hero__chips">
+                <span class="dashboard-chip dashboard-chip--success">{escape(str(effect_summary.get('status') or '待观察'))}</span>
+                {chips_html}
+            </div>
+            {"<p style='margin-top:0.85rem;color:#94A3B8;font-size:0.82rem;'>" + escape(meta_line) + "</p>" if meta_line else ""}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _build_pending_notices(pending_stats: dict[str, int]) -> list[tuple[str, str]]:
     """将首页待处理项整理为稳定、可测试的提示列表。"""
     notices: list[tuple[str, str]] = []
@@ -1121,6 +1199,7 @@ def render_home():
     )
     trend_summary = _get_trend_summary_impl(db, product_id)
     structure_summary = _get_keyword_structure_summary_impl(db, product_id)
+    recent_execution_effect = _get_recent_execution_effect_impl(db, product_id)
 
     _render_workbench_status(runtime_state)
 
@@ -1133,6 +1212,7 @@ def render_home():
         _render_trend_overview(trend_summary)
 
     _render_keyword_structure_summary(structure_summary)
+    _render_recent_execution_effect(recent_execution_effect)
 
     # 待处理项
     col_left, col_right = st.columns(2)

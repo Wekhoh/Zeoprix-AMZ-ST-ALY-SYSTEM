@@ -846,6 +846,128 @@ def get_latest_analysis_run_summary_delta(
     }
 
 
+def get_execution_batch_effect_preview(
+    db: Database,
+    batch: dict[str, Any],
+) -> dict[str, Any]:
+    """基于执行批次基线快照与当前最新快照，生成第一版执行效果预览。"""
+    summary = batch.get("summary") or {}
+    baseline_snapshot_id = summary.get("baseline_snapshot_id")
+    if not baseline_snapshot_id:
+        return {
+            "available": False,
+            "message": "该执行批次创建时还没有记录分析基线，暂时无法比较前后变化。",
+        }
+
+    baseline_snapshot = db.get_analysis_run_snapshot(int(baseline_snapshot_id))
+    latest_snapshots = db.list_analysis_run_snapshots(batch["product_id"], limit=1)
+    latest_snapshot = latest_snapshots[0] if latest_snapshots else None
+
+    if baseline_snapshot is None:
+        return {
+            "available": False,
+            "message": "执行前基线快照已不存在，暂时无法比较前后变化。",
+        }
+    if latest_snapshot is None:
+        return {
+            "available": False,
+            "message": "当前还没有新的分析快照，先重新运行分析后再回来复盘。",
+        }
+    if int(latest_snapshot["id"]) == int(baseline_snapshot["id"]):
+        return {
+            "available": False,
+            "message": "执行批次创建后还没有形成新的分析快照，先跑一轮最新分析再回来复盘。",
+        }
+
+    baseline_summary = baseline_snapshot.get("summary", {}) or build_analysis_run_snapshot_summary(
+        baseline_snapshot.get("rows", []) or []
+    )
+    current_summary = latest_snapshot.get("summary", {}) or build_analysis_run_snapshot_summary(
+        latest_snapshot.get("rows", []) or []
+    )
+
+    cards = []
+    for label, key in (
+        ("建议否定", "negative_count"),
+        ("建议手动投放", "manual_count"),
+        ("继续观察", "observe_count"),
+        ("跨ASIN分歧", "conflict_count"),
+    ):
+        previous_value = int(baseline_summary.get(key, 0) or 0)
+        current_value = int(current_summary.get(key, 0) or 0)
+        cards.append(
+            {
+                "label": label,
+                "before": previous_value,
+                "after": current_value,
+                "delta": current_value - previous_value,
+            }
+        )
+
+    raw_diff_rows = build_analysis_run_diff_rows(
+        baseline_snapshot.get("rows", []) or [],
+        latest_snapshot.get("rows", []) or [],
+    )
+    preview_rows = [
+        {
+            "term": row.get("term") or "",
+            "old_action_type": row.get("old_action_type") or "none",
+            "new_action_type": row.get("new_action_type") or "none",
+            "old_suggested_action": row.get("old_suggested_action") or "无",
+            "new_suggested_action": row.get("new_suggested_action") or "无",
+        }
+        for row in raw_diff_rows[:5]
+    ]
+
+    return {
+        "available": True,
+        "baseline_created_at": baseline_snapshot.get("created_at"),
+        "current_created_at": latest_snapshot.get("created_at"),
+        "cards": cards,
+        "preview_rows": preview_rows,
+    }
+
+
+def summarize_execution_batch_effect(preview: dict[str, Any]) -> dict[str, str | list[str]]:
+    """将执行批次前后对比压缩成首页可展示的效果摘要。"""
+    if not preview.get("available"):
+        return {
+            "title": "最近执行效果",
+            "status": "待观察",
+            "summary": str(preview.get("message") or "当前还没有足够的新分析结果来判断执行效果。"),
+            "chips": [],
+        }
+
+    cards = preview.get("cards") or []
+    deltas = {card["label"]: int(card.get("delta") or 0) for card in cards}
+    negative_delta = deltas.get("建议否定", 0)
+    manual_delta = deltas.get("建议手动投放", 0)
+    conflict_delta = deltas.get("跨ASIN分歧", 0)
+    observe_delta = deltas.get("继续观察", 0)
+
+    if (negative_delta < 0 and manual_delta >= 0) or conflict_delta < 0:
+        status = "出现改善信号"
+        summary = "执行后，止损压力或分歧数量开始下降，且更可执行的补量机会正在浮现。"
+    elif negative_delta == 0 and manual_delta == 0 and conflict_delta == 0 and observe_delta == 0:
+        status = "变化不明显"
+        summary = "执行前后当前这批关键动作的数量没有明显变化，建议结合更多天数继续观察。"
+    else:
+        status = "继续观察"
+        summary = "当前已经出现变化，但还不足以明确判断这批动作是否真正带来改善，建议继续拉新一轮分析。"
+
+    chips = [
+        f"建议否定 {negative_delta:+d}",
+        f"手动投放 {manual_delta:+d}",
+        f"分歧词 {conflict_delta:+d}",
+    ]
+    return {
+        "title": "最近执行效果",
+        "status": status,
+        "summary": summary,
+        "chips": chips,
+    }
+
+
 def get_truth_first_overview_distribution(
     db: Database,
     product_id: int,

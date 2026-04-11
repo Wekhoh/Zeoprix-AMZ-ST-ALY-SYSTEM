@@ -18,8 +18,10 @@ from src.config.product_defaults import build_seeded_product_config
 from src.rules.engine import AnalysisResult
 from src.analysis.truth_replay import (
     build_analysis_run_snapshot_rows,
+    get_execution_batch_effect_preview,
     get_latest_analysis_run_diff_preview,
     get_latest_analysis_run_summary_delta,
+    summarize_execution_batch_effect,
 )
 from src.ai.chat import ChatResponse, GuidedOption
 from src.ai.copilot import (
@@ -56,7 +58,6 @@ from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summar
 from src.ui.pages.actions import (
     _build_actions_access_meta,
     _build_actions_workbench_meta,
-    _build_execution_batch_effect_preview,
     _build_snapshot_action_buckets,
     _get_export_results,
     _get_latest_snapshot_action_context,
@@ -68,6 +69,7 @@ from src.ui.pages.home import (
     _build_workbench_status_cards,
     _classify_structure_bucket,
     _get_keyword_structure_summary_impl,
+    _get_recent_execution_effect_impl,
     _get_trend_summary_impl,
     _get_product_runtime_state_impl,
     _build_workspace_summary_meta,
@@ -2936,7 +2938,7 @@ def test_execution_batch_effect_preview_compares_baseline_to_latest_snapshot(db,
         draft_note="测试批次",
     )
 
-    preview = _build_execution_batch_effect_preview(db, batch)
+    preview = get_execution_batch_effect_preview(db, batch)
 
     assert preview["available"] is True
     assert preview["cards"][0]["label"] == "建议否定"
@@ -2944,6 +2946,141 @@ def test_execution_batch_effect_preview_compares_baseline_to_latest_snapshot(db,
     assert preview["cards"][0]["after"] == 1
     assert preview["cards"][1]["after"] == 2
     assert preview["preview_rows"][0]["term"] == "travel pillow"
+
+
+def test_summarize_execution_batch_effect_builds_recent_effect_summary():
+    """首页最近执行效果摘要应能把前后变化压缩成人可读结论。"""
+    summary = summarize_execution_batch_effect(
+        {
+            "available": True,
+            "cards": [
+                {"label": "建议否定", "before": 3, "after": 1, "delta": -2},
+                {"label": "建议手动投放", "before": 1, "after": 2, "delta": 1},
+                {"label": "继续观察", "before": 0, "after": 1, "delta": 1},
+                {"label": "跨ASIN分歧", "before": 1, "after": 0, "delta": -1},
+            ],
+        }
+    )
+
+    assert summary["title"] == "最近执行效果"
+    assert summary["status"] == "出现改善信号"
+    assert any("建议否定 -2" == chip for chip in summary["chips"])
+
+
+def test_get_recent_execution_effect_impl_uses_latest_batch_and_snapshot(db, product_id):
+    """首页最近执行效果应读取最新执行批次，并给出执行效果摘要。"""
+    baseline_snapshot_id = db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={
+            "negative_count": 4,
+            "manual_count": 1,
+            "observe_count": 0,
+            "conflict_count": 1,
+        },
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+            }
+        ],
+    )
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={
+            "negative_count": 2,
+            "manual_count": 2,
+            "observe_count": 1,
+            "conflict_count": 0,
+        },
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "manual_exact",
+                "suggested_action": "手动精准",
+            }
+        ],
+    )
+    db.create_execution_batch(
+        product_id=product_id,
+        batch_type="negative",
+        summary={
+            "item_count": 1,
+            "baseline_snapshot_id": baseline_snapshot_id,
+            "baseline_snapshot_created_at": "2026-04-11 12:00:00",
+            "items": [{"term": "travel pillow"}],
+        },
+        draft_note="测试批次",
+    )
+
+    effect_summary = _get_recent_execution_effect_impl(db, product_id)
+
+    assert effect_summary["title"] == "最近执行效果"
+    assert effect_summary["status"] in {"出现改善信号", "继续观察", "变化不明显"}
+    assert effect_summary["batch_code"]
+
+
+def test_homepage_renders_recent_execution_effect_section(monkeypatch, db, product_id, campaign_id):
+    """首页应渲染最近执行效果卡片。"""
+    monkeypatch.setattr(
+        "src.ui.pages.home.get_all_dashboard_data",
+        lambda *_args, **_kwargs: {
+            "dashboard_stats": {
+                "term_count": 12,
+                "total_spend": 88.0,
+                "total_orders": 5,
+                "total_sales": 220.0,
+                "acos": 0.4,
+            },
+            "pending_stats": {
+                "review_pending_count": 0,
+                "negative_count": 1,
+                "manual_count": 1,
+                "conflict_count": 0,
+            },
+            "overview_chart": {"title": "数据概览", "data": {"高点击无转化": 3}},
+        },
+    )
+    monkeypatch.setattr(
+        "src.ui.pages.home._get_product_runtime_state_impl",
+        lambda *_args, **_kwargs: {
+            "stage_key": "ready_for_execution",
+            "stage_title": "待执行优化动作",
+            "stage_description": "先止损再补量。",
+            "latest_snapshot_at": "2026-04-11 12:34:56",
+            "snapshot_count": 3,
+            "campaign_count": 6,
+            "search_term_count": 316,
+            "analysis_result_count": 98,
+            "manual_review_count": 25,
+            "next_actions": [("进入操作清单", "按优先级执行当前动作。")],
+        },
+    )
+    monkeypatch.setattr(
+        "src.ui.pages.home._get_recent_execution_effect_impl",
+        lambda *_args, **_kwargs: {
+            "title": "最近执行效果",
+            "status": "出现改善信号",
+            "summary": "执行后，止损压力开始下降。",
+            "chips": ["建议否定 -2", "手动投放 +1"],
+            "batch_code": "NEG-20260411-120000-ABC123",
+            "batch_status": "reviewed",
+            "created_at": "2026-04-11 12:40:00",
+        },
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_product_id"] = product_id
+    app.run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    assert "最近执行效果" in joined
 
 
 def test_seeded_product_config_defaults_to_generic_workspace_template():
