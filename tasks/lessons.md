@@ -61,3 +61,10 @@
 - Preventive rule: 只要进入发布准备/收尾模式，必须额外检查 3 类非 happy path：① 默认身份与权限落点；② 清空/重置是否连 snapshot 等派生数据一起清掉；③ 任何名为“完整备份”的功能都必须包含真实可恢复数据，并至少支持一次恢复验证。
 - Trigger to apply: 用户提到“正式发布前”“还有几处问题”“viewer/残留/备份”这类发布前体检诉求时。
 - How to verify the rule worked: 保留证据证明默认角色正确、清空后 `latest snapshot` 不再残留、完整备份可导出真实 rows 并能恢复到当前产品或新产品副本，同时全量回归和评估脚本继续通过。
+
+## 2026-04-11（产品成熟化阶段也要显式 docs-first）
+- Context: 主人指出我在执行产品成熟化与 AI 融合升级时，没有显式使用 `context-hub-third-party-docs` / `context7` / 官方文档链路，质疑我没有严格遵守 AGENTS 里的文档优先要求。
+- Mistake pattern: 把“前端体验优化 / AI 产品化 / 本地业务重构”过度解释成纯本地代码问题，从而跳过显式的 docs-first 校验；虽然很多改动不涉及外部 API 接口变更，但在产品模式、交互范式、第三方框架行为上仍然应该先做文档或官方资料校验。
+- Preventive rule: 只要任务涉及 **产品成熟化、交互模式升级、AI 能力嵌入、第三方框架行为（如 Streamlit）**，必须显式执行一次 docs-first 流程：优先查 `context-hub-third-party-docs`，不足时再用 `context7` 或官方资料；最终回答里要明确写出“哪些部分基于本地代码真相，哪些部分基于外部文档/官方模式”。不能只在脑子里默认“这是本地逻辑改动所以不用查”。
+- Trigger to apply: 用户提到“参考成熟产品”“产品应用不够成熟”“像优秀产品那样”“AI 融合更自然”“为什么没用 chub/context7”这类要求，或任务明显涉及 Streamlit / AI 交互 / 产品工作流设计时。
+- How to verify the rule worked: 交付前能明确提供 docs-first 证据（所查来源、为什么采用该模式），并在实施说明里区分“本地仓库事实”与“外部文档依据”，避免再次被主人指出“你没按 AGENTS 走”。 
