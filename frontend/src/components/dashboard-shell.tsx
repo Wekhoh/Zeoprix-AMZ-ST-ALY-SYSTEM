@@ -56,13 +56,15 @@ export function DashboardShell({ children, title, subtitle }: { children: ReactN
                   key={item.href}
                   href={item.href}
                   className={`group flex items-center justify-between rounded-2xl px-4 py-3 transition ${
-                    active ? "bg-[#111111] text-white" : "text-black/60 hover:bg-black/[0.04] hover:text-black"
+                    active
+                      ? "bg-zinc-900 text-white shadow-sm"
+                      : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <span className={active ? "text-white" : "text-black/35"}>{iconMap[item.href]}</span>
+                    <span className={active ? "text-indigo-200" : "text-zinc-400"}>{iconMap[item.href]}</span>
                     <div>
-                      <div className={`text-[10px] uppercase tracking-[0.22em] ${active ? "text-white/55" : "text-black/35"}`}>{item.eyebrow}</div>
+                      <div className={`text-[10px] uppercase tracking-[0.22em] ${active ? "text-white/55" : "text-zinc-400"}`}>{item.eyebrow}</div>
                       <div className="text-[13px] font-medium">{item.label}</div>
                     </div>
                   </div>
@@ -78,64 +80,64 @@ export function DashboardShell({ children, title, subtitle }: { children: ReactN
           </div>
         </aside>
 
-        <main className="relative overflow-hidden border-r border-black/6 bg-[#fcfcfa] px-10 py-8">
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(15,23,42,0.04)_1px,transparent_1px),linear-gradient(to_bottom,rgba(15,23,42,0.04)_1px,transparent_1px)] bg-[size:88px_88px] opacity-80" />
+        <main className="relative overflow-hidden border-r border-zinc-200/60 bg-zinc-50 px-10 py-8">
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(24,24,27,0.04)_1px,transparent_1px),linear-gradient(to_bottom,rgba(24,24,27,0.04)_1px,transparent_1px)] bg-[size:88px_88px] opacity-70" />
           <div className="relative z-10">
             <header className="mb-10 flex items-start justify-between gap-8 border-b border-black/6 pb-8">
               <div className="max-w-4xl">
-                <div className="text-[11px] uppercase tracking-[0.24em] text-black/35">运营工作台</div>
-                <h2 className="mt-4 max-w-[12ch] font-display text-[3rem] leading-[1] font-semibold tracking-[-0.05em] text-[#111111]">{title}</h2>
-                <p className="mt-5 max-w-3xl text-[15px] leading-7 text-black/48">{subtitle}</p>
+                <div className="text-[11px] uppercase tracking-[0.24em] text-zinc-400">运营工作台</div>
+                <h2 className="mt-4 whitespace-nowrap font-display text-[2.4rem] leading-none font-semibold tracking-[-0.045em] text-zinc-900">{title}</h2>
+                <p className="mt-5 max-w-3xl text-base leading-relaxed text-zinc-700">{subtitle}</p>
               </div>
-              <div className="rounded-[28px] border border-black/8 bg-white px-5 py-4 text-right shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-                <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">今天建议先做</div>
-                <div className="mt-3 max-w-[14rem] text-[12px] leading-6 font-medium text-[#111111]">先止损，再补量，最后复盘分歧词</div>
+              <div className="rounded-[24px] border border-zinc-200/60 bg-white px-5 py-4 text-right shadow-sm">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">今天建议先做</div>
+                <div className="mt-3 max-w-[14rem] text-[13px] leading-6 font-medium text-zinc-900">先止损，再补量，最后复盘分歧词</div>
               </div>
             </header>
             {children}
           </div>
         </main>
 
-        <aside className="bg-[#f6f7f4] px-6 py-6">
+        <aside className="bg-zinc-50 px-6 py-6">
           <div className="mb-6 flex items-center gap-3">
-            <div className="rounded-2xl border border-black/8 bg-white p-2 text-black/70"><Bot className="h-5 w-5" /></div>
+            <div className="rounded-2xl border border-zinc-200/60 bg-white p-2 text-zinc-700 shadow-sm"><Bot className="h-5 w-5" /></div>
             <div>
-              <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">Copilot</div>
-              <div className="text-[14px] font-medium text-[#111111]">AI 运营副驾驶</div>
+              <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">Copilot</div>
+              <div className="text-[14px] font-medium text-zinc-900">AI 运营副驾驶</div>
             </div>
           </div>
 
-          <div className="mb-4 rounded-[24px] border border-black/8 bg-white p-4">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">当前上下文</div>
-            <div className="mt-2 text-[13px] font-medium text-[#111111]">{productContext.name}</div>
-            <p className="mt-2 text-[12px] leading-6 text-black/46">基于最近一次分析结果、执行批次与审核沉淀生成建议。</p>
+          <div className="mb-4 rounded-[24px] border border-zinc-200/60 bg-white p-4 shadow-sm">
+            <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">当前上下文</div>
+            <div className="mt-2 text-[13px] font-medium text-zinc-900">{productContext.name}</div>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-600">基于最近一次分析结果、执行批次与审核沉淀生成建议。</p>
           </div>
 
           <div className="space-y-4">
             {aiCopilotCards.map((card) => (
-              <section key={card.title} className="rounded-[24px] border border-black/8 bg-white p-4">
-                <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">{card.title}</div>
-                <div className="mt-3 text-[13px] leading-6 font-medium text-[#111111]">{card.summary}</div>
-                <p className="mt-2 text-[12px] leading-6 text-black/46">{card.context}</p>
+              <section key={card.title} className="rounded-[24px] border border-zinc-200/60 bg-white p-4 shadow-sm">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">{card.title}</div>
+                <div className="mt-3 text-[13px] leading-6 font-medium text-zinc-900">{card.summary}</div>
+                <p className="mt-2 text-sm leading-relaxed text-zinc-600">{card.context}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {card.prompts.map((prompt) => (
-                    <button key={prompt} className="rounded-full border border-black/8 bg-[#fafaf7] px-3 py-1.5 text-[12px] text-black/70 transition hover:border-black/15 hover:bg-black/[0.03]">{prompt}</button>
+                    <button key={prompt} className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-medium text-zinc-700 transition hover:bg-zinc-200">{prompt}</button>
                   ))}
                 </div>
               </section>
             ))}
           </div>
 
-          <div className="mt-6 rounded-[24px] border border-black/8 bg-white p-4">
+          <div className="mt-6 rounded-[24px] border border-zinc-200/60 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">准备提问</div>
-                <div className="mt-1 text-[12px] text-black/46">用副驾驶把结果解释成可执行动作</div>
+                <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">准备提问</div>
+                <div className="mt-1 text-sm text-zinc-600">用副驾驶把结果解释成可执行动作</div>
               </div>
-              <Settings2 className="h-4 w-4 text-black/35" />
+              <Settings2 className="h-4 w-4 text-zinc-400" />
             </div>
-            <div className="mt-4 rounded-[20px] border border-black/8 bg-[#fafaf7] p-3 text-[12px] text-black/42">“帮我基于当前批次，生成老板摘要和执行备注”</div>
-            <button className="mt-4 w-full rounded-[20px] bg-[#111111] px-4 py-3 text-[13px] font-medium text-white transition hover:bg-black">打开 AI 助手</button>
+            <div className="mt-4 rounded-[20px] border border-zinc-200/60 bg-zinc-50 p-3 text-[12px] text-zinc-500">“帮我基于当前批次，生成老板摘要和执行备注”</div>
+            <button className="mt-4 w-full rounded-[20px] bg-zinc-900 px-4 py-3 text-[13px] font-medium text-white transition hover:bg-black">打开 AI 助手</button>
           </div>
         </aside>
       </div>
