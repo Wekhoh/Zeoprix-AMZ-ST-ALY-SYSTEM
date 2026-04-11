@@ -6,6 +6,7 @@
   - 分析运行快照、词级 diff、汇总 delta、规则解释
   - 上传→分析主链状态边界收口
   - AI 审核建议的持久化 / 重试 / 失败体验
+  - 新前端工作台壳的视觉重构与信息层级收敛
 - Out of scope:
   - 完整 FastAPI / PostgreSQL / 正式登录系统
   - 完整团队邀请、审计日志与企业级权限体系
@@ -22,65 +23,13 @@
   - 已完成：AI 失败 / 重试 / 空态提示稳定化
   - 已完成：上传成功 ≠ 分析成功，upload/settings_data 已统一状态反馈
   - 已完成：成功分析后持久化运行快照，供“最近一次有效分析结果”复用
-  - 正在推进：将汇总 / 活动 / ASIN / 操作清单统一到最近一次有效分析结果读取
+  - 已完成：成熟化工作台首页、执行批次、复盘预览与模板中心
+  - 已完成：独立前端壳首版改成白底、轻边框、低噪音的 Vercel 风格工作台，并收敛首页信息密度与 typography
 - Evidence:
-  - 最近全量验证基线：`python -m pytest -q` => 323 passed, 10 skipped, 2 warnings
-  - `analyze_mismatches.py` => campaign 107/107, aggregate 398/398
-  - AI 审核建议状态回归：`python -m pytest -q tests/unit/test_manual_review_relevance.py -k "save_manual_review_ai_suggestion_persists_status_payload or build_ai_request_state or reads_retry_metadata"` => 4 passed
-  - 上传→分析状态回归：`python -m pytest -q tests/integration/test_app_navigation.py -k "analysis_run_state_tracks_counts_and_retry_flags or run_analysis_returns_warning_when_no_aggregated_terms or run_analysis_returns_warning_when_engine_produces_no_suggestions or run_analysis_persists_snapshot_on_success or run_analysis_warning_does_not_persist_snapshot"` => 5 passed
-  - 最新评估：`python scripts/evaluate_product.py --llm-score workspace=97 --llm-score permissions=97 --llm-score analysis=97 --llm-score governance=97 --change-note "迭代18：成功分析后持久化 snapshot，统一最近一次有效分析结果来源"` => objective 99.50 / llm avg 97.00 / total 98.50
-  - 已推送最近提交：`c3405c5 feat: stabilize review ai retry feedback`、`a677670 feat: clarify upload-to-analysis run states`
+  - 最近全量验证基线：`python -m pytest -q` => 381 passed, 10 skipped, 2 warnings
+  - 新前端验证：`cd frontend && npm run build` => passed；`npm run lint` => passed
+  - 浏览器快照：`tasks/frontend-home-v2.png` 显示白底、轻卡片、单内容 Tabs 模板中心与更克制的首页层级
 - Risks / follow-ups:
-  - 分析页 / 操作清单仍需进一步统一到最近一次有效分析结果
-  - 上传与分析结果的单一可信来源仍在持续收口
-  - sidebar theme warning 仍是已知未解问题
-  - AI 侧边栏与浮动聊天入口仍需继续观察是否要做流式输出与更强的历史持久化，但当前滚动、等待与重试体验已统一
-
-- 2026-03-30: 已完成汇总页优先读取最近一次有效分析快照，并统一 truth-first / snapshot / realtime 的渲染入口。
-- 2026-03-30: 验证补充：快照汇总回归 5 passed；全量 pytest 326 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-- 2026-04-01: 已完成操作清单优先读取最近一次有效分析快照；无人工真值时，侧边栏执行数量、动作列表与导出结果都优先复用最近一次有效 snapshot，而不是退回实时分析。
-- 2026-04-01: 验证补充：操作清单快照回归 6 passed；全量 pytest 330 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-- 2026-04-01: 已完成 snapshot 行字段扩展，成功分析后会保留 campaign_id / campaign_name / auto_action / confidence / cvr / acos 等维度，并让按活动页在无 truth-first 时优先读取最近一次有效分析快照。
-- 2026-04-01: 验证补充：按活动 snapshot 回归 5 passed；全量 pytest 333 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-- 2026-04-01: 已完成按 ASIN 页优先读取最近一次有效分析快照；无人工真值时，按 ASIN 结果会优先复用最近一次成功分析留下的 snapshot，而不是直接退回实时分析。
-- 2026-04-01: 验证补充：按 ASIN snapshot 回归 2 passed；全量 pytest 335 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-- 2026-04-01: 已完成 AI 侧边栏 / 浮动聊天入口的成熟聊天窗收口：统一消息渲染内核、固定输入区、可滚动消息区、等待思考态、错误/重试提示。
-- 2026-04-01: 验证补充：AI 聊天状态定向回归 3 passed；真实浏览器验收确认消息区可滚动、发送后出现“AI 正在思考...”且输入禁用；全量 pytest 338 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-- 2026-04-01: 已修正 AI 助手弹层在受限视口下把输入区裁掉的问题：空态、快捷提问和历史消息现在统一收进固定高度滚动面板，popover 本体允许纵向滚动，确保输入区始终可见。
-- 2026-04-01: 验证补充：受限视口（384x768）浏览器快照确认 AI 助手中可同时看到快捷提问、动作按钮、输入框与免责声明；相关定向回归继续通过。
-
-- 2026-04-01: 修正 AI 助手空态布局，空白对话时隐藏操作栏并缩短空态滚动区高度，确保输入框首屏可见。
-- 2026-04-01: 正在修正 AI 助手“只能单轮对话”的连续对话体验：已有消息后输入框需要保持在首屏，动作按钮下移为次级操作，并用真实 Gemini 连发消息做端到端验证。
-- 2026-04-03: 已完成 AI Copilot 第一阶段收口：引入统一的 `AIContextPack` / `AIResponseEnvelope`，侧边栏 AI 助手开始显示上下文标签、结构化结论、依据、建议动作与推荐追问。
-- 2026-04-03: 已完成页面内嵌 AI 第一批接入：汇总页增加“AI 汇总简报”卡片，操作清单页增加“AI 执行说明”卡片；两者都优先基于当前产品与最近一次有效分析结果生成结构化摘要。
-- 2026-04-03: 验证补充：Copilot 定向回归 5 passed；全量 pytest 345 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-- 2026-04-04: 已完成页面内嵌 AI 第二批接入：按活动页增加“AI 活动解释”卡片、按 ASIN 页增加“AI 归因卡”，审核页增加“AI 审核建议”结构化卡片；三者均统一基于 `AIContextPack` / `AIResponseEnvelope` 构建。
-- 2026-04-04: 验证补充：campaign/asin/review AI brief 定向回归 5 passed；全量 pytest 348 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-## 2026-04-04
-- 已完成上传页 AI 导入摘要卡接入：基于当前导入批次、产品上下文与分析状态生成结构化下一步建议。
-- 已验证 upload AI brief：定向测试 2 passed；全量 pytest 350 passed, 10 skipped, 2 warnings；evaluate_product = 99.50 / 97.00 / 98.50。
-- 2026-04-05: 继续推进 AI 融合收尾：为操作清单 AI brief 增加“老板汇报摘要 / 执行备注 / 交接提醒”草稿层，并让侧边栏 Copilot 显示上下文徽标与页面感知快捷提问。
-- 2026-04-05: 继续收尾侧边栏 Copilot 体验：补自动滚到底部、保留最近一次追问来源提示，并让汇总页 / 操作清单页的推荐追问直接携带来源上下文进入侧边栏。
-- 2026-04-05: 已扩展页面 AI brief 的动作草稿层第二版：汇总页增加“优先动作草稿”，上传页增加“导入摘要 / 下一步建议 / 数据质量备注”，按活动页增加“活动复盘备注 / 预算调整备注”，按 ASIN 页增加“变体归因备注 / 页面承接备注”，审核页增加“审核决策备注 / 风险提示”。
-- 2026-04-05: 验证补充：draft_payload 定向回归 7 passed；全量 pytest 354 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-- 2026-04-06: 已完成动作草稿层第三版：操作清单 AI brief 新增“批量否词说明 / 批量手动投放说明 / 分歧词处理提示”，让 AI 输出更贴近实际批量执行、复盘与交接场景。
-- 2026-04-06: 验证补充：actions draft v3 定向回归 8 passed；全量 pytest 354 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-- 2026-04-06: 已修复汇总页在 truth-first / latest-snapshot 分支提前 return 导致的 AI 汇总简报缺失；现在三条路径（truth-first / snapshot / realtime）都会显示页面内嵌 AI 简报。
-- 2026-04-06: 验证补充：summary AI brief 定向回归 5 passed；全量 pytest 357 passed, 10 skipped, 2 warnings；浏览器快照确认‘AI 汇总简报’与‘优先动作草稿’真实出现在汇总页；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-- 2026-04-06: 已修复上传页在空态与只读导入流程中缺失 `AI 导入摘要` 的问题；现在无论未选文件、仅查看导入流程，还是正常上传前状态，页面内嵌 AI 都会给出导入建议与下一步提示。
-- 2026-04-06: 验证补充：upload AI brief 定向回归 3 passed；全量 pytest 358 passed, 10 skipped, 2 warnings；`analyze_mismatches.py` 继续保持 campaign 107/107、aggregate 398/398；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-- 2026-04-08: 已修复审核页在空态与只读流程下缺失 `AI 审核建议` 的问题；现在无论 truth-first、latest snapshot、realtime、空队列还是 viewer 只读路径，审核页都会稳定显示页面内嵌 AI 审核建议卡。
-- 2026-04-08: 验证补充：review AI brief 定向回归 4 passed；真实浏览器确认审核页出现 `AI 审核建议`、`当前还没有 AI 审核建议`、`审核闭环已完成`；全量 pytest 359 passed, 10 skipped, 2 warnings；评估 objective 99.50 / llm avg 97.00 / total 98.50。
-- 2026-04-10: 已完成最终产品验收走查：真实浏览器确认上传页空态出现 `AI 导入摘要`、汇总页出现 `AI 汇总简报` 与 `优先动作草稿`、侧边栏 AI 助手能显示上下文徽标/等待态/自动滚动，并成功发起一轮真实 Gemini 对话。
-- 2026-04-10: 收尾判断：本轮 AI 融合升级主线已达到“基本完成”状态；后续工作主要属于增强项（更强模板、流式输出、采纳反馈闭环），不再是主线阻塞缺口。
-- 2026-04-10: 已进入发布准备模式：将评估脚本与单测纳入版本控制，补充仓库忽略规则并清理大部分本地验收生成物，减少后续状态噪音。
-- 2026-04-11: 已补齐发布前 3 个真实产品缺口：本地默认身份不再意外落到 viewer；“清空数据/清除分析结果”现在会连最近一次分析快照一起删除，避免旧分析残留；“完整数据备份”升级为可导出真实 campaigns/search_terms/analysis_results/manual_reviews/snapshots/rule_versions，并支持恢复到当前产品或恢复为新产品副本。
-- 2026-04-11: 已开始落实成熟化 Phase 1：首页升级为“运营工作台状态中心”，新增当前阶段 / 最近一次分析 / 历史沉淀 / 数据规模四类状态卡，并给出按阶段变化的下一步建议，把首页从概览页抬升到工作台入口。
-- 2026-04-11: 已继续落实成熟化 Phase 2：首页接入“今日最优先 3 个动作”“近 30 天趋势概览”“搜索词结构概览”，开始把首页从状态中心推进为真正面向专业运营的判断中枢。
-- 2026-04-11: 已继续落实成熟化 Phase 3：引入 execution_batches 执行批次，操作清单页现在支持“生成执行批次 / 标记已执行 / 保存复盘备注”，操作历史开始按批次回看，备份与恢复也同步覆盖执行批次。
-- 2026-04-11: 已继续落实成熟化 Phase 4（第一版）：执行批次现在会记录执行前基线 snapshot，并在操作历史里自动显示“前后对比 / 复盘预览”，用最新分析快照和基线快照比较否词、手动投放、观察和分歧数量变化，帮助判断本批动作是否开始产生效果。
-- 2026-04-11: 已继续落实成熟化 Phase 4（第二版）：首页新增“最近执行效果”，直接读取最近执行批次并把前后变化压缩成改善 / 待观察 / 变化不明显的结论，让运营不用先进操作历史也能知道最近一批动作是否开始见效。
-- 2026-04-11: 已继续落实成熟化 Phase 4（第三版）：最近执行效果现在补上 verdict 与 Top changes（改善最多 / 仍需关注的关键词），操作历史里的复盘预览也会同步显示这些线索，开始把“有变化”升级成“看得懂哪些词在变好/变坏”。
-- 2026-04-11: 已补充最终浏览器验收记录：首页现在确认具备状态中心 / 今日 Top 3 / 趋势 / 结构 / 最近执行效果，操作清单确认具备执行批次与复盘预览；当前主线已可以按成熟化版本收口。
-- 2026-04-11: 已继续落实成熟化交付层：首页新增“运营模板中心”，把当前工作状态、Top 3、趋势与最近执行效果直接整理成老板摘要 / 执行交接 / 周度复盘模板，减少运营手工整理日报和交接文本的成本。
-- 2026-04-11: 已完成一轮明显可见的 UI 抛光：首页模板中心改成多标签模板工作区，操作清单里的执行批次详情改成更清晰的分层卡片与 verdict 区，减少“工程后台拼装感”。
+  - 新前端仍是独立壳首版，核心业务 API 还未完全接通
+  - 如果继续精修 UI，下一步应优先做“首页首屏减法”，不要同时扩更多功能
+  - Streamlit 旧前端与新前端壳当前并行存在，需要后续决定切换策略

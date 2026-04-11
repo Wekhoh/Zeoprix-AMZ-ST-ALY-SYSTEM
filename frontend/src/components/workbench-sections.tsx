@@ -1,4 +1,7 @@
-import { ArrowUpRight, TrendingUp } from "lucide-react";
+"use client";
+
+import { ArrowUpRight } from "lucide-react";
+import { useState } from "react";
 
 import {
   analysisRows,
@@ -14,179 +17,176 @@ import {
 
 export function WorkbenchOverview() {
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       <section className="grid gap-4 lg:grid-cols-4">
-        {workbenchStats.map((card) => (
-          <div key={card.label} className="rounded-[28px] border border-black/6 bg-white p-6 shadow-[0_24px_50px_rgba(15,23,42,0.06)]">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">{card.label}</div>
-            <div className="mt-3 text-[1.1rem] font-semibold tracking-[-0.02em] text-[#111111]">{card.value}</div>
-            <p className="mt-3 text-[12px] leading-6 text-black/46">{card.detail}</p>
-          </div>
-        ))}
+        {workbenchStats.map((card) => {
+          const [number, ...rest] = card.value.split(" ");
+          return (
+            <div key={card.label} className="rounded-[28px] border border-zinc-200/60 bg-white p-6 shadow-sm">
+              <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">{card.label}</div>
+              <div className="mt-4 flex items-end gap-2">
+                <div className="text-3xl font-bold tracking-[-0.05em] text-zinc-900">{number}</div>
+                {rest.length > 0 ? <div className="pb-1 text-sm text-zinc-500">{rest.join(" ")}</div> : null}
+              </div>
+              <p className="mt-3 text-sm leading-relaxed text-zinc-700">{card.detail}</p>
+            </div>
+          );
+        })}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
-        <div className="rounded-[32px] border border-black/6 bg-white p-7 shadow-[0_26px_60px_rgba(15,23,42,0.06)]">
-          <div className="mb-7 flex items-center justify-between">
+      <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
+          <div className="mb-6 flex items-center justify-between">
             <div>
-              <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">Action Radar</div>
-              <h3 className="mt-3 text-[1.6rem] font-semibold tracking-[-0.04em] text-[#111111]">今日最优先 3 个动作</h3>
+              <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Action Radar</div>
+              <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">今日最优先 3 个动作</h2>
             </div>
-            <div className="rounded-full border border-black/8 bg-[#fafaf7] px-3 py-1 text-[12px] text-black/55">今日优先级</div>
+            <span className="rounded-full bg-indigo-50 px-3 py-1.5 text-[12px] font-medium text-indigo-700">按优先级排序</span>
           </div>
-          <div className="space-y-4">
+
+          <div className="grid gap-3">
             {topActions.map((action) => (
-              <div key={action.title} className="rounded-[28px] border border-black/6 bg-[#fbfbf8] p-5 transition hover:border-black/12 hover:bg-white">
+              <article key={action.title} className="rounded-[26px] bg-zinc-50 px-5 py-5">
                 <div className="flex items-center justify-between">
-                  <div className="text-[11px] uppercase tracking-[0.22em] text-black/40">{action.tag}</div>
-                  <ArrowUpRight className="h-4 w-4 text-black/25" />
+                  <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-zinc-600 ring-1 ring-zinc-200/80">
+                    {action.tag}
+                  </span>
+                  <ArrowUpRight className="h-4 w-4 text-indigo-600" />
                 </div>
-                <div className="mt-3 text-[0.98rem] font-semibold leading-7 tracking-[-0.02em] text-[#111111]">{action.title}</div>
-                <p className="mt-3 text-[12px] leading-6 text-black/48">{action.description}</p>
-              </div>
+                <h3 className="mt-4 text-[1.02rem] font-semibold leading-relaxed text-zinc-900">{action.title}</h3>
+                <p className="mt-3 text-sm leading-relaxed text-zinc-700">{action.description}</p>
+              </article>
             ))}
           </div>
         </div>
 
-        <div className="space-y-6">
-          <section className="rounded-[32px] border border-black/6 bg-white p-7 shadow-[0_26px_60px_rgba(15,23,42,0.06)]">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">Trend Pulse</div>
-                <h3 className="mt-3 text-[1.6rem] font-semibold tracking-[-0.04em] text-[#111111]">近 30 天趋势概览</h3>
-              </div>
-              <TrendingUp className="h-5 w-5 text-black/30" />
+        <div className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Execution Review</div>
+              <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">最近执行效果</h2>
             </div>
-            <div className="mt-6 grid gap-3">
-              {trendCards.map((card) => (
-                <div key={card.label} className="rounded-[24px] border border-black/6 bg-[#fbfbf8] p-4">
-                  <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">{card.label}</div>
-                  <div className="mt-2 text-[0.98rem] font-semibold text-[#111111]">{card.value}</div>
-                  <div className="mt-2 text-[12px] leading-6 text-black/46">{card.detail}</div>
-                </div>
-              ))}
+            <span className="rounded-full bg-indigo-50 px-3 py-1.5 text-[12px] font-medium text-indigo-700">{executionEffect.status}</span>
+          </div>
+          <p className="mt-4 text-sm leading-relaxed text-zinc-700">{executionEffect.summary}</p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {executionEffect.chips.map((chip) => (
+              <span key={chip} className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-medium text-zinc-700">{chip}</span>
+            ))}
+          </div>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[24px] bg-zinc-50 p-5">
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">改善线索</div>
+              <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+                {executionEffect.improving.map((term) => (
+                  <li key={term}>{term}</li>
+                ))}
+              </ul>
             </div>
-            <div className="mt-6 flex items-end gap-3 rounded-[28px] border border-black/6 bg-[#fbfbf8] px-4 py-5">
-              {trendBars.map((bar) => (
-                <div key={bar.label} className="flex flex-1 flex-col items-center gap-2">
-                  <div className="w-full rounded-full bg-[linear-gradient(to_top,#111111,#6b7280)]" style={{ height: `${bar.value * 1.6}px` }} />
-                  <span className="text-[11px] uppercase tracking-[0.16em] text-black/35">{bar.label}</span>
-                </div>
-              ))}
+            <div className="rounded-[24px] bg-zinc-50 p-5">
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">仍需关注</div>
+              <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+                {executionEffect.risky.map((term) => (
+                  <li key={term}>{term}</li>
+                ))}
+              </ul>
             </div>
-          </section>
+          </div>
         </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <div className="rounded-[32px] border border-black/6 bg-white p-7 shadow-[0_26px_60px_rgba(15,23,42,0.06)]">
-          <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">Structure Lens</div>
-          <h3 className="mt-3 text-[1.6rem] font-semibold tracking-[-0.04em] text-[#111111]">搜索词结构概览</h3>
-          <p className="mt-4 text-[12px] leading-6 text-black/46">先看流量是被哪些结构占据：泛词过多通常意味着浪费，核心词与高质量长尾越多，结构越健康。</p>
-          <div className="mt-6 grid gap-3">
-            {structureBuckets.map((bucket) => (
-              <div key={bucket.label} className="flex items-center justify-between rounded-[24px] border border-black/6 bg-[#fbfbf8] px-4 py-3">
-                <div>
-                  <div className="text-[13px] font-medium text-[#111111]">{bucket.label}</div>
-                  <div className="text-[11px] uppercase tracking-[0.16em] text-black/35">{bucket.ratio}</div>
+        <div className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
+          <div>
+            <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Trend Pulse</div>
+            <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">近 30 天趋势概览</h2>
+          </div>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            {trendCards.map((card) => (
+              <div key={card.label} className="rounded-[22px] bg-zinc-50 p-4">
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">{card.label}</div>
+                <div className="mt-3 text-[15px] font-semibold text-zinc-900">{card.value}</div>
+                <div className="mt-2 text-[12px] leading-relaxed text-zinc-700">{card.detail}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-6 rounded-[28px] bg-zinc-50 px-5 py-6">
+            <div className="flex items-end gap-4 border-t border-zinc-200 pt-5">
+              {trendBars.map((bar, index) => (
+                <div key={bar.label} className="flex flex-1 flex-col items-center gap-2">
+                  <div
+                    className={`rounded-full ${index === trendBars.length - 1 ? "bg-indigo-600" : "bg-zinc-200"}`}
+                    style={{ width: index === trendBars.length - 1 ? 10 : 8, height: `${bar.value * 1.2}px` }}
+                  />
+                  <span className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">{bar.label}</span>
                 </div>
-                <div className="text-[0.96rem] font-semibold text-[#111111]">{bucket.count}</div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
+          <div>
+            <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Structure Lens</div>
+            <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">搜索词结构概览</h2>
+          </div>
+          <div className="mt-6 space-y-3">
+            {structureBuckets.map((bucket) => (
+              <div key={bucket.label} className="grid grid-cols-[112px_1fr_56px] items-center gap-4 rounded-[22px] bg-zinc-50 px-4 py-3">
+                <div className="text-[13px] font-medium text-zinc-900">{bucket.label}</div>
+                <div className="h-2 rounded-full bg-zinc-200">
+                  <div className="h-2 rounded-full bg-zinc-900" style={{ width: bucket.ratio === '<1%' ? '4%' : bucket.ratio }} />
+                </div>
+                <div className="text-right text-[12px] text-zinc-500">{bucket.count}</div>
               </div>
             ))}
           </div>
         </div>
-
-        <div className="rounded-[32px] border border-black/6 bg-white p-7 shadow-[0_26px_60px_rgba(15,23,42,0.06)]">
-          <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">Execution Review</div>
-          <h3 className="mt-3 text-[1.6rem] font-semibold tracking-[-0.04em] text-[#111111]">最近执行效果</h3>
-          <p className="mt-4 text-[12px] leading-6 text-black/46">{executionEffect.summary}</p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            <span className="rounded-full border border-black/8 bg-[#111111] px-3 py-1 text-[12px] text-white">{executionEffect.status}</span>
-            {executionEffect.chips.map((chip) => (
-              <span key={chip} className="rounded-full border border-black/8 bg-[#fbfbf8] px-3 py-1 text-[12px] text-black/65">{chip}</span>
-            ))}
-          </div>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-[24px] border border-black/6 bg-[#fbfbf8] p-4">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-black/35">改善线索</div>
-              <ul className="mt-3 space-y-2 text-[12px] text-black/68">
-                {executionEffect.improving.map((term) => (
-                  <li key={term}>• {term}</li>
-                ))}
-              </ul>
-            </div>
-            <div className="rounded-[24px] border border-black/6 bg-[#fbfbf8] p-4">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-black/35">仍需关注</div>
-              <ul className="mt-3 space-y-2 text-[12px] text-black/68">
-                {executionEffect.risky.map((term) => (
-                  <li key={term}>• {term}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
       </section>
     </div>
-  )
+  );
 }
 
 export function TemplatesCenter() {
-  return (
-    <section className="rounded-[32px] border border-black/6 bg-white p-7 shadow-[0_26px_60px_rgba(15,23,42,0.06)]">
-      <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">Delivery Layer</div>
-      <h3 className="mt-3 text-[1.6rem] font-semibold tracking-[-0.04em] text-[#111111]">运营模板中心</h3>
-      <p className="mt-4 text-[12px] leading-6 text-black/46">把首页已经整理好的判断直接转成可交付文本，减少你再手工整理日报、交接和周度复盘摘要的时间。</p>
+  const [activeTab, setActiveTab] = useState<"boss_summary" | "handoff_note" | "weekly_review">("boss_summary");
+  const tabMeta = {
+    boss_summary: { label: "老板摘要模板" },
+    handoff_note: { label: "执行交接模板" },
+    weekly_review: { label: "周度复盘模板" },
+  };
 
-      <div className="mt-6 grid gap-3 md:grid-cols-3">
-        {[
-          ['老板摘要模板', '给老板 / 管理者快速同步当日重点'],
-          ['执行交接模板', '给执行同事或助理的操作说明'],
-          ['周度复盘模板', '整理一周变化、动作与风险'],
-        ].map(([title, desc]) => (
-          <div key={title} className="rounded-[24px] border border-black/6 bg-[#fbfbf8] p-4">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-black/35">模板用途</div>
-            <div className="mt-2 text-[13px] font-semibold text-[#111111]">{title}</div>
-            <div className="mt-2 text-[12px] leading-6 text-black/46">{desc}</div>
-          </div>
+  return (
+    <section className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
+      <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Delivery Layer</div>
+      <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">运营模板中心</h2>
+      <div className="mt-6 flex flex-wrap gap-2">
+        {(Object.entries(tabMeta) as Array<[keyof typeof tabMeta, (typeof tabMeta)[keyof typeof tabMeta]]>).map(([key, item]) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={`rounded-full px-4 py-2 text-[12px] font-medium transition ${
+              activeTab === key ? "bg-indigo-50 text-indigo-700" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+            }`}
+          >
+            {item.label}
+          </button>
         ))}
       </div>
-
-      <div className="mt-6 border-t border-black/6 pt-6">
-        <div className="flex gap-2 overflow-x-auto pb-2">
-          {['老板摘要模板', '执行交接模板', '周度复盘模板'].map((title, index) => (
-            <button
-              key={title}
-              className={`rounded-full px-4 py-2 text-[12px] font-medium ${index === 0 ? 'bg-[#111111] text-white' : 'border border-black/8 bg-[#fbfbf8] text-black/65'}`}
-            >
-              {title}
-            </button>
-          ))}
-        </div>
-        <div className="mt-5 grid gap-4 xl:grid-cols-3">
-          {[
-            ['老板摘要模板', opsTemplates.boss_summary],
-            ['执行交接模板', opsTemplates.handoff_note],
-            ['周度复盘模板', opsTemplates.weekly_review],
-          ].map(([title, content]) => (
-            <div key={title} className="rounded-[28px] border border-black/6 bg-[#fbfbf8] p-5">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-black/35">{title}</div>
-              <div className="mt-4 whitespace-pre-wrap text-[12px] leading-6 text-black/68">{content}</div>
-            </div>
-          ))}
-        </div>
+      <div className="mt-6 rounded-[28px] bg-zinc-50 p-8">
+        <div className="whitespace-pre-wrap text-base leading-relaxed text-zinc-700">{opsTemplates[activeTab]}</div>
       </div>
     </section>
-  )
+  );
 }
 
 export function AnalysisTable() {
   return (
-    <section className="rounded-[32px] border border-black/6 bg-white p-7 shadow-[0_26px_60px_rgba(15,23,42,0.06)]">
-      <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">Analysis Table</div>
-      <h3 className="mt-3 text-[1.6rem] font-semibold tracking-[-0.04em] text-[#111111]">搜索词分析总览</h3>
-      <div className="mt-6 overflow-hidden rounded-[28px] border border-black/6 bg-[#fbfbf8]">
-        <table className="w-full border-collapse text-left text-[12px] text-black/68">
-          <thead className="bg-white text-[11px] uppercase tracking-[0.18em] text-black/35">
+    <section className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
+      <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Analysis Table</div>
+      <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">搜索词分析总览</h2>
+      <div className="mt-6 overflow-hidden rounded-[28px] border border-zinc-200/70">
+        <table className="w-full border-collapse text-left text-[13px] text-zinc-700">
+          <thead className="bg-white text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
             <tr>
               <th className="px-4 py-3">关键词</th>
               <th className="px-4 py-3">类型</th>
@@ -199,11 +199,11 @@ export function AnalysisTable() {
           </thead>
           <tbody>
             {analysisRows.map((row) => (
-              <tr key={row.term} className="border-t border-black/6 bg-[#fbfbf8]">
-                <td className="px-4 py-4 font-medium text-[#111111]">{row.term}</td>
-                <td className="px-4 py-4 text-black/48">{row.type}</td>
-                <td className="px-4 py-4 text-black/48">{row.rule}</td>
-                <td className="px-4 py-4"><span className="rounded-full border border-black/8 bg-white px-3 py-1 text-[12px] text-black/70">{row.action}</span></td>
+              <tr key={row.term} className="border-t border-zinc-200 bg-zinc-50/60">
+                <td className="px-4 py-4 font-medium text-zinc-900">{row.term}</td>
+                <td className="px-4 py-4 text-zinc-700">{row.type}</td>
+                <td className="px-4 py-4 text-zinc-700">{row.rule}</td>
+                <td className="px-4 py-4"><span className="rounded-full bg-zinc-100 px-3 py-1 text-[12px] font-medium text-zinc-700">{row.action}</span></td>
                 <td className="px-4 py-4">{row.spend}</td>
                 <td className="px-4 py-4">{row.orders}</td>
                 <td className="px-4 py-4">{row.confidence}</td>
@@ -213,51 +213,51 @@ export function AnalysisTable() {
         </table>
       </div>
     </section>
-  )
+  );
 }
 
 export function ExecutionBatchBoard() {
   return (
     <section className="space-y-5">
       {executionBatches.map((batch) => (
-        <article key={batch.code} className="rounded-[32px] border border-black/6 bg-white p-7 shadow-[0_26px_60px_rgba(15,23,42,0.06)]">
+        <article key={batch.code} className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-full border border-black/8 bg-[#fbfbf8] px-3 py-1 text-[12px] text-black/65">{batch.code}</span>
-            <span className="rounded-full border border-black/8 bg-[#fbfbf8] px-3 py-1 text-[12px] text-black/65">{batch.type}</span>
-            <span className="rounded-full bg-[#111111] px-3 py-1 text-[12px] text-white">{batch.status}</span>
+            <span className="rounded-full bg-zinc-100 px-3 py-1 text-[12px] text-zinc-600">{batch.code}</span>
+            <span className="rounded-full bg-zinc-100 px-3 py-1 text-[12px] text-zinc-600">{batch.type}</span>
+            <span className="rounded-full bg-indigo-50 px-3 py-1 text-[12px] font-medium text-indigo-700">{batch.status}</span>
           </div>
-          <div className="mt-6 grid gap-4 lg:grid-cols-[0.92fr_1.08fr]">
+          <div className="mt-6 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
             <div className="space-y-4">
-              <div className="rounded-[24px] border border-black/6 bg-[#fbfbf8] p-5">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-black/35">批次摘要</div>
-                <div className="mt-3 text-[1rem] font-semibold text-[#111111]">{batch.verdict}</div>
-                <p className="mt-3 text-[12px] leading-6 text-black/46">{batch.summary}</p>
+              <div className="rounded-[24px] bg-zinc-50 p-5">
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">批次摘要</div>
+                <div className="mt-3 text-[1rem] font-semibold text-zinc-900">{batch.verdict}</div>
+                <p className="mt-3 text-sm leading-relaxed text-zinc-700">{batch.summary}</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[20px] border border-black/6 bg-[#fbfbf8] p-4">
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-black/35">覆盖项数</div>
-                  <div className="mt-2 text-[0.95rem] font-semibold text-[#111111]">{batch.itemCount}</div>
+                <div className="rounded-[20px] bg-zinc-50 p-4">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">覆盖项数</div>
+                  <div className="mt-2 text-[0.95rem] font-semibold text-zinc-900">{batch.itemCount}</div>
                 </div>
-                <div className="rounded-[20px] border border-black/6 bg-[#fbfbf8] p-4">
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-black/35">总花费 / 总销售</div>
-                  <div className="mt-2 text-[0.95rem] font-semibold text-[#111111]">{batch.spend} / {batch.sales}</div>
+                <div className="rounded-[20px] bg-zinc-50 p-4">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">总花费 / 总销售</div>
+                  <div className="mt-2 text-[0.95rem] font-semibold text-zinc-900">{batch.spend} / {batch.sales}</div>
                 </div>
               </div>
             </div>
-            <div className="space-y-4">
-              <div className="rounded-[24px] border border-black/6 bg-[#fbfbf8] p-5">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-black/35">改善最多的词</div>
-                <ul className="mt-3 space-y-2 text-[12px] text-black/68">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-[24px] bg-zinc-50 p-5">
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">改善最多的词</div>
+                <ul className="mt-3 space-y-2 text-sm text-zinc-700">
                   {batch.improving.map((term) => (
-                    <li key={term}>• {term}</li>
+                    <li key={term}>{term}</li>
                   ))}
                 </ul>
               </div>
-              <div className="rounded-[24px] border border-black/6 bg-[#fbfbf8] p-5">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-black/35">仍需重点关注</div>
-                <ul className="mt-3 space-y-2 text-[12px] text-black/68">
+              <div className="rounded-[24px] bg-zinc-50 p-5">
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">仍需重点关注</div>
+                <ul className="mt-3 space-y-2 text-sm text-zinc-700">
                   {batch.risky.map((term) => (
-                    <li key={term}>• {term}</li>
+                    <li key={term}>{term}</li>
                   ))}
                 </ul>
               </div>
@@ -266,5 +266,5 @@ export function ExecutionBatchBoard() {
         </article>
       ))}
     </section>
-  )
+  );
 }

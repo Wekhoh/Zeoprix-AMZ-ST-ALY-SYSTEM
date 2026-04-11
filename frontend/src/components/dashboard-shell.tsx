@@ -2,145 +2,127 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  BarChart3,
-  Bot,
-  Database,
-  FolderUp,
-  LayoutDashboard,
-  ListChecks,
-  Settings2,
-  ShieldCheck,
-} from "lucide-react";
+import { ArrowUpRight, Bot } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { aiCopilotCards, navItems, productContext } from "@/lib/mock-data";
 
-const iconMap: Record<string, ReactNode> = {
-  "/": <LayoutDashboard className="h-4 w-4" />,
-  "/upload": <FolderUp className="h-4 w-4" />,
-  "/analysis": <BarChart3 className="h-4 w-4" />,
-  "/actions": <ListChecks className="h-4 w-4" />,
-  "/review": <ShieldCheck className="h-4 w-4" />,
-  "/settings": <Database className="h-4 w-4" />,
-};
-
 export function DashboardShell({ children, title, subtitle }: { children: ReactNode; title: string; subtitle: string }) {
   const pathname = usePathname();
+  const primaryCard = aiCopilotCards[0];
 
   return (
-    <div className="min-h-screen bg-[#fbfbf8] text-[#111111]">
-      <div className="mx-auto grid min-h-screen max-w-[1600px] grid-cols-[260px_minmax(0,1fr)_320px]">
-        <aside className="border-r border-black/6 bg-white px-6 py-6">
-          <div className="mb-10">
-            <div className="mb-4 text-[11px] font-medium uppercase tracking-[0.24em] text-black/40">Amazon Ops OS</div>
-            <h1 className="font-display text-[1.28rem] leading-[1.1] font-semibold tracking-[-0.035em] text-[#111111]">Zeoprix Ops Workbench</h1>
-            <p className="mt-4 max-w-[17rem] text-[12px] leading-6 text-black/46">把搜索词分析、执行批次、复盘与 AI 副驾驶收进同一个运营工作台。</p>
-          </div>
-
-          <div className="mb-8 rounded-[24px] border border-black/8 bg-[#fafaf7] p-4">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">当前工作区</div>
-            <div className="mt-3 text-[14px] font-medium text-[#111111]">{productContext.workspace}</div>
-            <div className="mt-1 text-[12px] text-black/46">{productContext.name}</div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full border border-black/8 bg-white px-3 py-1 text-[12px] text-black/70">{productContext.role}</span>
-              <span className="rounded-full border border-black/8 bg-white px-3 py-1 text-[12px] text-black/60">最近分析 {productContext.lastAnalysisAt}</span>
-            </div>
-          </div>
-
-          <nav className="space-y-1.5">
-            {navItems.map((item) => {
-              const active = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`group flex items-center justify-between rounded-2xl px-4 py-3 transition ${
-                    active
-                      ? "bg-zinc-900 text-white shadow-sm"
-                      : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className={active ? "text-indigo-200" : "text-zinc-400"}>{iconMap[item.href]}</span>
-                    <div>
-                      <div className={`text-[10px] uppercase tracking-[0.22em] ${active ? "text-white/55" : "text-zinc-400"}`}>{item.eyebrow}</div>
-                      <div className="text-[13px] font-medium">{item.label}</div>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="mt-8 rounded-[24px] border border-black/8 bg-[#f6f7f4] p-4">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-black/35">最近备份</div>
-            <div className="mt-2 text-[13px] font-medium text-[#111111]">{productContext.lastBackupAt}</div>
-            <p className="mt-3 text-[12px] leading-6 text-black/46">建议切换新类目前，先导出完整备份并标记恢复点。</p>
-          </div>
-        </aside>
-
-        <main className="relative overflow-hidden border-r border-zinc-200/60 bg-zinc-50 px-10 py-8">
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(24,24,27,0.04)_1px,transparent_1px),linear-gradient(to_bottom,rgba(24,24,27,0.04)_1px,transparent_1px)] bg-[size:88px_88px] opacity-70" />
-          <div className="relative z-10">
-            <header className="mb-10 flex items-start justify-between gap-8 border-b border-black/6 pb-8">
-              <div className="max-w-4xl">
-                <div className="text-[11px] uppercase tracking-[0.24em] text-zinc-400">运营工作台</div>
-                <h2 className="mt-4 whitespace-nowrap font-display text-[2.4rem] leading-none font-semibold tracking-[-0.045em] text-zinc-900">{title}</h2>
-                <p className="mt-5 max-w-3xl text-base leading-relaxed text-zinc-700">{subtitle}</p>
-              </div>
-              <div className="rounded-[24px] border border-zinc-200/60 bg-white px-5 py-4 text-right shadow-sm">
-                <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">今天建议先做</div>
-                <div className="mt-3 max-w-[14rem] text-[13px] leading-6 font-medium text-zinc-900">先止损，再补量，最后复盘分歧词</div>
-              </div>
-            </header>
-            {children}
-          </div>
-        </main>
-
-        <aside className="bg-zinc-50 px-6 py-6">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="rounded-2xl border border-zinc-200/60 bg-white p-2 text-zinc-700 shadow-sm"><Bot className="h-5 w-5" /></div>
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">Copilot</div>
-              <div className="text-[14px] font-medium text-zinc-900">AI 运营副驾驶</div>
-            </div>
-          </div>
-
-          <div className="mb-4 rounded-[24px] border border-zinc-200/60 bg-white p-4 shadow-sm">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">当前上下文</div>
-            <div className="mt-2 text-[13px] font-medium text-zinc-900">{productContext.name}</div>
-            <p className="mt-2 text-sm leading-relaxed text-zinc-600">基于最近一次分析结果、执行批次与审核沉淀生成建议。</p>
-          </div>
-
-          <div className="space-y-4">
-            {aiCopilotCards.map((card) => (
-              <section key={card.title} className="rounded-[24px] border border-zinc-200/60 bg-white p-4 shadow-sm">
-                <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">{card.title}</div>
-                <div className="mt-3 text-[13px] leading-6 font-medium text-zinc-900">{card.summary}</div>
-                <p className="mt-2 text-sm leading-relaxed text-zinc-600">{card.context}</p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {card.prompts.map((prompt) => (
-                    <button key={prompt} className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-medium text-zinc-700 transition hover:bg-zinc-200">{prompt}</button>
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-
-          <div className="mt-6 rounded-[24px] border border-zinc-200/60 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
+      <div className="border-b border-zinc-200/70 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between px-6 lg:px-10">
+          <div className="flex items-center gap-8">
+            <Link href="/" className="flex items-center gap-3">
+              <div className="h-7 w-7 rounded-full bg-zinc-900" />
               <div>
-                <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-400">准备提问</div>
-                <div className="mt-1 text-sm text-zinc-600">用副驾驶把结果解释成可执行动作</div>
+                <div className="font-display text-[17px] font-semibold tracking-[-0.03em] text-zinc-900">Zeoprix</div>
+                <div className="text-[11px] text-zinc-500">Amazon Ads Workbench</div>
               </div>
-              <Settings2 className="h-4 w-4 text-zinc-400" />
-            </div>
-            <div className="mt-4 rounded-[20px] border border-zinc-200/60 bg-zinc-50 p-3 text-[12px] text-zinc-500">“帮我基于当前批次，生成老板摘要和执行备注”</div>
-            <button className="mt-4 w-full rounded-[20px] bg-zinc-900 px-4 py-3 text-[13px] font-medium text-white transition hover:bg-black">打开 AI 助手</button>
+            </Link>
+            <nav className="hidden items-center gap-1 md:flex">
+              {navItems.map((item) => {
+                const active = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`rounded-full px-3 py-2 text-[13px] font-medium transition ${
+                      active ? "bg-zinc-100 text-zinc-900" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
-        </aside>
+
+          <div className="flex items-center gap-2">
+            <span className="hidden rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-medium text-zinc-700 sm:inline-flex">
+              {productContext.role}
+            </span>
+            <button className="rounded-full bg-zinc-900 px-4 py-2 text-[13px] font-medium text-white shadow-sm transition hover:bg-zinc-800">
+              数据管理
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="mx-auto max-w-[1440px] px-6 py-8 lg:px-10 lg:py-10">
+        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_312px]">
+          <main className="space-y-8">
+            <section className="rounded-[32px] border border-zinc-200/60 bg-white px-8 py-8 shadow-sm">
+              <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-end">
+                <div>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-zinc-500">运营工作台</div>
+                  <h1 className="mt-4 whitespace-nowrap font-display text-[2.55rem] font-semibold tracking-[-0.06em] text-zinc-900">
+                    {title}
+                  </h1>
+                  <p className="mt-4 max-w-2xl text-base leading-relaxed text-zinc-700 font-normal">{subtitle}</p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                  <div className="rounded-[24px] bg-zinc-50 px-5 py-4">
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">当前产品</div>
+                    <div className="mt-2 text-[15px] font-medium text-zinc-900">{productContext.name}</div>
+                    <div className="mt-1 text-sm text-zinc-500">{productContext.workspace}</div>
+                  </div>
+                  <div className="rounded-[24px] bg-zinc-50 px-5 py-4">
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">最近更新</div>
+                    <div className="mt-2 text-sm font-medium text-zinc-900">分析 {productContext.lastAnalysisAt}</div>
+                    <div className="mt-1 text-sm text-zinc-500">备份 {productContext.lastBackupAt}</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {children}
+          </main>
+
+          <aside className="space-y-4">
+            <section className="rounded-[28px] border border-zinc-200/60 bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl bg-indigo-50 p-2 text-indigo-600">
+                  <Bot className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Copilot</div>
+                  <div className="text-[15px] font-medium text-zinc-900">AI 运营副驾驶</div>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-[24px] bg-zinc-50 p-5">
+                <div className="text-[12px] font-medium text-zinc-900">{primaryCard.title}</div>
+                <div className="mt-2 text-sm text-zinc-500">{primaryCard.context}</div>
+                <p className="mt-4 text-sm leading-relaxed text-zinc-700">{primaryCard.summary}</p>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-2">
+                {primaryCard.prompts.map((prompt, index) => (
+                  <button
+                    key={prompt}
+                    className={`rounded-full px-3 py-2 text-[12px] font-medium transition ${
+                      index === 2
+                        ? "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                        : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                    }`}
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+
+              <button className="mt-5 inline-flex items-center gap-2 text-[13px] font-medium text-zinc-900 transition hover:text-indigo-600">
+                打开完整 Copilot <ArrowUpRight className="h-4 w-4 text-indigo-600" />
+              </button>
+            </section>
+          </aside>
+        </div>
       </div>
     </div>
-  )
+  );
 }

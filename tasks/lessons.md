@@ -68,3 +68,10 @@
 - Preventive rule: 只要任务涉及 **产品成熟化、交互模式升级、AI 能力嵌入、第三方框架行为（如 Streamlit）**，必须显式执行一次 docs-first 流程：优先查 `context-hub-third-party-docs`，不足时再用 `context7` 或官方资料；最终回答里要明确写出“哪些部分基于本地代码真相，哪些部分基于外部文档/官方模式”。不能只在脑子里默认“这是本地逻辑改动所以不用查”。
 - Trigger to apply: 用户提到“参考成熟产品”“产品应用不够成熟”“像优秀产品那样”“AI 融合更自然”“为什么没用 chub/context7”这类要求，或任务明显涉及 Streamlit / AI 交互 / 产品工作流设计时。
 - How to verify the rule worked: 交付前能明确提供 docs-first 证据（所查来源、为什么采用该模式），并在实施说明里区分“本地仓库事实”与“外部文档依据”，避免再次被主人指出“你没按 AGENTS 走”。 
+
+## 2026-04-11（前端重构不能只做“功能布局”，必须先收敛视觉秩序）
+- Context: 主人连续指出新前端“太乱、太丑、像线框图、没用 frontend skill”，并明确要求参考 Vercel/Linear 做白底、低噪音、强秩序的现代 SaaS 界面。
+- Mistake pattern: 虽然已经切到独立前端壳，但仍按工程师习惯堆模块与说明，导致信息密度过高、边框套边框、字体层级失控；属于“做了前端工程”，但没有真正执行视觉系统与前端 skill 的设计纪律。
+- Preventive rule: 只要主人明确批评“UI 太乱/太丑/不像成熟产品/没用 frontend skill”，必须停止继续堆功能，优先做三件事：① 先定单一审美方向（本次是 Vercel 风白底 SaaS）；② 先收敛 typography、对比度、spacing 和卡片层级；③ 先做首页首屏减法，把状态、Top3、最近执行效果作为唯一主焦点，再决定是否保留其它模块。
+- Trigger to apply: 用户提到“参考 Vercel/Linear”“前端太乱”“字体太大/看不清”“边框套边框”“不够简洁”“请用 frontend skill 重构”等反馈时。
+- How to verify the rule worked: 至少保留一次真实浏览器快照或截图，证明页面满足：白底、正文对比度足够、标题不乱断行、Tabs 只有单内容区、卡片没有明显 box-in-box 拥挤感，并且 build/lint 通过。
