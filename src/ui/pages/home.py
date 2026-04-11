@@ -175,8 +175,83 @@ HOME_PAGE_CSS = """
     font-size: 0.9rem;
     line-height: 1.55;
 }
+.workbench-status-shell {
+    padding: 1.05rem 1.1rem;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+    margin-bottom: 1.2rem;
+}
+.workbench-status-shell h3 {
+    margin: 0 0 0.35rem 0 !important;
+    font-size: 1rem;
+}
+.workbench-status-shell p {
+    margin: 0 0 0.9rem 0;
+    color: #64748B;
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+.workbench-status-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.8rem;
+}
+.workbench-status-card {
+    padding: 0.95rem 1rem;
+    border-radius: 18px;
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.96) 100%);
+}
+.workbench-status-card small {
+    display: block;
+    color: #94A3B8;
+    font-size: 0.73rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.45rem;
+}
+.workbench-status-card strong {
+    display: block;
+    color: #0F172A;
+    font-size: 1.02rem;
+    line-height: 1.35;
+    margin-bottom: 0.28rem;
+}
+.workbench-status-card span {
+    color: #64748B;
+    font-size: 0.85rem;
+    line-height: 1.55;
+}
+.workbench-next-actions {
+    margin-top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+.workbench-next-action {
+    border-radius: 16px;
+    padding: 0.8rem 0.95rem;
+    background: rgba(248,250,252,0.92);
+    border: 1px solid rgba(226,232,240,0.88);
+}
+.workbench-next-action strong {
+    display: block;
+    color: #0F172A;
+    font-size: 0.93rem;
+    margin-bottom: 0.25rem;
+}
+.workbench-next-action span {
+    color: #64748B;
+    font-size: 0.84rem;
+    line-height: 1.5;
+}
 @media (max-width: 1100px) {
     .dashboard-kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .workbench-status-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
@@ -287,6 +362,186 @@ def _render_workspace_summary(meta: dict[str, str | list[str]]) -> None:
             <h3>{escape(str(meta['title']))}</h3>
             <p>{escape(str(meta['description']))}</p>
             <div class="dashboard-hero__chips">{chips_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _get_product_runtime_state_impl(
+    db,
+    product_id: int | None,
+    *,
+    stats: dict | None = None,
+    pending_stats: dict | None = None,
+) -> dict[str, object]:
+    """构建工作台状态中心所需的产品运行态摘要。"""
+    if not product_id:
+        return {
+            "stage_key": "select_product",
+            "stage_title": "先选择工作区",
+            "stage_description": "当前还没有绑定产品工作区，请先选择产品或创建新产品。",
+            "latest_snapshot_at": None,
+            "snapshot_count": 0,
+            "campaign_count": 0,
+            "search_term_count": 0,
+            "analysis_result_count": 0,
+            "manual_review_count": 0,
+            "next_actions": [
+                ("去文件上传", "先创建/选择产品工作区，再导入原始报表。"),
+                ("确认产品配置", "把类目、ASIN 和关键词库先整理好，避免后续判断漂移。"),
+            ],
+        }
+
+    stats = stats or _get_dashboard_stats_impl(db, product_id)
+    pending_stats = pending_stats or _get_pending_stats_impl(db, product_id)
+
+    campaign_count = db.execute(
+        "SELECT COUNT(*) AS count FROM campaigns WHERE product_id = ?",
+        (product_id,),
+    ).fetchone()["count"]
+    analysis_result_count = db.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM analysis_results ar
+        JOIN search_terms st ON ar.search_term_id = st.id
+        JOIN campaigns c ON st.campaign_id = c.id
+        WHERE c.product_id = ?
+        """,
+        (product_id,),
+    ).fetchone()["count"]
+    manual_review_count = db.execute(
+        "SELECT COUNT(*) AS count FROM manual_reviews WHERE product_id = ?",
+        (product_id,),
+    ).fetchone()["count"]
+    snapshots = db.list_analysis_run_snapshots(product_id, limit=1)
+    latest_snapshot_at = snapshots[0]["created_at"] if snapshots else None
+    snapshot_count = len(db.list_analysis_run_snapshots(product_id, limit=200))
+    search_term_count = int(stats.get("term_count") or 0)
+    review_pending = int(pending_stats.get("review_pending_count") or 0)
+    negative_pending = int(pending_stats.get("negative_count") or 0)
+    manual_pending = int(pending_stats.get("manual_count") or 0)
+    conflict_pending = int(pending_stats.get("conflict_count") or 0)
+
+    if search_term_count == 0:
+        stage_key = "ready_for_import"
+        stage_title = "待导入原始数据"
+        stage_description = "当前工作区还没有搜索词数据，先导入原始报表再开始本轮分析。"
+        next_actions = [
+            ("去文件上传", "上传原始搜索词报表，建立当前分析轮次。"),
+            ("检查产品信息", "确认产品类目、ASIN 和关键词库，避免分析建立在旧配置上。"),
+        ]
+    elif analysis_result_count == 0 and snapshot_count == 0:
+        stage_key = "ready_for_analysis"
+        stage_title = "待运行分析"
+        stage_description = "已有原始报表，但还没有形成任何分析结果或快照，适合立即重新运行分析。"
+        next_actions = [
+            ("重新运行分析", "进入数据管理或上传页，生成本轮最新结论。"),
+            ("确认是否清空旧数据", "如果这是新类目或新批次，先清理旧运行数据再分析。"),
+        ]
+    elif review_pending > 0:
+        stage_key = "needs_review"
+        stage_title = "待人工审核"
+        stage_description = f"当前有 {review_pending} 个词待人工拍板，建议先完成审核，再决定执行清单。"
+        next_actions = [
+            ("进入相关性审核", "先处理 AI 低置信度与分歧词，稳定最终结论。"),
+            ("查看 AI 审核建议", "优先处理高风险、高花费的待审词。"),
+        ]
+    elif negative_pending > 0 or manual_pending > 0 or conflict_pending > 0:
+        stage_key = "ready_for_execution"
+        stage_title = "待执行优化动作"
+        stage_description = (
+            f"当前有 {negative_pending} 个否词、{manual_pending} 个手动机会"
+            + (f"、{conflict_pending} 个分歧词" if conflict_pending > 0 else "")
+            + "，建议先止损再补量。"
+        )
+        next_actions = [
+            ("进入操作清单", "按优先级导出否词、手动投放和分歧处理建议。"),
+            ("生成执行备注", "把本轮动作整理给自己或同事，减少执行偏差。"),
+        ]
+    else:
+        stage_key = "ready_for_reviewback"
+        stage_title = "可复盘 / 可开始新一轮"
+        stage_description = "当前没有明显待处理项，适合回看最近一次分析，或开始下一轮导入与复盘。"
+        next_actions = [
+            ("查看最近一次分析", "确认本轮结论是否稳定，是否需要复跑。"),
+            ("导出完整备份", "在开始下一轮前先留一个恢复点。"),
+        ]
+
+    return {
+        "stage_key": stage_key,
+        "stage_title": stage_title,
+        "stage_description": stage_description,
+        "latest_snapshot_at": latest_snapshot_at,
+        "snapshot_count": snapshot_count,
+        "campaign_count": campaign_count,
+        "search_term_count": search_term_count,
+        "analysis_result_count": analysis_result_count,
+        "manual_review_count": manual_review_count,
+        "next_actions": next_actions,
+    }
+
+
+def _build_workbench_status_cards(runtime_state: dict[str, object]) -> list[dict[str, str]]:
+    """构建首页工作状态卡片。"""
+    latest_snapshot_at = runtime_state.get("latest_snapshot_at")
+    latest_snapshot_label = (
+        str(latest_snapshot_at).replace("T", " ")[:16]
+        if latest_snapshot_at
+        else "还没有分析快照"
+    )
+    snapshot_count = int(runtime_state.get("snapshot_count") or 0)
+    return [
+        {
+            "label": "当前阶段",
+            "value": str(runtime_state.get("stage_title") or "待确认"),
+            "description": str(runtime_state.get("stage_description") or ""),
+        },
+        {
+            "label": "最近一次分析",
+            "value": latest_snapshot_label,
+            "description": "latest snapshot 优先驱动各结果页；没有时会回退到实时结果。",
+        },
+        {
+            "label": "历史沉淀",
+            "value": f"{snapshot_count} 个分析快照",
+            "description": f"已保存 {runtime_state.get('manual_review_count', 0)} 条人工审核记录，可供回看与恢复。",
+        },
+        {
+            "label": "数据规模",
+            "value": f"{runtime_state.get('search_term_count', 0)} 条搜索词 / {runtime_state.get('campaign_count', 0)} 个活动",
+            "description": f"当前已形成 {runtime_state.get('analysis_result_count', 0)} 条分析结果。",
+        },
+    ]
+
+
+def _render_workbench_status(runtime_state: dict[str, object]) -> None:
+    cards_html = "".join(
+        f"""
+        <div class="workbench-status-card">
+            <small>{escape(card['label'])}</small>
+            <strong>{escape(card['value'])}</strong>
+            <span>{escape(card['description'])}</span>
+        </div>
+        """
+        for card in _build_workbench_status_cards(runtime_state)
+    )
+    next_actions_html = "".join(
+        f"""
+        <div class="workbench-next-action">
+            <strong>{escape(title)}</strong>
+            <span>{escape(description)}</span>
+        </div>
+        """
+        for title, description in runtime_state.get("next_actions", [])
+    )
+    st.markdown(
+        f"""
+        <div class="workbench-status-shell">
+            <h3>当前工作状态</h3>
+            <p>先确认这轮数据处在什么阶段，再决定是导入、分析、审核、执行还是直接做备份。</p>
+            <div class="workbench-status-grid">{cards_html}</div>
+            <div class="workbench-next-actions">{next_actions_html}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -415,6 +670,14 @@ def render_home():
     # 批量获取所有统计数据（单次缓存调用替代3次独立查询）
     all_data = get_all_dashboard_data(db, product_id)
     stats = all_data["dashboard_stats"]
+    runtime_state = _get_product_runtime_state_impl(
+        db,
+        product_id,
+        stats=stats,
+        pending_stats=all_data["pending_stats"],
+    )
+
+    _render_workbench_status(runtime_state)
 
     _render_dashboard_metric_grid(stats)
 

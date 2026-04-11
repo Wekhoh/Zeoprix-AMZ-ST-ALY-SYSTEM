@@ -63,6 +63,8 @@ from src.ui.pages.actions import (
 from src.ui.pages.home import (
     _build_dashboard_metric_cards,
     _build_overview_chart_rows,
+    _build_workbench_status_cards,
+    _get_product_runtime_state_impl,
     _build_workspace_summary_meta,
 )
 from src.ui.pages.review import (
@@ -1052,6 +1054,136 @@ def test_workspace_summary_meta_surfaces_member_count_and_role():
             "当前角色：admin",
         ],
     }
+
+
+def test_runtime_state_marks_empty_workspace_as_ready_for_import(db, product_id):
+    """首页状态中心应把空工作区标记为待导入原始数据。"""
+    state = _get_product_runtime_state_impl(
+        db,
+        product_id,
+        stats={
+            "term_count": 0,
+            "total_spend": 0,
+            "total_orders": 0,
+            "total_sales": 0,
+            "acos": 0,
+        },
+        pending_stats={},
+    )
+
+    assert state["stage_key"] == "ready_for_import"
+    assert state["stage_title"] == "待导入原始数据"
+    assert state["snapshot_count"] == 0
+    assert any(action[0] == "去文件上传" for action in state["next_actions"])
+
+
+def test_runtime_state_prioritizes_review_then_execution(db, product_id, campaign_id):
+    """首页状态中心应优先提示待审核，其次才是待执行。"""
+    _seed_minimal_search_term(db, campaign_id)
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={"negative": 2, "manual": 1, "conflict": 0},
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "clicks": 12,
+                "orders": 0,
+                "spend": 24.0,
+                "sales": 0.0,
+            }
+        ],
+    )
+
+    review_state = _get_product_runtime_state_impl(
+        db,
+        product_id,
+        stats={
+            "term_count": 1,
+            "total_spend": 24.0,
+            "total_orders": 0,
+            "total_sales": 0,
+            "acos": 0,
+        },
+        pending_stats={"review_pending_count": 3, "negative_count": 2, "manual_count": 1},
+    )
+    execution_state = _get_product_runtime_state_impl(
+        db,
+        product_id,
+        stats={
+            "term_count": 1,
+            "total_spend": 24.0,
+            "total_orders": 0,
+            "total_sales": 0,
+            "acos": 0,
+        },
+        pending_stats={"review_pending_count": 0, "negative_count": 2, "manual_count": 1},
+    )
+
+    assert review_state["stage_key"] == "needs_review"
+    assert execution_state["stage_key"] == "ready_for_execution"
+
+
+def test_build_workbench_status_cards_surfaces_snapshot_and_scale():
+    """工作状态卡片应稳定暴露阶段、最新分析、历史沉淀与数据规模。"""
+    cards = _build_workbench_status_cards(
+        {
+            "stage_title": "待执行优化动作",
+            "stage_description": "先止损再补量。",
+            "latest_snapshot_at": "2026-04-11 12:34:56",
+            "snapshot_count": 4,
+            "campaign_count": 6,
+            "search_term_count": 316,
+            "analysis_result_count": 98,
+            "manual_review_count": 25,
+            "next_actions": [],
+        }
+    )
+
+    assert cards[0]["label"] == "当前阶段"
+    assert "待执行优化动作" in cards[0]["value"]
+    assert cards[1]["label"] == "最近一次分析"
+    assert "2026-04-11 12:34" in cards[1]["value"]
+    assert cards[2]["value"] == "4 个分析快照"
+    assert "316 条搜索词 / 6 个活动" in cards[3]["value"]
+
+
+def test_homepage_renders_workbench_status_center(monkeypatch, db, product_id, campaign_id):
+    """首页应真实渲染当前工作状态中心，而不只是 KPI 和快捷按钮。"""
+    _seed_minimal_search_term(db, campaign_id)
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={"negative": 2, "manual": 1, "conflict": 0},
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "clicks": 12,
+                "orders": 0,
+                "spend": 24.0,
+                "sales": 0.0,
+            }
+        ],
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_product_id"] = product_id
+    app.run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    assert "当前工作状态" in joined
+    assert "最近一次分析" in joined
+    assert "历史沉淀" in joined
 
 
 def test_workspace_member_summary_surfaces_roles_and_member_roster():
