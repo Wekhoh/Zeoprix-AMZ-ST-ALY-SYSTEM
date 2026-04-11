@@ -6,6 +6,9 @@
 ## [Unreleased]
 
 ### Added
+- **[REL-001]** 运营工作台交付文档 (2026-04-11):
+  - 新增 `docs/RELEASE_NOTES_2026-04-11.md`，总结首页工作台、AI 融合、执行闭环与备份恢复能力
+  - 新增 `docs/OPS_WORKBENCH_USER_GUIDE.md`，面向真实亚马逊运营梳理日常使用路径与复盘节奏
 - **[TEST-004]** 恢复验收环境的固定配置模板与回归测试 (2026-03-21):
   - 新增 `data/fixtures/acceptance_product_config.json` 作为真实 6 CSV 恢复时的产品配置模板
   - 新增 `tests/integration/test_import_test_data.py`，覆盖配置注入与边界词对齐场景
@@ -15,6 +18,11 @@
   - 明确 search_terms 表和 manual_reviews 表的关系
 
 ### Changed
+- **[OPS-001]** 首页升级为运营工作台 + 执行闭环收口 (2026-04-11):
+  - 首页新增当前工作状态、今日最优先 3 个动作、近 30 天趋势概览、搜索词结构概览、最近执行效果
+  - 操作清单新增 `execution_batches` 执行批次，支持生成批次、标记已执行、保存复盘备注
+  - 最近执行效果支持基于 baseline snapshot 和 latest snapshot 的前后对比，并输出 verdict 与 Top changes
+  - 数据管理中的完整备份 / 恢复已覆盖 execution_batches、analysis snapshots、manual_reviews 等关键产品资产
 - **[CORE-002]** 恢复链路与规则对齐收口 (2026-03-21):
   - `scripts/import_test_data.py` 支持恢复时自动注入验收配置，避免空 `products.config` 导致规则环境失真
   - `src/rules/engine.py` 增加 `weak_exact_keywords` 识别，并为“评估类规则”增加强相关保护，避免强相关词被泛化规则抢走
@@ -32,6 +40,10 @@
   - `docs/CAMPAIGN_ANALYSIS_PLAN.md`：更新数据库统计（analysis_results=632）
 
 ### Verified
+- **[REL-002]** 成熟化版本发布前回归 (2026-04-11):
+  - `pytest -q` → 379 passed, 10 skipped, 2 warnings
+  - `scripts/evaluate_product.py ...` → objective 99.50 / llm avg 97.00 / total 98.50
+  - 真实浏览器走查确认首页已展示“当前工作状态 / 今日最优先 3 个动作 / 近 30 天趋势概览 / 搜索词结构概览 / 最近执行效果”
 - **[TEST-005]** 当前本地回归口径 (2026-03-21):
   - `DEBUG=true pytest -q` → 189 passed, 10 skipped, 3 warnings
   - 真实 6 CSV 恢复烟测：`search_terms=461`，`analysis_results=316`
