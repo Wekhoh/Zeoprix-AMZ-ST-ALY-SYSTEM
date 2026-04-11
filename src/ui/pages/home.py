@@ -371,6 +371,24 @@ HOME_PAGE_CSS = """
     font-size: 0.9rem;
     line-height: 1.55;
 }
+.ops-template-shell {
+    padding: 1.05rem 1.1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(255,255,255,0.94);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+    margin-bottom: 1.2rem;
+}
+.ops-template-shell h3 {
+    margin: 0 0 0.35rem 0 !important;
+    font-size: 1rem;
+}
+.ops-template-shell p {
+    margin: 0 0 0.9rem 0;
+    color: #64748B;
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
 @media (max-width: 1100px) {
     .dashboard-kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1073,6 +1091,88 @@ def _render_recent_execution_effect(effect_summary: dict[str, object]) -> None:
             st.markdown(f"- {term}")
 
 
+def _build_ops_template_payloads(
+    *,
+    product_name: str | None,
+    runtime_state: dict[str, object],
+    top_actions: list[dict[str, str]],
+    trend_summary: dict[str, object],
+    effect_summary: dict[str, object],
+) -> dict[str, str]:
+    """生成首页可直接复用的运营模板。"""
+    product_label = product_name or "当前产品"
+    top_action_lines = "\n".join(
+        f"{idx + 1}. {item['title']}——{item['description']}"
+        for idx, item in enumerate(top_actions[:3])
+    ) or "1. 暂无可执行动作，请先导入数据或完成分析。"
+
+    trend_windows = trend_summary.get("windows") or []
+    trend_lines = "\n".join(
+        f"- {window['label']}：{window['value']}，{window['description']}"
+        for window in trend_windows
+    ) or "- 当前还没有足够的趋势数据。"
+
+    improving_terms = "、".join(effect_summary.get("top_improving_terms") or []) or "暂无明显改善词"
+    risky_terms = "、".join(effect_summary.get("top_risky_terms") or []) or "暂无重点风险词"
+
+    boss_summary = (
+        f"{product_label} 当前处于「{runtime_state.get('stage_title', '待确认阶段')}」。\n"
+        f"最近执行效果判断为「{effect_summary.get('status', '待观察')}」，{effect_summary.get('summary', '当前还没有足够信息判断执行效果。')}\n"
+        f"今天建议优先处理：\n{top_action_lines}"
+    )
+
+    handoff_note = (
+        f"【{product_label} 今日执行交接】\n"
+        f"- 当前阶段：{runtime_state.get('stage_title', '待确认')}\n"
+        f"- 最近执行效果：{effect_summary.get('status', '待观察')}\n"
+        f"- 改善线索：{improving_terms}\n"
+        f"- 仍需关注：{risky_terms}\n"
+        f"- 今日优先动作：\n{top_action_lines}"
+    )
+
+    weekly_review = (
+        f"【{product_label} 周度复盘摘要】\n"
+        f"- 当前工作状态：{runtime_state.get('stage_title', '待确认')}（{runtime_state.get('stage_description', '')}）\n"
+        f"- 最近趋势：\n{trend_lines}\n"
+        f"- 最近执行效果：{effect_summary.get('status', '待观察')}｜{effect_summary.get('summary', '')}\n"
+        f"- 改善最多的词：{improving_terms}\n"
+        f"- 仍需关注的词：{risky_terms}"
+    )
+
+    return {
+        "boss_summary": boss_summary,
+        "handoff_note": handoff_note,
+        "weekly_review": weekly_review,
+    }
+
+
+def _render_ops_templates(templates: dict[str, str]) -> None:
+    labels = {
+        "boss_summary": "老板摘要模板",
+        "handoff_note": "执行交接模板",
+        "weekly_review": "周度复盘模板",
+    }
+    st.markdown(
+        """
+        <div class="ops-template-shell">
+            <h3>运营模板中心</h3>
+            <p>把首页已经整理好的判断直接转成可交付文本，减少你再手工整理日报、交接和复盘摘要的时间。</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    for key, label in labels.items():
+        value = templates.get(key, "").strip()
+        if not value:
+            continue
+        st.text_area(
+            label,
+            value=value,
+            height=140,
+            key=f"ops_template_{key}",
+        )
+
+
 def _build_pending_notices(pending_stats: dict[str, int]) -> list[tuple[str, str]]:
     """将首页待处理项整理为稳定、可测试的提示列表。"""
     notices: list[tuple[str, str]] = []
@@ -1210,6 +1310,13 @@ def render_home():
     trend_summary = _get_trend_summary_impl(db, product_id)
     structure_summary = _get_keyword_structure_summary_impl(db, product_id)
     recent_execution_effect = _get_recent_execution_effect_impl(db, product_id)
+    ops_templates = _build_ops_template_payloads(
+        product_name=product_name,
+        runtime_state=runtime_state,
+        top_actions=top_actions,
+        trend_summary=trend_summary,
+        effect_summary=recent_execution_effect,
+    )
 
     _render_workbench_status(runtime_state)
 
@@ -1223,6 +1330,7 @@ def render_home():
 
     _render_keyword_structure_summary(structure_summary)
     _render_recent_execution_effect(recent_execution_effect)
+    _render_ops_templates(ops_templates)
 
     # 待处理项
     col_left, col_right = st.columns(2)

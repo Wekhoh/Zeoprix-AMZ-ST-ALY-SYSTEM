@@ -63,6 +63,7 @@ from src.ui.pages.actions import (
     _get_latest_snapshot_action_context,
 )
 from src.ui.pages.home import (
+    _build_ops_template_payloads,
     _build_dashboard_metric_cards,
     _build_overview_chart_rows,
     _build_top_priority_actions,
@@ -1417,6 +1418,95 @@ def test_homepage_renders_phase2_ops_sections(monkeypatch, db, product_id, campa
     assert "今日最优先 3 个动作" in joined
     assert "近 30 天趋势概览" in joined
     assert "搜索词结构概览" in joined
+
+
+def test_build_ops_template_payloads_generates_three_operator_templates():
+    """首页应能生成老板摘要、执行交接和周度复盘模板。"""
+    templates = _build_ops_template_payloads(
+        product_name="桌面验收产品",
+        runtime_state={
+            "stage_title": "待执行优化动作",
+            "stage_description": "先止损再补量。",
+        },
+        top_actions=[
+            {"title": "优先止损 travel pillow", "description": "先止损高花费无转化词。"},
+            {"title": "补量 best neck pillow", "description": "这是当前最值得补量的词。"},
+        ],
+        trend_summary={
+            "windows": [
+                {"label": "最近 7 天", "value": "$580.00", "description": "订单 8 ｜ 销售额 $1800.00 ｜ ACOS 32.22%"}
+            ]
+        },
+        effect_summary={
+            "status": "出现改善信号",
+            "summary": "执行后，止损压力开始下降。",
+            "top_improving_terms": ["travel pillow"],
+            "top_risky_terms": ["massager"],
+        },
+    )
+
+    assert "桌面验收产品 当前处于" in templates["boss_summary"]
+    assert "今日执行交接" in templates["handoff_note"]
+    assert "周度复盘摘要" in templates["weekly_review"]
+
+
+def test_homepage_renders_ops_template_center(monkeypatch, db, product_id):
+    """首页应渲染运营模板中心，方便直接复制日报和交接文本。"""
+    monkeypatch.setattr(
+        "src.ui.pages.home.get_all_dashboard_data",
+        lambda *_args, **_kwargs: {
+            "dashboard_stats": {
+                "term_count": 12,
+                "total_spend": 88.0,
+                "total_orders": 5,
+                "total_sales": 220.0,
+                "acos": 0.4,
+            },
+            "pending_stats": {
+                "review_pending_count": 0,
+                "negative_count": 1,
+                "manual_count": 1,
+                "conflict_count": 0,
+            },
+            "overview_chart": {"title": "数据概览", "data": {"高点击无转化": 3}},
+        },
+    )
+    monkeypatch.setattr(
+        "src.ui.pages.home._get_product_runtime_state_impl",
+        lambda *_args, **_kwargs: {
+            "stage_key": "ready_for_execution",
+            "stage_title": "待执行优化动作",
+            "stage_description": "先止损再补量。",
+            "latest_snapshot_at": "2026-04-11 12:34:56",
+            "snapshot_count": 3,
+            "campaign_count": 6,
+            "search_term_count": 316,
+            "analysis_result_count": 98,
+            "manual_review_count": 25,
+            "next_actions": [("进入操作清单", "按优先级执行当前动作。")],
+        },
+    )
+    monkeypatch.setattr(
+        "src.ui.pages.home._get_recent_execution_effect_impl",
+        lambda *_args, **_kwargs: {
+            "title": "最近执行效果",
+            "status": "出现改善信号",
+            "summary": "执行后，止损压力开始下降。",
+            "chips": ["建议否定 -2", "手动投放 +1"],
+            "top_improving_terms": ["travel pillow"],
+            "top_risky_terms": ["massager"],
+            "batch_code": "NEG-20260411-120000-ABC123",
+            "batch_status": "reviewed",
+            "created_at": "2026-04-11 12:40:00",
+        },
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_product_id"] = product_id
+    app.run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    assert "运营模板中心" in joined
 
 
 def test_workspace_member_summary_surfaces_roles_and_member_roster():
