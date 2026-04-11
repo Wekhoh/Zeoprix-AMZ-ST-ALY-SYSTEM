@@ -264,6 +264,27 @@ CREATE TABLE IF NOT EXISTS strategy_profiles (
 );
 """
 
+# 执行批次表
+EXECUTION_BATCHES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS execution_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    batch_code TEXT NOT NULL UNIQUE,
+    batch_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'prepared',
+    item_count INTEGER DEFAULT 0,
+    summary_json TEXT NOT NULL,
+    draft_note TEXT,
+    execution_note TEXT,
+    review_note TEXT,
+    executed_at DATETIME,
+    reviewed_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+"""
+
 # 分析结果表
 ANALYSIS_RESULTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS analysis_results (
@@ -358,6 +379,7 @@ ALL_SCHEMAS = [
     ("rules", RULES_SCHEMA),
     ("rule_versions", RULE_VERSIONS_SCHEMA),
     ("strategy_profiles", STRATEGY_PROFILES_SCHEMA),
+    ("execution_batches", EXECUTION_BATCHES_SCHEMA),
     ("analysis_results", ANALYSIS_RESULTS_SCHEMA),
     ("action_plans", ACTION_PLANS_SCHEMA),
     ("manual_reviews", MANUAL_REVIEWS_SCHEMA),
@@ -373,6 +395,8 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_search_terms_term ON search_terms(term);",
     "CREATE INDEX IF NOT EXISTS idx_rules_product_id ON rules(product_id);",
     "CREATE INDEX IF NOT EXISTS idx_analysis_results_search_term_id ON analysis_results(search_term_id);",
+    "CREATE INDEX IF NOT EXISTS idx_execution_batches_product_id ON execution_batches(product_id);",
+    "CREATE INDEX IF NOT EXISTS idx_execution_batches_product_created ON execution_batches(product_id, created_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_manual_reviews_product_term ON manual_reviews(product_id, term);",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_reviews_unique ON manual_reviews(product_id, term, COALESCE(campaign_id, 0), COALESCE(asin_identifier, ''));",
     # v2.0: 相关性人工审核索引

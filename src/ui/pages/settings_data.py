@@ -21,6 +21,7 @@ def _fetch_rows(db, sql: str, params: tuple = ()) -> list[dict]:
 
 def clear_product_runtime_data(db, product_id: int) -> None:
     """清空产品运行数据，保留产品配置与规则配置。"""
+    db.execute("DELETE FROM execution_batches WHERE product_id = ?", (product_id,))
     db.execute(
         """
         DELETE FROM action_plans
@@ -157,6 +158,7 @@ def build_full_backup_export_payload(db, product_id: int) -> dict | None:
         "action_plans": [],
         "manual_reviews": [],
         "analysis_run_snapshots": [],
+        "execution_batches": [],
         "rule_versions": [],
         "strategy_profiles": [],
         "search_terms_count": 0,
@@ -218,6 +220,18 @@ def build_full_backup_export_payload(db, product_id: int) -> dict | None:
         """,
         (product_id,),
     )
+    backup_data["execution_batches"] = _fetch_rows(
+        db,
+        """
+        SELECT id, product_id, batch_code, batch_type, status, item_count, summary_json,
+               draft_note, execution_note, review_note, executed_at, reviewed_at,
+               created_at, updated_at
+        FROM execution_batches
+        WHERE product_id = ?
+        ORDER BY id
+        """,
+        (product_id,),
+    )
     backup_data["rule_versions"] = _fetch_rows(
         db,
         """
@@ -250,6 +264,7 @@ def build_full_backup_export_payload(db, product_id: int) -> dict | None:
             "analysis_results_count": backup_data["analysis_results_count"],
             "manual_reviews_count": len(backup_data["manual_reviews"]),
             "snapshots_count": len(backup_data["analysis_run_snapshots"]),
+            "execution_batches_count": len(backup_data["execution_batches"]),
         },
     }
 
@@ -450,6 +465,33 @@ def restore_full_backup(
                 snapshot.get("summary_json"),
                 snapshot.get("snapshot_json"),
                 snapshot.get("created_at"),
+            ),
+        )
+
+    for batch in backup_data.get("execution_batches", []):
+        db.execute(
+            """
+            INSERT INTO execution_batches (
+                product_id, batch_code, batch_type, status, item_count, summary_json,
+                draft_note, execution_note, review_note, executed_at, reviewed_at,
+                created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                target_product_id,
+                batch.get("batch_code"),
+                batch.get("batch_type", "general"),
+                batch.get("status", "prepared"),
+                batch.get("item_count", 0),
+                batch.get("summary_json") or json.dumps({}, ensure_ascii=False),
+                batch.get("draft_note"),
+                batch.get("execution_note"),
+                batch.get("review_note"),
+                batch.get("executed_at"),
+                batch.get("reviewed_at"),
+                batch.get("created_at"),
+                batch.get("updated_at"),
             ),
         )
 
@@ -915,7 +957,8 @@ def render_data_management(db, product_id: int):
                         f"搜索词 {summary['search_terms_count']} 条 ｜ "
                         f"分析结果 {summary['analysis_results_count']} 条 ｜ "
                         f"审核记录 {summary['manual_reviews_count']} 条 ｜ "
-                        f"分析快照 {summary['snapshots_count']} 个"
+                        f"分析快照 {summary['snapshots_count']} 个 ｜ "
+                        f"执行批次 {len(backup_data.get('execution_batches', []))} 个"
                     )
                     if st.button("确认恢复完整备份", type="primary", key="confirm_restore_full_backup"):
                         restored_product_id = restore_full_backup(

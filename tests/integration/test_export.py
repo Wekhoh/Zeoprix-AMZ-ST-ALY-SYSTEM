@@ -448,6 +448,8 @@ class TestExportIntegration:
                     return FakeCursor(rows=[])
                 if "FROM analysis_run_snapshots" in query:
                     return FakeCursor(rows=[])
+                if "FROM execution_batches" in query:
+                    return FakeCursor(rows=[])
                 if "FROM rule_versions" in query:
                     return FakeCursor(rows=[])
                 if "FROM strategy_profiles" in query:
@@ -507,6 +509,7 @@ class TestExportIntegration:
         assert backup_data["export_type"] == "full_backup"
         assert len(backup_data["search_terms"]) == 1
         assert len(backup_data["analysis_results"]) == 1
+        assert len(backup_data["execution_batches"]) == 0
 
     def test_export_empty_results_returns_none(self):
         """测试空结果导出返回None"""

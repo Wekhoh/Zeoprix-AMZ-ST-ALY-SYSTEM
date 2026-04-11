@@ -3,9 +3,11 @@
 提供SQLite数据库的初始化和CRUD操作
 """
 
+import datetime as dt
 import json
 import sqlite3
 import weakref
+from uuid import uuid4
 from pathlib import Path
 
 import pandas as pd
@@ -1406,6 +1408,122 @@ class Database:
             )
             snapshots.append(snapshot)
         return snapshots
+
+    def create_execution_batch(
+        self,
+        *,
+        product_id: int,
+        batch_type: str,
+        summary: dict,
+        draft_note: str | None = None,
+    ) -> dict:
+        """创建执行批次记录。"""
+        batch_type = str(batch_type).strip() or "general"
+        batch_code = f"{batch_type[:3].upper()}-{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:6].upper()}"
+        item_count = int(summary.get("item_count") or len(summary.get("items") or []))
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO execution_batches (
+                product_id, batch_code, batch_type, status, item_count,
+                summary_json, draft_note
+            )
+            VALUES (?, ?, ?, 'prepared', ?, ?, ?)
+            """,
+            (
+                product_id,
+                batch_code,
+                batch_type,
+                item_count,
+                json.dumps(summary or {}, ensure_ascii=False),
+                draft_note,
+            ),
+        )
+        self.conn.commit()
+        return self.get_execution_batch(cursor.lastrowid)
+
+    def get_execution_batch(self, batch_id: int) -> dict | None:
+        cursor = self.conn.execute(
+            "SELECT * FROM execution_batches WHERE id = ?",
+            (batch_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        batch = dict(row)
+        batch["summary"] = (
+            json.loads(batch.pop("summary_json"))
+            if batch.get("summary_json")
+            else {}
+        )
+        return batch
+
+    def list_execution_batches(self, product_id: int, limit: int = 20) -> list[dict]:
+        cursor = self.conn.execute(
+            """
+            SELECT *
+            FROM execution_batches
+            WHERE product_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (product_id, limit),
+        )
+        batches: list[dict] = []
+        for row in cursor.fetchall():
+            batch = dict(row)
+            batch["summary"] = (
+                json.loads(batch.pop("summary_json"))
+                if batch.get("summary_json")
+                else {}
+            )
+            batches.append(batch)
+        return batches
+
+    def update_execution_batch(
+        self,
+        batch_id: int,
+        *,
+        status: str | None = None,
+        execution_note: str | None = None,
+        review_note: str | None = None,
+    ) -> None:
+        """更新执行批次状态与备注。"""
+        current_batch = self.get_execution_batch(batch_id)
+        if current_batch is None:
+            raise ValueError("执行批次不存在")
+
+        normalized_status = status or current_batch["status"]
+        executed_at = current_batch.get("executed_at")
+        reviewed_at = current_batch.get("reviewed_at")
+        if normalized_status == "executed" and executed_at is None:
+            executed_at = dt.datetime.now().isoformat(timespec="seconds")
+        if normalized_status == "reviewed" and reviewed_at is None:
+            reviewed_at = dt.datetime.now().isoformat(timespec="seconds")
+            if executed_at is None:
+                executed_at = reviewed_at
+
+        self.conn.execute(
+            """
+            UPDATE execution_batches
+            SET status = ?,
+                execution_note = COALESCE(?, execution_note),
+                review_note = COALESCE(?, review_note),
+                executed_at = ?,
+                reviewed_at = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                normalized_status,
+                execution_note,
+                review_note,
+                executed_at,
+                reviewed_at,
+                batch_id,
+            ),
+        )
+        self.conn.commit()
 
     # ==================== 工具方法 ====================
 

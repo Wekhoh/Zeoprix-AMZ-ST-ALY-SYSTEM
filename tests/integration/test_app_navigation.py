@@ -2671,6 +2671,12 @@ def test_run_analysis_warning_does_not_persist_snapshot(monkeypatch, db, product
 def test_clear_product_runtime_data_removes_analysis_snapshots(db, product_id, campaign_id):
     """清空运行数据时应一并删除最近一次分析快照，避免旧分析残留。"""
     _seed_minimal_search_term(db, campaign_id)
+    db.create_execution_batch(
+        product_id=product_id,
+        batch_type="negative",
+        summary={"item_count": 1, "items": [{"term": "travel pillow"}]},
+        draft_note="测试批次",
+    )
     db.save_analysis_run_snapshot(
         product_id=product_id,
         run_source="manual",
@@ -2695,6 +2701,7 @@ def test_clear_product_runtime_data_removes_analysis_snapshots(db, product_id, c
 
     assert db.get_table_count("campaigns") == 0
     assert db.list_analysis_run_snapshots(product_id, limit=5) == []
+    assert db.list_execution_batches(product_id, limit=5) == []
 
 
 def test_full_backup_export_includes_real_runtime_rows(db, product_id, campaign_id):
@@ -2725,6 +2732,12 @@ def test_full_backup_export_includes_real_runtime_rows(db, product_id, campaign_
         VALUES (?, ?, ?, ?, ?, ?)
         """,
         (product_id, "travel pillow", "keyword", 1, "negative_exact", "人工备注"),
+    )
+    db.create_execution_batch(
+        product_id=product_id,
+        batch_type="negative",
+        summary={"item_count": 1, "items": [{"term": "travel pillow"}]},
+        draft_note="测试批次",
     )
     db.save_analysis_run_snapshot(
         product_id=product_id,
@@ -2757,6 +2770,7 @@ def test_full_backup_export_includes_real_runtime_rows(db, product_id, campaign_
     assert len(backup["action_plans"]) == 1
     assert len(backup["manual_reviews"]) == 1
     assert len(backup["analysis_run_snapshots"]) == 1
+    assert len(backup["execution_batches"]) == 1
 
 
 def test_restore_full_backup_can_rebuild_product_runtime_data(db, product_id, campaign_id):
@@ -2787,6 +2801,12 @@ def test_restore_full_backup_can_rebuild_product_runtime_data(db, product_id, ca
         VALUES (?, ?, ?, ?, ?, ?)
         """,
         (product_id, "travel pillow", "keyword", 1, "negative_exact", "人工备注"),
+    )
+    db.create_execution_batch(
+        product_id=product_id,
+        batch_type="negative",
+        summary={"item_count": 1, "items": [{"term": "travel pillow"}]},
+        draft_note="测试批次",
     )
     db.save_analysis_run_snapshot(
         product_id=product_id,
@@ -2821,6 +2841,44 @@ def test_restore_full_backup_can_rebuild_product_runtime_data(db, product_id, ca
     assert db.execute("SELECT COUNT(*) AS count FROM action_plans").fetchone()["count"] == 1
     assert db.execute("SELECT COUNT(*) AS count FROM manual_reviews").fetchone()["count"] == 1
     assert len(db.list_analysis_run_snapshots(product_id, limit=5)) == 1
+    assert len(db.list_execution_batches(product_id, limit=5)) == 1
+
+
+def test_execution_batch_roundtrip_and_status_updates(db, product_id):
+    """执行批次应支持创建、列表与状态推进。"""
+    batch = db.create_execution_batch(
+        product_id=product_id,
+        batch_type="negative",
+        summary={
+            "item_count": 2,
+            "context_label": "当前产品：旅行枕 · 上下文：最近一次分析结果",
+            "items": [{"term": "travel pillow"}],
+        },
+        draft_note="先止损高花费词",
+    )
+
+    assert batch["batch_type"] == "negative"
+    assert batch["status"] == "prepared"
+    assert batch["draft_note"] == "先止损高花费词"
+
+    db.update_execution_batch(
+        batch["id"],
+        status="executed",
+        execution_note="已在广告后台创建批量否词",
+    )
+    db.update_execution_batch(
+        batch["id"],
+        status="reviewed",
+        review_note="执行后 3 天复盘 ACOS 明显回落",
+    )
+
+    persisted = db.get_execution_batch(batch["id"])
+    assert persisted["status"] == "reviewed"
+    assert persisted["execution_note"] == "已在广告后台创建批量否词"
+    assert persisted["review_note"] == "执行后 3 天复盘 ACOS 明显回落"
+    assert persisted["executed_at"] is not None
+    assert persisted["reviewed_at"] is not None
+    assert db.list_execution_batches(product_id, limit=5)[0]["id"] == batch["id"]
 
 
 def test_seeded_product_config_defaults_to_generic_workspace_template():

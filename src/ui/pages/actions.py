@@ -451,6 +451,67 @@ def _build_export_results_from_bucket_items(
     return export_results
 
 
+def _build_execution_batch_summary(
+    *,
+    batch_type: str,
+    bucket_items: list[dict[str, object]],
+    context_label: str,
+) -> dict[str, object]:
+    """构建执行批次摘要，供后续执行与复盘使用。"""
+    total_spend = sum(float(item.get("spend") or 0.0) for item in bucket_items)
+    total_sales = sum(float(item.get("sales") or 0.0) for item in bucket_items)
+    total_orders = sum(int(item.get("orders") or 0) for item in bucket_items)
+    items = [
+        {
+            "term": item.get("term"),
+            "term_type": item.get("term_type"),
+            "action_type": item.get("action_type"),
+            "suggested_action": item.get("suggested_action"),
+            "triggered_rule": item.get("triggered_rule"),
+            "spend": float(item.get("spend") or 0.0),
+            "clicks": int(item.get("clicks") or 0),
+            "orders": int(item.get("orders") or 0),
+            "sales": float(item.get("sales") or 0.0),
+        }
+        for item in bucket_items
+    ]
+    return {
+        "batch_type": batch_type,
+        "item_count": len(items),
+        "context_label": context_label,
+        "total_spend": round(total_spend, 2),
+        "total_sales": round(total_sales, 2),
+        "total_orders": total_orders,
+        "top_terms": [item["term"] for item in items[:5] if item.get("term")],
+        "items": items,
+    }
+
+
+def _create_execution_batch_from_items(
+    db,
+    *,
+    product_id: int,
+    batch_type: str,
+    bucket_items: list[dict[str, object]],
+    context_label: str,
+    draft_note: str,
+) -> dict | None:
+    """基于当前操作清单生成一个执行批次。"""
+    if not bucket_items:
+        return None
+    summary = _build_execution_batch_summary(
+        batch_type=batch_type,
+        bucket_items=bucket_items,
+        context_label=context_label,
+    )
+    return db.create_execution_batch(
+        product_id=product_id,
+        batch_type=batch_type,
+        summary=summary,
+        draft_note=draft_note or None,
+    )
+
+
 def _get_export_results(db, product_id: int, export_kind: str) -> list[AnalysisResult]:
     """返回与页面 truth bucket 一致的导出结果。"""
     truth_buckets = get_truth_first_action_buckets(db, product_id)
@@ -626,6 +687,7 @@ def render_actions():
             action_buckets=action_buckets
             if (truth_buckets is not None or snapshot_context)
             else None,
+            context_label=context_label,
         )
 
     with tab2:
@@ -636,10 +698,11 @@ def render_actions():
             action_buckets=action_buckets
             if (truth_buckets is not None or snapshot_context)
             else None,
+            context_label=context_label,
         )
 
     with tab3:
-        render_action_history(db, product_id)
+        render_action_history(db, product_id, can_manage=bool(access_meta["can_export"]))
 
 
 def render_negative_actions(
@@ -648,6 +711,7 @@ def render_negative_actions(
     *,
     can_export: bool = True,
     action_buckets: dict[str, list[dict[str, object]]] | None = None,
+    context_label: str,
 ):
     """渲染否词操作清单"""
     st.write("### 待否定关键词")
@@ -814,6 +878,31 @@ def render_negative_actions(
         else:
             st.button("导出否词CSV（批量上传格式）", disabled=True, width="stretch")
 
+    draft_note = st.text_area(
+        "批量否词执行备注（可选）",
+        value="",
+        placeholder="例如：先处理高花费无转化词，执行后 3 天复看 ACOS 与订单变化。",
+        key="negative_execution_note",
+        disabled=not can_export,
+    )
+    if st.button(
+        "生成否词执行批次",
+        key="create_negative_execution_batch",
+        disabled=not can_export,
+        width="stretch",
+    ):
+        batch = _create_execution_batch_from_items(
+            db,
+            product_id=product_id,
+            batch_type="negative",
+            bucket_items=exact_negatives + phrase_negatives + product_negatives,
+            context_label=context_label,
+            draft_note=draft_note,
+        )
+        if batch:
+            st.success(f"已创建否词执行批次：{batch['batch_code']}，可在“操作历史”里继续跟踪。")
+            st.rerun()
+
 
 def render_manual_actions(
     db,
@@ -821,6 +910,7 @@ def render_manual_actions(
     *,
     can_export: bool = True,
     action_buckets: dict[str, list[dict[str, object]]] | None = None,
+    context_label: str,
 ):
     """渲染手动投放操作清单"""
     st.write("### 推荐手动投放")
@@ -971,14 +1061,124 @@ def render_manual_actions(
     else:
         st.button("导出手动词Excel", disabled=True, width="stretch")
 
+    draft_note = st.text_area(
+        "手动投放执行备注（可选）",
+        value="",
+        placeholder="例如：先拉精准词测试预算，3~5 天后观察点击率和转化率。",
+        key="manual_execution_note",
+        disabled=not can_export,
+    )
+    if st.button(
+        "生成手动投放执行批次",
+        key="create_manual_execution_batch",
+        disabled=not can_export,
+        width="stretch",
+    ):
+        batch = _create_execution_batch_from_items(
+            db,
+            product_id=product_id,
+            batch_type="manual",
+            bucket_items=manual_keywords + manual_products,
+            context_label=context_label,
+            draft_note=draft_note,
+        )
+        if batch:
+            st.success(f"已创建手动投放执行批次：{batch['batch_code']}，可在“操作历史”里继续跟踪。")
+            st.rerun()
 
-def render_action_history(db, product_id: int):
-    """渲染操作历史"""
+
+def render_action_history(db, product_id: int, *, can_manage: bool = True):
+    """渲染执行批次与操作历史。"""
     st.write("### 操作历史")
     st.markdown(
-        '<p class="actions-section-note">操作历史用于复盘最近执行记录，确认哪些动作已经落地，避免同一批词重复处理。</p>',
+        '<p class="actions-section-note">先看执行批次，再看旧的动作历史。这样你可以确认哪一批建议只是准备好了，哪一批已经执行，哪一批已经做完复盘。</p>',
         unsafe_allow_html=True,
     )
+
+    try:
+        execution_batches = db.list_execution_batches(product_id, limit=20)
+    except Exception as e:
+        logger.error(f"获取执行批次失败: {e}")
+        execution_batches = []
+
+    if execution_batches:
+        st.write("#### 执行批次")
+        status_labels = {
+            "prepared": "待执行",
+            "executed": "已执行",
+            "reviewed": "已复盘",
+        }
+        for batch in execution_batches:
+            summary = batch.get("summary") or {}
+            top_terms = "、".join(summary.get("top_terms", [])[:3]) or "暂无关键词摘要"
+            with st.expander(
+                f"{batch['batch_code']} · {status_labels.get(batch.get('status'), batch.get('status'))} · {batch.get('item_count', 0)} 项",
+                expanded=False,
+            ):
+                st.caption(
+                    f"{batch.get('created_at', '')} ｜ {summary.get('context_label', '当前操作清单')}"
+                )
+                st.markdown(
+                    f"- 批次类型：{batch.get('batch_type')}\n"
+                    f"- 覆盖项数：{batch.get('item_count', 0)}\n"
+                    f"- 重点关键词：{top_terms}\n"
+                    f"- 总花费：${float(summary.get('total_spend') or 0.0):.2f}\n"
+                    f"- 总销售额：${float(summary.get('total_sales') or 0.0):.2f}"
+                )
+                if batch.get("draft_note"):
+                    st.text_area(
+                        "批次草稿备注",
+                        value=str(batch["draft_note"]),
+                        height=90,
+                        key=f"execution_batch_draft_{batch['id']}",
+                        disabled=True,
+                    )
+
+                execution_note = st.text_area(
+                    "执行备注",
+                    value=str(batch.get("execution_note") or ""),
+                    height=90,
+                    key=f"execution_batch_execute_note_{batch['id']}",
+                    disabled=not can_manage,
+                )
+                review_note = st.text_area(
+                    "复盘备注",
+                    value=str(batch.get("review_note") or ""),
+                    height=90,
+                    key=f"execution_batch_review_note_{batch['id']}",
+                    disabled=not can_manage,
+                )
+
+                cols = st.columns(2)
+                with cols[0]:
+                    if st.button(
+                        "标记已执行",
+                        key=f"mark_execution_batch_done_{batch['id']}",
+                        disabled=(not can_manage) or batch.get("status") in {"executed", "reviewed"},
+                        width="stretch",
+                    ):
+                        db.update_execution_batch(
+                            batch["id"],
+                            status="executed",
+                            execution_note=execution_note or None,
+                        )
+                        st.success("已记录为已执行。")
+                        st.rerun()
+                with cols[1]:
+                    if st.button(
+                        "保存复盘并标记完成",
+                        key=f"mark_execution_batch_reviewed_{batch['id']}",
+                        disabled=(not can_manage) or batch.get("status") == "reviewed",
+                        width="stretch",
+                    ):
+                        db.update_execution_batch(
+                            batch["id"],
+                            status="reviewed",
+                            execution_note=execution_note or None,
+                            review_note=review_note or None,
+                        )
+                        st.success("已保存复盘备注，并将批次标记为已复盘。")
+                        st.rerun()
 
     # 获取操作计划历史
     # action_plans 表没有 product_id，需要通过 analysis_results -> search_terms -> campaigns 关联
@@ -1003,7 +1203,8 @@ def render_action_history(db, product_id: int):
         history = cursor.fetchall()
 
         if not history:
-            st.info("暂无操作历史记录")
+            if not execution_batches:
+                st.info("暂无操作历史记录")
             return
 
         df = pd.DataFrame(
