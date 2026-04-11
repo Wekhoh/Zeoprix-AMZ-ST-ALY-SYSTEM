@@ -2959,12 +2959,30 @@ def test_summarize_execution_batch_effect_builds_recent_effect_summary():
                 {"label": "继续观察", "before": 0, "after": 1, "delta": 1},
                 {"label": "跨ASIN分歧", "before": 1, "after": 0, "delta": -1},
             ],
+            "preview_rows": [
+                {
+                    "term": "travel pillow",
+                    "old_action_type": "negative_exact",
+                    "new_action_type": "manual_exact",
+                    "old_suggested_action": "否定精准",
+                    "new_suggested_action": "手动精准",
+                },
+                {
+                    "term": "massager",
+                    "old_action_type": "observe",
+                    "new_action_type": "negative_exact",
+                    "old_suggested_action": "观察",
+                    "new_suggested_action": "否定精准",
+                },
+            ],
         }
     )
 
     assert summary["title"] == "最近执行效果"
     assert summary["status"] == "出现改善信号"
     assert any("建议否定 -2" == chip for chip in summary["chips"])
+    assert summary["top_improving_terms"] == ["travel pillow"]
+    assert summary["top_risky_terms"] == ["massager"]
 
 
 def test_get_recent_execution_effect_impl_uses_latest_batch_and_snapshot(db, product_id):
@@ -3069,6 +3087,8 @@ def test_homepage_renders_recent_execution_effect_section(monkeypatch, db, produ
             "status": "出现改善信号",
             "summary": "执行后，止损压力开始下降。",
             "chips": ["建议否定 -2", "手动投放 +1"],
+            "top_improving_terms": ["travel pillow"],
+            "top_risky_terms": ["massager"],
             "batch_code": "NEG-20260411-120000-ABC123",
             "batch_status": "reviewed",
             "created_at": "2026-04-11 12:40:00",
@@ -3081,6 +3101,7 @@ def test_homepage_renders_recent_execution_effect_section(monkeypatch, db, produ
 
     joined = "\n".join(markdown.value or "" for markdown in app.markdown)
     assert "最近执行效果" in joined
+    assert "travel pillow" in joined
 
 
 def test_seeded_product_config_defaults_to_generic_workspace_template():

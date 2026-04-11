@@ -939,11 +939,40 @@ def summarize_execution_batch_effect(preview: dict[str, Any]) -> dict[str, str |
         }
 
     cards = preview.get("cards") or []
+    preview_rows = preview.get("preview_rows") or []
     deltas = {card["label"]: int(card.get("delta") or 0) for card in cards}
     negative_delta = deltas.get("建议否定", 0)
     manual_delta = deltas.get("建议手动投放", 0)
     conflict_delta = deltas.get("跨ASIN分歧", 0)
     observe_delta = deltas.get("继续观察", 0)
+
+    def _effect_rank(action_type: str) -> int:
+        normalized = _normalize_text(action_type)
+        if normalized == "conflict":
+            return 3
+        if ActionType.is_negative(normalized):
+            return 2
+        if normalized == ActionType.CONTINUE_OBSERVE or normalized == ActionType.OBSERVE:
+            return 1
+        if ActionType.is_manual(normalized):
+            return 0
+        return 1
+
+    improving_terms: list[str] = []
+    risky_terms: list[str] = []
+    neutral_terms: list[str] = []
+    for row in preview_rows:
+        term = _normalize_text(row.get("term"))
+        if not term:
+            continue
+        old_rank = _effect_rank(row.get("old_action_type", ""))
+        new_rank = _effect_rank(row.get("new_action_type", ""))
+        if new_rank < old_rank:
+            improving_terms.append(term)
+        elif new_rank > old_rank:
+            risky_terms.append(term)
+        else:
+            neutral_terms.append(term)
 
     if (negative_delta < 0 and manual_delta >= 0) or conflict_delta < 0:
         status = "出现改善信号"
@@ -963,8 +992,12 @@ def summarize_execution_batch_effect(preview: dict[str, Any]) -> dict[str, str |
     return {
         "title": "最近执行效果",
         "status": status,
+        "verdict": status,
         "summary": summary,
         "chips": chips,
+        "top_improving_terms": improving_terms[:3],
+        "top_risky_terms": risky_terms[:3],
+        "top_neutral_terms": neutral_terms[:3],
     }
 
 

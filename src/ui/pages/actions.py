@@ -11,8 +11,8 @@ import streamlit as st
 from src.ai.copilot import build_actions_ai_brief, build_follow_up_context_hint
 from src.analysis.truth_replay import (
     action_type_to_auto_action,
-    build_analysis_run_diff_rows,
-    build_analysis_run_snapshot_summary,
+    get_execution_batch_effect_preview,
+    summarize_execution_batch_effect,
     get_truth_first_action_buckets,
     get_truth_first_pending_stats,
 )
@@ -521,87 +521,6 @@ def _create_execution_batch_from_items(
         summary=summary,
         draft_note=draft_note or None,
     )
-
-
-def _build_execution_batch_effect_preview(
-    db,
-    batch: dict,
-) -> dict[str, object]:
-    """基于执行批次的基线快照与当前最新快照，生成第一版前后对比预览。"""
-    summary = batch.get("summary") or {}
-    baseline_snapshot_id = summary.get("baseline_snapshot_id")
-    if not baseline_snapshot_id:
-        return {
-            "available": False,
-            "message": "该执行批次创建时还没有记录分析基线，暂时无法比较前后变化。",
-        }
-
-    baseline_snapshot = db.get_analysis_run_snapshot(int(baseline_snapshot_id))
-    latest_snapshots = db.list_analysis_run_snapshots(batch["product_id"], limit=1)
-    latest_snapshot = latest_snapshots[0] if latest_snapshots else None
-
-    if baseline_snapshot is None:
-        return {
-            "available": False,
-            "message": "执行前基线快照已不存在，暂时无法比较前后变化。",
-        }
-    if latest_snapshot is None:
-        return {
-            "available": False,
-            "message": "当前还没有新的分析快照，先重新运行分析后再回来复盘。",
-        }
-    if int(latest_snapshot["id"]) == int(baseline_snapshot["id"]):
-        return {
-            "available": False,
-            "message": "执行批次创建后还没有形成新的分析快照，先跑一轮最新分析再回来复盘。",
-        }
-
-    baseline_summary = baseline_snapshot.get("summary") or build_analysis_run_snapshot_summary(
-        baseline_snapshot.get("rows") or []
-    )
-    current_summary = latest_snapshot.get("summary") or build_analysis_run_snapshot_summary(
-        latest_snapshot.get("rows") or []
-    )
-    cards = []
-    for label, key in (
-        ("建议否定", "negative_count"),
-        ("建议手动投放", "manual_count"),
-        ("继续观察", "observe_count"),
-        ("跨ASIN分歧", "conflict_count"),
-    ):
-        previous_value = int(baseline_summary.get(key, 0) or 0)
-        current_value = int(current_summary.get(key, 0) or 0)
-        cards.append(
-            {
-                "label": label,
-                "before": previous_value,
-                "after": current_value,
-                "delta": current_value - previous_value,
-            }
-        )
-
-    raw_diff_rows = build_analysis_run_diff_rows(
-        baseline_snapshot.get("rows") or [],
-        latest_snapshot.get("rows") or [],
-    )
-    preview_rows = [
-        {
-            "term": row.get("term") or "",
-            "old_action_type": row.get("old_action_type") or "none",
-            "new_action_type": row.get("new_action_type") or "none",
-            "old_suggested_action": row.get("old_suggested_action") or "无",
-            "new_suggested_action": row.get("new_suggested_action") or "无",
-        }
-        for row in raw_diff_rows[:5]
-    ]
-
-    return {
-        "available": True,
-        "baseline_created_at": baseline_snapshot.get("created_at"),
-        "current_created_at": latest_snapshot.get("created_at"),
-        "cards": cards,
-        "preview_rows": preview_rows,
-    }
 
 
 def _get_export_results(db, product_id: int, export_kind: str) -> list[AnalysisResult]:
@@ -1217,13 +1136,17 @@ def render_action_history(db, product_id: int, *, can_manage: bool = True):
                     f"- 总花费：${float(summary.get('total_spend') or 0.0):.2f}\n"
                     f"- 总销售额：${float(summary.get('total_sales') or 0.0):.2f}"
                 )
-                effect_preview = _build_execution_batch_effect_preview(db, batch)
+                effect_preview = get_execution_batch_effect_preview(db, batch)
                 st.write("**前后对比 / 复盘预览**")
                 if not effect_preview.get("available"):
                     st.info(str(effect_preview.get("message") or "当前还不能比较这批动作前后的变化。"))
                 else:
                     st.caption(
                         f"基线：{effect_preview.get('baseline_created_at', '')} ｜ 当前最新：{effect_preview.get('current_created_at', '')}"
+                    )
+                    effect_summary = summarize_execution_batch_effect(effect_preview)
+                    st.success(
+                        f"{effect_summary.get('verdict', '继续观察')}｜{effect_summary.get('summary', '')}"
                     )
                     effect_cards = effect_preview.get("cards") or []
                     if effect_cards:
@@ -1250,6 +1173,16 @@ def render_action_history(db, product_id: int, *, can_manage: bool = True):
                             ]
                         )
                         st.dataframe(preview_df, width="stretch", hide_index=True)
+                    improving_terms = effect_summary.get("top_improving_terms") or []
+                    risky_terms = effect_summary.get("top_risky_terms") or []
+                    if improving_terms:
+                        st.caption("改善最多的词：")
+                        for term in improving_terms:
+                            st.markdown(f"- {term}")
+                    if risky_terms:
+                        st.caption("仍需重点关注的词：")
+                        for term in risky_terms:
+                            st.markdown(f"- {term}")
                 if batch.get("draft_note"):
                     st.text_area(
                         "批次草稿备注",

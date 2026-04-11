@@ -1061,6 +1061,16 @@ def _render_recent_execution_effect(effect_summary: dict[str, object]) -> None:
         """,
         unsafe_allow_html=True,
     )
+    improving_terms = effect_summary.get("top_improving_terms") or []
+    risky_terms = effect_summary.get("top_risky_terms") or []
+    if improving_terms:
+        st.caption("改善线索：")
+        for term in improving_terms:
+            st.markdown(f"- {term}")
+    if risky_terms:
+        st.caption("仍需关注：")
+        for term in risky_terms:
+            st.markdown(f"- {term}")
 
 
 def _build_pending_notices(pending_stats: dict[str, int]) -> list[tuple[str, str]]:
