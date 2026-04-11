@@ -63,7 +63,11 @@ from src.ui.pages.actions import (
 from src.ui.pages.home import (
     _build_dashboard_metric_cards,
     _build_overview_chart_rows,
+    _build_top_priority_actions,
     _build_workbench_status_cards,
+    _classify_structure_bucket,
+    _get_keyword_structure_summary_impl,
+    _get_trend_summary_impl,
     _get_product_runtime_state_impl,
     _build_workspace_summary_meta,
 )
@@ -1153,6 +1157,153 @@ def test_build_workbench_status_cards_surfaces_snapshot_and_scale():
     assert "316 条搜索词 / 6 个活动" in cards[3]["value"]
 
 
+def test_build_top_priority_actions_prefers_review_then_negative_and_manual():
+    """首页今日 Top 3 动作应优先呈现待审核、止损和补量。"""
+    actions = _build_top_priority_actions(
+        {
+            "next_actions": [("继续当前流程", "先处理当前阶段最重要的动作。")],
+        },
+        {
+            "review_pending_count": 2,
+            "negative_count": 3,
+            "manual_count": 1,
+            "conflict_count": 0,
+        },
+        [
+            {
+                "term": "travel pillow",
+                "action_type": "negative_exact",
+                "spend": 24.0,
+                "triggered_rule": "高点击无转化",
+            },
+            {
+                "term": "best neck pillow",
+                "action_type": "manual_exact",
+                "sales": 88.0,
+                "suggested_action": "手动精准",
+            },
+        ],
+    )
+
+    assert actions[0]["tag"] == "先审核"
+    assert "travel pillow" in actions[1]["title"] or "止损" in actions[1]["title"]
+    assert "best neck pillow" in actions[2]["title"] or "补量" in actions[2]["title"]
+
+
+def test_get_trend_summary_impl_builds_recent_windows(db, product_id, campaign_id):
+    """趋势摘要应输出最近 7/14/30 天窗口与日期点。"""
+    trend_df = pd.DataFrame(
+        [
+            {
+                "term": "travel pillow",
+                "term_type": "keyword",
+                "impressions": 100,
+                "clicks": 10,
+                "ctr": 0.10,
+                "spend": 12.0,
+                "cpc": 1.2,
+                "orders": 2,
+                "sales": 48.0,
+                "acos": 0.25,
+                "roas": 4.0,
+                "conversion_rate": 0.2,
+                "report_date": "2026-04-01",
+            },
+            {
+                "term": "neck support",
+                "term_type": "keyword",
+                "impressions": 80,
+                "clicks": 8,
+                "ctr": 0.10,
+                "spend": 9.0,
+                "cpc": 1.125,
+                "orders": 1,
+                "sales": 22.0,
+                "acos": 0.409,
+                "roas": 2.44,
+                "conversion_rate": 0.125,
+                "report_date": "2026-04-05",
+            },
+            {
+                "term": "best neck pillow",
+                "term_type": "keyword",
+                "impressions": 60,
+                "clicks": 6,
+                "ctr": 0.10,
+                "spend": 8.0,
+                "cpc": 1.333,
+                "orders": 2,
+                "sales": 42.0,
+                "acos": 0.19,
+                "roas": 5.25,
+                "conversion_rate": 0.333,
+                "report_date": "2026-04-10",
+            },
+        ]
+    )
+    db.save_search_terms(trend_df, campaign_id)
+
+    summary = _get_trend_summary_impl(db, product_id)
+
+    assert len(summary["points"]) >= 3
+    assert [item["label"] for item in summary["windows"]] == ["最近 7 天", "最近 14 天", "最近 30 天"]
+
+
+def test_classify_structure_bucket_uses_config_keywords():
+    """结构分类应优先识别泛词、核心词、相关词与 ASIN。"""
+    config = {
+        "core_keywords": ["travel pillow"],
+        "related_keywords": ["neck support"],
+        "own_variants": ["B0SELFASIN1"],
+        "own_asins": [],
+        "competitor_asins": ["B0COMPASIN1"],
+        "keyword_libraries": {"generic_keywords": ["pillow"]},
+    }
+
+    assert _classify_structure_bucket("pillow", "keyword", config) == "泛词"
+    assert _classify_structure_bucket("travel pillow for airplane", "keyword", config) == "核心词"
+    assert _classify_structure_bucket("neck support cushion", "keyword", config) == "相关词"
+    assert _classify_structure_bucket("B0SELFASIN1", "asin", config) == "自家变体ASIN"
+    assert _classify_structure_bucket("B0COMPASIN1", "asin", config) == "竞品ASIN"
+    assert _classify_structure_bucket("memory foam plane pillow", "keyword", config) == "其它长尾"
+
+
+def test_get_keyword_structure_summary_impl_prefers_snapshot_rows(db, product_id):
+    """结构概览应优先按最新 snapshot 的词结构统计。"""
+    db.update_product_config(
+        product_id,
+        {
+            "core_keywords": ["travel pillow"],
+            "related_keywords": ["neck support"],
+            "own_asins": [],
+            "own_variants": ["B0SELFASIN1"],
+            "competitor_asins": ["B0COMPASIN1"],
+            "keyword_libraries": {
+                "generic_keywords": ["pillow"],
+                "irrelevant_keywords": [],
+                "weak_category_keywords": [],
+                "car_keywords": [],
+            },
+        },
+    )
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={"negative": 2, "manual": 1, "conflict": 0},
+        snapshot_rows=[
+            {"term": "pillow", "term_type": "keyword"},
+            {"term": "travel pillow for airplane", "term_type": "keyword"},
+            {"term": "B0COMPASIN1", "term_type": "asin"},
+        ],
+    )
+
+    summary = _get_keyword_structure_summary_impl(db, product_id)
+
+    assert summary["counts"]["泛词"] == 1
+    assert summary["counts"]["核心词"] == 1
+    assert summary["counts"]["竞品ASIN"] == 1
+
+
 def test_homepage_renders_workbench_status_center(monkeypatch, db, product_id, campaign_id):
     """首页应真实渲染当前工作状态中心，而不只是 KPI 和快捷按钮。"""
     _seed_minimal_search_term(db, campaign_id)
@@ -1184,6 +1335,85 @@ def test_homepage_renders_workbench_status_center(monkeypatch, db, product_id, c
     assert "当前工作状态" in joined
     assert "最近一次分析" in joined
     assert "历史沉淀" in joined
+
+
+def test_homepage_renders_phase2_ops_sections(monkeypatch, db, product_id, campaign_id):
+    """首页应渲染今日 Top 3、趋势概览与搜索词结构概览。"""
+    trend_df = pd.DataFrame(
+        [
+            {
+                "term": "travel pillow",
+                "term_type": "keyword",
+                "impressions": 100,
+                "clicks": 10,
+                "ctr": 0.10,
+                "spend": 12.0,
+                "cpc": 1.2,
+                "orders": 2,
+                "sales": 48.0,
+                "acos": 0.25,
+                "roas": 4.0,
+                "conversion_rate": 0.2,
+                "report_date": "2026-04-01",
+            },
+            {
+                "term": "best neck pillow",
+                "term_type": "keyword",
+                "impressions": 60,
+                "clicks": 6,
+                "ctr": 0.10,
+                "spend": 8.0,
+                "cpc": 1.333,
+                "orders": 2,
+                "sales": 42.0,
+                "acos": 0.19,
+                "roas": 5.25,
+                "conversion_rate": 0.333,
+                "report_date": "2026-04-10",
+            },
+        ]
+    )
+    db.save_search_terms(trend_df, campaign_id)
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={"negative": 1, "manual": 1, "conflict": 0},
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+                "clicks": 12,
+                "orders": 0,
+                "spend": 24.0,
+                "sales": 0.0,
+            },
+            {
+                "term": "best neck pillow",
+                "normalized_term": "best neck pillow",
+                "term_type": "keyword",
+                "action_type": "manual_exact",
+                "suggested_action": "手动精准",
+                "triggered_rule": "高转化补量",
+                "clicks": 8,
+                "orders": 2,
+                "spend": 8.0,
+                "sales": 42.0,
+            },
+        ],
+    )
+
+    app = _make_app_test(monkeypatch, db.db_path)
+    app.session_state["current_product_id"] = product_id
+    app.run(timeout=20)
+
+    joined = "\n".join(markdown.value or "" for markdown in app.markdown)
+    assert "今日最优先 3 个动作" in joined
+    assert "近 30 天趋势概览" in joined
+    assert "搜索词结构概览" in joined
 
 
 def test_workspace_member_summary_surfaces_roles_and_member_roster():

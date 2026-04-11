@@ -3,6 +3,7 @@
 展示关键指标和快速入口
 """
 
+import datetime as dt
 from html import escape
 
 import streamlit as st
@@ -247,12 +248,121 @@ HOME_PAGE_CSS = """
     font-size: 0.84rem;
     line-height: 1.5;
 }
+.ops-focus-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.2rem;
+}
+.ops-focus-shell {
+    padding: 1.05rem 1.1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(255,255,255,0.94);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+}
+.ops-focus-shell h3 {
+    margin: 0 0 0.35rem 0 !important;
+    font-size: 1rem;
+}
+.ops-focus-shell p {
+    margin: 0 0 0.9rem 0;
+    color: #64748B;
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+.ops-priority-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.ops-priority-card {
+    border-radius: 18px;
+    border: 1px solid rgba(226,232,240,0.9);
+    background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.96) 100%);
+    padding: 0.95rem 1rem;
+}
+.ops-priority-card small {
+    display: block;
+    color: #94A3B8;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.35rem;
+}
+.ops-priority-card strong {
+    display: block;
+    color: #0F172A;
+    font-size: 0.96rem;
+    line-height: 1.45;
+    margin-bottom: 0.28rem;
+}
+.ops-priority-card span {
+    color: #64748B;
+    font-size: 0.84rem;
+    line-height: 1.55;
+}
+.ops-trend-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.7rem;
+    margin-bottom: 1rem;
+}
+.ops-trend-card {
+    padding: 0.9rem 0.95rem;
+    border-radius: 16px;
+    background: rgba(248,250,252,0.9);
+    border: 1px solid rgba(226,232,240,0.88);
+}
+.ops-trend-card small {
+    display: block;
+    color: #94A3B8;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.3rem;
+}
+.ops-trend-card strong {
+    display: block;
+    color: #0F172A;
+    font-size: 1rem;
+    margin-bottom: 0.28rem;
+}
+.ops-trend-card span {
+    color: #64748B;
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+.ops-structure-shell {
+    padding: 1.05rem 1.1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(255,255,255,0.94);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+    margin-bottom: 1.2rem;
+}
+.ops-structure-shell h3 {
+    margin: 0 0 0.35rem 0 !important;
+    font-size: 1rem;
+}
+.ops-structure-shell p {
+    margin: 0 0 0.9rem 0;
+    color: #64748B;
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
 @media (max-width: 1100px) {
     .dashboard-kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .workbench-status-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .ops-focus-grid {
+        grid-template-columns: 1fr;
+    }
+    .ops-trend-grid {
+        grid-template-columns: 1fr;
     }
 }
 </style>
@@ -548,6 +658,333 @@ def _render_workbench_status(runtime_state: dict[str, object]) -> None:
     )
 
 
+def _get_latest_snapshot_rows_for_home(db, product_id: int | None) -> list[dict]:
+    """为首页读取最近一次有效分析快照行。"""
+    if not product_id:
+        return []
+    snapshots = db.list_analysis_run_snapshots(product_id, limit=1)
+    if not snapshots:
+        return []
+    return snapshots[0].get("rows") or []
+
+
+def _build_top_priority_actions(
+    runtime_state: dict[str, object],
+    pending_stats: dict[str, int],
+    snapshot_rows: list[dict],
+) -> list[dict[str, str]]:
+    """构建首页“今日最优先 3 个动作”。"""
+    actions: list[dict[str, str]] = []
+    review_pending = int(pending_stats.get("review_pending_count") or 0)
+    negative_pending = int(pending_stats.get("negative_count") or 0)
+    manual_pending = int(pending_stats.get("manual_count") or 0)
+    conflict_pending = int(pending_stats.get("conflict_count") or 0)
+
+    negative_rows = sorted(
+        [row for row in snapshot_rows if str(row.get("action_type", "")).startswith("negative")],
+        key=lambda row: float(row.get("spend") or 0.0),
+        reverse=True,
+    )
+    manual_rows = sorted(
+        [row for row in snapshot_rows if str(row.get("action_type", "")).startswith("manual")],
+        key=lambda row: float(row.get("sales") or 0.0),
+        reverse=True,
+    )
+    conflict_rows = sorted(
+        [row for row in snapshot_rows if str(row.get("action_type")) == "conflict"],
+        key=lambda row: float(row.get("spend") or 0.0),
+        reverse=True,
+    )
+
+    if review_pending > 0:
+        actions.append(
+            {
+                "tag": "先审核",
+                "title": f"先处理 {review_pending} 个待审核词",
+                "description": "这批词还没拍板，后续执行清单和导出都会受它影响，先把最终结论定下来。",
+            }
+        )
+
+    if negative_pending > 0:
+        top_row = negative_rows[0] if negative_rows else None
+        title = f"优先止损 {negative_pending} 个否词机会"
+        detail = "先把高花费无转化词处理掉，通常这是今天最直接的止损动作。"
+        if top_row:
+            title = f"先处理否词：{top_row.get('term', '高花费词')}"
+            detail = (
+                f"当前最值得先止损的词是 {top_row.get('term', '高花费词')}，"
+                f"花费 ${float(top_row.get('spend') or 0.0):.2f}，规则来源：{top_row.get('triggered_rule') or '最近一次分析结果'}。"
+            )
+        actions.append({"tag": "止损优先", "title": title, "description": detail})
+
+    if manual_pending > 0:
+        top_row = manual_rows[0] if manual_rows else None
+        title = f"补量 {manual_pending} 个高转化词"
+        detail = "手动词机会通常代表更可控的放量方向，建议止损后马上处理。"
+        if top_row:
+            title = f"补量词：{top_row.get('term', '高转化词')}"
+            detail = (
+                f"{top_row.get('term', '高转化词')} 当前最值得拉手动，销售额 ${float(top_row.get('sales') or 0.0):.2f}，"
+                f"建议动作：{top_row.get('suggested_action') or '手动补量'}。"
+            )
+        actions.append({"tag": "补量机会", "title": title, "description": detail})
+
+    if conflict_pending > 0:
+        top_row = conflict_rows[0] if conflict_rows else None
+        detail = "跨 ASIN / 跨活动分歧说明当前策略还不稳定，适合在执行前先拍板。"
+        if top_row:
+            detail = (
+                f"{top_row.get('term', '分歧词')} 存在跨快照分歧，先处理它可以减少错误执行。"
+            )
+        actions.append({"tag": "风险处理", "title": f"拍板 {conflict_pending} 个分歧词", "description": detail})
+
+    if not actions:
+        actions = [
+            {
+                "tag": "继续推进",
+                "title": runtime_state.get("next_actions", [("继续当前流程", "先按当前阶段完成最重要的下一步。")])[0][0],
+                "description": runtime_state.get("next_actions", [("", "先按当前阶段完成最重要的下一步。")])[0][1],
+            }
+        ]
+
+    return actions[:3]
+
+
+def _render_top_priority_actions(actions: list[dict[str, str]]) -> None:
+    cards_html = "".join(
+        f"""
+        <div class="ops-priority-card">
+            <small>{escape(item['tag'])}</small>
+            <strong>{escape(item['title'])}</strong>
+            <span>{escape(item['description'])}</span>
+        </div>
+        """
+        for item in actions
+    )
+    st.markdown(
+        f"""
+        <div class="ops-focus-shell">
+            <h3>今日最优先 3 个动作</h3>
+            <p>先把最值钱、最该今天处理的动作放在前面，避免被一堆明细和报表拖住。</p>
+            <div class="ops-priority-stack">{cards_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _get_trend_summary_impl(db, product_id: int | None, days: int = 30) -> dict[str, object]:
+    """构建最近 30 天趋势摘要。"""
+    if not product_id:
+        return {"points": [], "windows": []}
+
+    cursor = db.execute(
+        """
+        SELECT
+            COALESCE(st.report_date, date(st.created_at)) AS bucket_date,
+            COALESCE(SUM(st.spend), 0) AS spend,
+            COALESCE(SUM(st.orders), 0) AS orders,
+            COALESCE(SUM(st.sales), 0) AS sales
+        FROM search_terms st
+        JOIN campaigns c ON st.campaign_id = c.id
+        WHERE c.product_id = ?
+          AND COALESCE(st.report_date, date(st.created_at)) IS NOT NULL
+        GROUP BY bucket_date
+        ORDER BY bucket_date DESC
+        LIMIT ?
+        """,
+        (product_id, days),
+    )
+    raw_points = [dict(row) for row in cursor.fetchall()]
+    if not raw_points:
+        return {"points": [], "windows": []}
+
+    points = []
+    for row in reversed(raw_points):
+        date_value = str(row["bucket_date"])
+        try:
+            parsed_date = dt.date.fromisoformat(date_value)
+            label = parsed_date.strftime("%m-%d")
+        except ValueError:
+            label = date_value
+        spend = float(row.get("spend") or 0.0)
+        orders = int(row.get("orders") or 0)
+        sales = float(row.get("sales") or 0.0)
+        points.append(
+            {
+                "date": date_value,
+                "label": label,
+                "spend": spend,
+                "orders": orders,
+                "sales": sales,
+                "acos": round(spend / sales, 4) if sales > 0 else 0.0,
+            }
+        )
+
+    def _window(days_count: int) -> dict[str, str]:
+        subset = points[-days_count:]
+        spend = sum(item["spend"] for item in subset)
+        orders = sum(item["orders"] for item in subset)
+        sales = sum(item["sales"] for item in subset)
+        acos = (spend / sales) if sales > 0 else 0.0
+        return {
+            "label": f"最近 {days_count} 天",
+            "value": f"${spend:.2f}",
+            "description": f"订单 {orders} ｜ 销售额 ${sales:.2f} ｜ ACOS {acos:.2%}" if subset else "暂无数据",
+        }
+
+    windows = [_window(days_count) for days_count in (7, 14, 30)]
+    return {"points": points, "windows": windows}
+
+
+def _render_trend_overview(trend_summary: dict[str, object]) -> None:
+    points = trend_summary.get("points") or []
+    windows = trend_summary.get("windows") or []
+    if not points:
+        st.markdown(
+            """
+            <div class="ops-focus-shell">
+                <h3>近 30 天趋势概览</h3>
+                <p>当前还没有足够的时间序列数据，等导入多天报表后这里会开始显示趋势。</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    window_cards = "".join(
+        f"""
+        <div class="ops-trend-card">
+            <small>{escape(item['label'])}</small>
+            <strong>{escape(item['value'])}</strong>
+            <span>{escape(item['description'])}</span>
+        </div>
+        """
+        for item in windows
+    )
+    chart_data = {item["label"]: round(float(item["spend"]), 2) for item in points[-10:]}
+    st.markdown(
+        f"""
+        <div class="ops-focus-shell">
+            <h3>近 30 天趋势概览</h3>
+            <p>先看最近 7 / 14 / 30 天，再用最近 10 个有数据的日期快速判断花费是否失控。</p>
+            <div class="ops-trend-grid">{window_cards}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _render_overview_chart(chart_data)
+
+
+def _classify_structure_bucket(term: str, term_type: str, product_config: dict) -> str:
+    """按当前产品配置对搜索词做结构分类。"""
+    normalized_term = str(term or "").strip().lower()
+    if not normalized_term:
+        return "其它长尾"
+
+    own_variants = {
+        str(item).strip().upper()
+        for item in (product_config.get("own_variants") or []) + (product_config.get("own_asins") or [])
+        if str(item).strip()
+    }
+    competitor_asins = {
+        str(item).strip().upper() for item in product_config.get("competitor_asins", []) if str(item).strip()
+    }
+
+    if term_type == "asin":
+        normalized_asin = normalized_term.upper()
+        if normalized_asin in own_variants:
+            return "自家变体ASIN"
+        if normalized_asin in competitor_asins:
+            return "竞品ASIN"
+        return "其它ASIN"
+
+    libraries = product_config.get("keyword_libraries") or {}
+    generic_keywords = {str(item).strip().lower() for item in libraries.get("generic_keywords", []) if str(item).strip()}
+    core_keywords = [str(item).strip().lower() for item in product_config.get("core_keywords", []) if str(item).strip()]
+    related_keywords = [str(item).strip().lower() for item in product_config.get("related_keywords", []) if str(item).strip()]
+
+    if normalized_term in generic_keywords:
+        return "泛词"
+    if any(keyword and keyword in normalized_term for keyword in core_keywords):
+        return "核心词"
+    if any(keyword and keyword in normalized_term for keyword in related_keywords):
+        return "相关词"
+    return "其它长尾"
+
+
+def _get_keyword_structure_summary_impl(db, product_id: int | None) -> dict[str, object]:
+    """构建搜索词结构概览。"""
+    if not product_id:
+        return {"counts": {}}
+
+    product = db.get_product(product_id) or {}
+    product_config = product.get("config") or {}
+    snapshot_rows = _get_latest_snapshot_rows_for_home(db, product_id)
+
+    source_rows: list[dict[str, str]] = []
+    if snapshot_rows:
+        source_rows = [
+            {"term": row.get("term"), "term_type": row.get("term_type", "keyword")}
+            for row in snapshot_rows
+            if row.get("term")
+        ]
+    else:
+        cursor = db.execute(
+            """
+            SELECT DISTINCT st.term, st.term_type
+            FROM search_terms st
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ?
+            """,
+            (product_id,),
+        )
+        source_rows = [dict(row) for row in cursor.fetchall()]
+
+    counts: dict[str, int] = {}
+    for row in source_rows:
+        bucket = _classify_structure_bucket(
+            row.get("term", ""),
+            row.get("term_type", "keyword"),
+            product_config,
+        )
+        counts[bucket] = counts.get(bucket, 0) + 1
+    return {"counts": counts}
+
+
+def _render_keyword_structure_summary(structure_summary: dict[str, object]) -> None:
+    counts = structure_summary.get("counts") or {}
+    if not counts:
+        st.markdown(
+            """
+            <div class="ops-structure-shell">
+                <h3>搜索词结构概览</h3>
+                <p>当前还没有可分类的搜索词结构。等导入数据或形成分析快照后，这里会告诉你核心词、泛词、竞品 ASIN 和长尾词的分布。</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    sorted_counts = dict(sorted(counts.items(), key=lambda item: item[1], reverse=True))
+    total = sum(sorted_counts.values()) or 1
+    chips_html = "".join(
+        f'<span class="dashboard-chip dashboard-chip--neutral">{escape(label)} {count} 条（{count / total:.0%}）</span>'
+        for label, count in sorted_counts.items()
+    )
+    st.markdown(
+        f"""
+        <div class="ops-structure-shell">
+            <h3>搜索词结构概览</h3>
+            <p>先看当前流量是被哪些结构占据：泛词过多通常意味着浪费，核心词和高质量长尾越多，结构越健康。</p>
+            <div class="dashboard-hero__chips">{chips_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _render_overview_chart(sorted_counts)
+
+
 def _build_pending_notices(pending_stats: dict[str, int]) -> list[tuple[str, str]]:
     """将首页待处理项整理为稳定、可测试的提示列表。"""
     notices: list[tuple[str, str]] = []
@@ -676,10 +1113,26 @@ def render_home():
         stats=stats,
         pending_stats=all_data["pending_stats"],
     )
+    snapshot_rows = _get_latest_snapshot_rows_for_home(db, product_id)
+    top_actions = _build_top_priority_actions(
+        runtime_state,
+        all_data["pending_stats"],
+        snapshot_rows,
+    )
+    trend_summary = _get_trend_summary_impl(db, product_id)
+    structure_summary = _get_keyword_structure_summary_impl(db, product_id)
 
     _render_workbench_status(runtime_state)
 
     _render_dashboard_metric_grid(stats)
+
+    focus_left, focus_right = st.columns([1.15, 1.0])
+    with focus_left:
+        _render_top_priority_actions(top_actions)
+    with focus_right:
+        _render_trend_overview(trend_summary)
+
+    _render_keyword_structure_summary(structure_summary)
 
     # 待处理项
     col_left, col_right = st.columns(2)
