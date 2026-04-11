@@ -56,6 +56,7 @@ from src.ui.pages.asin_analysis import _build_asin_hero_meta, _build_asin_summar
 from src.ui.pages.actions import (
     _build_actions_access_meta,
     _build_actions_workbench_meta,
+    _build_execution_batch_effect_preview,
     _build_snapshot_action_buckets,
     _get_export_results,
     _get_latest_snapshot_action_context,
@@ -2879,6 +2880,70 @@ def test_execution_batch_roundtrip_and_status_updates(db, product_id):
     assert persisted["executed_at"] is not None
     assert persisted["reviewed_at"] is not None
     assert db.list_execution_batches(product_id, limit=5)[0]["id"] == batch["id"]
+
+
+def test_execution_batch_effect_preview_compares_baseline_to_latest_snapshot(db, product_id):
+    """复盘预览应能把执行批次的基线快照和当前最新快照做对比。"""
+    first_snapshot_id = db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={
+            "negative_count": 3,
+            "manual_count": 1,
+            "observe_count": 0,
+            "conflict_count": 0,
+        },
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "negative_exact",
+                "suggested_action": "否定精准",
+                "triggered_rule": "高点击无转化",
+            }
+        ],
+    )
+    db.save_analysis_run_snapshot(
+        product_id=product_id,
+        run_source="manual",
+        summary={
+            "negative_count": 1,
+            "manual_count": 2,
+            "observe_count": 1,
+            "conflict_count": 0,
+        },
+        snapshot_rows=[
+            {
+                "term": "travel pillow",
+                "normalized_term": "travel pillow",
+                "term_type": "keyword",
+                "action_type": "manual_exact",
+                "suggested_action": "手动精准",
+                "triggered_rule": "高转化补量",
+            }
+        ],
+    )
+    batch = db.create_execution_batch(
+        product_id=product_id,
+        batch_type="negative",
+        summary={
+            "item_count": 1,
+            "baseline_snapshot_id": first_snapshot_id,
+            "baseline_snapshot_created_at": "2026-04-11 12:00:00",
+            "items": [{"term": "travel pillow"}],
+        },
+        draft_note="测试批次",
+    )
+
+    preview = _build_execution_batch_effect_preview(db, batch)
+
+    assert preview["available"] is True
+    assert preview["cards"][0]["label"] == "建议否定"
+    assert preview["cards"][0]["before"] == 3
+    assert preview["cards"][0]["after"] == 1
+    assert preview["cards"][1]["after"] == 2
+    assert preview["preview_rows"][0]["term"] == "travel pillow"
 
 
 def test_seeded_product_config_defaults_to_generic_workspace_template():

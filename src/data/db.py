@@ -1409,6 +1409,32 @@ class Database:
             snapshots.append(snapshot)
         return snapshots
 
+    def get_analysis_run_snapshot(self, snapshot_id: int) -> dict | None:
+        """按 ID 获取单个分析运行快照。"""
+        cursor = self.conn.execute(
+            """
+            SELECT id, product_id, run_source, summary_json, snapshot_json, created_at
+            FROM analysis_run_snapshots
+            WHERE id = ?
+            """,
+            (snapshot_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        snapshot = dict(row)
+        snapshot["summary"] = (
+            json.loads(snapshot.pop("summary_json"))
+            if snapshot.get("summary_json")
+            else {}
+        )
+        snapshot["rows"] = (
+            json.loads(snapshot.pop("snapshot_json"))
+            if snapshot.get("snapshot_json")
+            else []
+        )
+        return snapshot
+
     def create_execution_batch(
         self,
         *,
