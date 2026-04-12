@@ -27,6 +27,7 @@ from src.backend.database import (
     get_backend_database_url,
     init_backend_schema,
 )
+from src.backend.workbench_payload import build_workbench_payload
 
 
 APP_TITLE = 'AMZ 搜索词分析系统 Backend'
@@ -269,6 +270,11 @@ def create_app() -> FastAPI:
             'status': 'ok',
             'version': APP_VERSION,
         }
+
+    @app.get('/frontend/workbench', tags=['frontend'])
+    async def read_frontend_workbench(product_id: int | None = None) -> dict:
+        """为独立前端壳返回首页/共享壳聚合数据。"""
+        return build_workbench_payload(product_id=product_id)
 
     @app.post('/auth/login', response_model=LoginResponse, tags=['auth'])
     async def login(payload: LoginRequest, request: Request) -> LoginResponse:

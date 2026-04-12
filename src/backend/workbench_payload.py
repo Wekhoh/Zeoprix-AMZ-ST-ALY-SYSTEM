@@ -1,0 +1,366 @@
+from __future__ import annotations
+
+import datetime as dt
+import os
+from pathlib import Path
+from typing import Any
+
+from src.analysis.truth_replay import (
+    get_execution_batch_effect_preview,
+    get_truth_first_overview_distribution,
+    get_truth_first_pending_stats,
+    summarize_execution_batch_effect,
+)
+from src.data.db import Database
+from src.data.models import RelevanceLevel
+from src.rules.engine import analyze_search_terms
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_APP_DB_PATH = PROJECT_ROOT / "data" / "db" / "app.db"
+
+
+def _get_app_database_path() -> Path:
+    configured = os.getenv("DATABASE_PATH", "").strip()
+    if configured:
+        path = Path(configured).expanduser()
+        if not path.is_absolute():
+            path = (PROJECT_ROOT / path).resolve()
+        return path
+    return DEFAULT_APP_DB_PATH
+
+
+def _format_timestamp(value: str | None, *, fallback: str = "尚未分析") -> str:
+    if not value:
+        return fallback
+    return str(value).replace("T", " ")[:16]
+
+
+def _resolve_product(db: Database, product_id: int | None) -> dict | None:
+    if product_id:
+        product = db.get_product(product_id)
+        if product:
+            return product
+    products = db.get_all_products()
+    return products[0] if products else None
+
+
+def _get_dashboard_stats(db: Database, product_id: int) -> dict[str, Any]:
+    query = """
+        SELECT
+            COUNT(DISTINCT st.term) as term_count,
+            COALESCE(SUM(st.spend), 0) as total_spend,
+            COALESCE(SUM(st.orders), 0) as total_orders,
+            COALESCE(SUM(st.sales), 0) as total_sales
+        FROM search_terms st
+        JOIN campaigns c ON st.campaign_id = c.id
+        WHERE c.product_id = ?
+    """
+    row = db.execute(query, (product_id,)).fetchone()
+    if not row:
+        return {"term_count": 0, "total_spend": 0.0, "total_orders": 0, "total_sales": 0.0, "acos": 0.0}
+    spend = float(row["total_spend"] or 0.0)
+    sales = float(row["total_sales"] or 0.0)
+    return {
+        "term_count": int(row["term_count"] or 0),
+        "total_spend": spend,
+        "total_orders": int(row["total_orders"] or 0),
+        "total_sales": sales,
+        "acos": round((spend / sales), 4) if sales > 0 else 0.0,
+    }
+
+
+def _get_pending_stats(db: Database, product_id: int) -> dict[str, int]:
+    truth_stats = get_truth_first_pending_stats(db, product_id)
+    if truth_stats is not None:
+        return truth_stats
+
+    results = analyze_search_terms(db, product_id)
+    stats = {"negative_count": 0, "manual_count": 0, "ai_pending_count": 0, "review_pending_count": 0, "conflict_count": 0}
+    for result in results:
+        action = result.action_type or ""
+        if action.startswith("negative"):
+            stats["negative_count"] += 1
+        elif action.startswith("manual"):
+            stats["manual_count"] += 1
+        elif action == "conflict":
+            stats["conflict_count"] += 1
+        if result.confidence < 1.0:
+            stats["ai_pending_count"] += 1
+        if getattr(result, "needs_review", False):
+            stats["review_pending_count"] += 1
+    return stats
+
+
+def _latest_snapshot_rows(db: Database, product_id: int) -> list[dict]:
+    snapshots = db.list_analysis_run_snapshots(product_id, limit=1)
+    if not snapshots:
+        return []
+    return snapshots[0].get("rows") or []
+
+
+def _build_top_actions(pending_stats: dict[str, int], snapshot_rows: list[dict]) -> list[dict[str, str]]:
+    actions: list[dict[str, str]] = []
+    review_pending = int(pending_stats.get("review_pending_count") or 0)
+    negative_pending = int(pending_stats.get("negative_count") or 0)
+    manual_pending = int(pending_stats.get("manual_count") or 0)
+    conflict_pending = int(pending_stats.get("conflict_count") or 0)
+
+    negative_rows = sorted([r for r in snapshot_rows if str(r.get("action_type", "")).startswith("negative")], key=lambda r: float(r.get("spend") or 0.0), reverse=True)
+    manual_rows = sorted([r for r in snapshot_rows if str(r.get("action_type", "")).startswith("manual")], key=lambda r: float(r.get("sales") or 0.0), reverse=True)
+    conflict_rows = sorted([r for r in snapshot_rows if str(r.get("action_type", "")) == "conflict"], key=lambda r: float(r.get("spend") or 0.0), reverse=True)
+
+    if review_pending > 0:
+        actions.append({"tag": "先审核", "title": f"先处理 {review_pending} 个待审核词", "description": "先把低置信度和分歧词拍板，后面的执行才会稳定。"})
+    if negative_pending > 0:
+        top = negative_rows[0] if negative_rows else None
+        if top:
+            actions.append({"tag": "止损优先", "title": f"优先止损：{top.get('term', '高花费词')}", "description": f"花费 ${float(top.get('spend') or 0):.2f}，来源规则：{top.get('triggered_rule') or '最近分析'}。"})
+        else:
+            actions.append({"tag": "止损优先", "title": f"优先止损 {negative_pending} 个高花费词", "description": "先处理高花费无转化词。"})
+    if manual_pending > 0:
+        top = manual_rows[0] if manual_rows else None
+        if top:
+            actions.append({"tag": "补量机会", "title": f"补量词：{top.get('term', '高转化词')}", "description": f"销售额 ${float(top.get('sales') or 0):.2f}，建议动作：{top.get('suggested_action') or '手动补量'}。"})
+        else:
+            actions.append({"tag": "补量机会", "title": f"补量 {manual_pending} 个高转化词", "description": "止损后优先处理高转化手动机会。"})
+    if conflict_pending > 0:
+        top = conflict_rows[0] if conflict_rows else None
+        actions.append({"tag": "风险处理", "title": f"拍板 {conflict_pending} 个分歧词", "description": f"{top.get('term')} 存在跨结论分歧。" if top else "执行前先稳定分歧词。"})
+
+    return actions[:3] or [{"tag": "继续推进", "title": "先导入或运行分析", "description": "当前还没有足够结果，先建立本轮数据。"}]
+
+
+def _build_trend(points: list[dict[str, Any]]) -> tuple[list[dict[str, str]], list[dict[str, int | str]]]:
+    def _window(day_count: int) -> dict[str, str]:
+        subset = points[-day_count:]
+        spend = sum(float(p["spend"]) for p in subset)
+        orders = sum(int(p["orders"]) for p in subset)
+        sales = sum(float(p["sales"]) for p in subset)
+        acos = (spend / sales) if sales > 0 else 0.0
+        return {
+            "label": f"最近 {day_count} 天",
+            "value": f"${spend:.2f}",
+            "detail": f"订单 {orders} ｜ 销售额 ${sales:.2f} ｜ ACOS {acos:.2%}",
+        }
+
+    cards = [_window(days) for days in (7, 14, 30)]
+    bars = [{"label": p["label"], "value": int(round(float(p["spend"]))) or 1} for p in points[-5:]]
+    return cards, bars
+
+
+def _get_trend_payload(db: Database, product_id: int) -> tuple[list[dict[str, str]], list[dict[str, int | str]]]:
+    cursor = db.execute(
+        """
+        SELECT COALESCE(st.report_date, date(st.created_at)) AS bucket_date,
+               COALESCE(SUM(st.spend), 0) AS spend,
+               COALESCE(SUM(st.orders), 0) AS orders,
+               COALESCE(SUM(st.sales), 0) AS sales
+        FROM search_terms st
+        JOIN campaigns c ON st.campaign_id = c.id
+        WHERE c.product_id = ?
+        GROUP BY bucket_date
+        ORDER BY bucket_date DESC
+        LIMIT 30
+        """,
+        (product_id,),
+    )
+    raw = [dict(r) for r in cursor.fetchall()]
+    if not raw:
+        return [], []
+    points = []
+    for row in reversed(raw):
+        date_value = str(row["bucket_date"])
+        try:
+            label = dt.date.fromisoformat(date_value).strftime("%m-%d")
+        except ValueError:
+            label = date_value
+        points.append({"label": label, "spend": float(row["spend"] or 0.0), "orders": int(row["orders"] or 0), "sales": float(row["sales"] or 0.0)})
+    return _build_trend(points)
+
+
+def _classify_bucket(term: str, term_type: str, product_config: dict) -> str:
+    normalized_term = str(term or "").strip().lower()
+    if not normalized_term:
+        return "其它长尾"
+    own_variants = {str(item).strip().upper() for item in (product_config.get("own_variants") or []) + (product_config.get("own_asins") or []) if str(item).strip()}
+    competitor_asins = {str(item).strip().upper() for item in product_config.get("competitor_asins", []) if str(item).strip()}
+    if term_type == "asin":
+        normalized_asin = normalized_term.upper()
+        if normalized_asin in own_variants:
+            return "自家变体 ASIN"
+        if normalized_asin in competitor_asins:
+            return "竞品 ASIN"
+        return "其它 ASIN"
+
+    libraries = product_config.get("keyword_libraries") or {}
+    generic_keywords = {str(item).strip().lower() for item in libraries.get("generic_keywords", []) if str(item).strip()}
+    core_keywords = [str(item).strip().lower() for item in product_config.get("core_keywords", []) if str(item).strip()]
+    related_keywords = [str(item).strip().lower() for item in product_config.get("related_keywords", []) if str(item).strip()]
+    if normalized_term in generic_keywords:
+        return "泛词"
+    if any(keyword and keyword in normalized_term for keyword in core_keywords):
+        return "核心词"
+    if any(keyword and keyword in normalized_term for keyword in related_keywords):
+        return "相关词"
+    return "其它长尾"
+
+
+def _get_structure_payload(db: Database, product_id: int, product_config: dict) -> list[dict[str, Any]]:
+    rows = _latest_snapshot_rows(db, product_id)
+    source_rows = rows if rows else [dict(r) for r in db.execute(
+        """
+        SELECT DISTINCT st.term, st.term_type
+        FROM search_terms st
+        JOIN campaigns c ON st.campaign_id = c.id
+        WHERE c.product_id = ?
+        """,
+        (product_id,),
+    ).fetchall()]
+    counts: dict[str, int] = {}
+    for row in source_rows:
+        bucket = _classify_bucket(row.get("term", ""), row.get("term_type", "keyword"), product_config)
+        counts[bucket] = counts.get(bucket, 0) + 1
+    return [{"label": label, "count": count, "ratio": f"{round((count / sum(counts.values())) * 100)}%" if sum(counts.values()) else "0%"} for label, count in sorted(counts.items(), key=lambda i: i[1], reverse=True)]
+
+
+def _get_execution_effect_payload(db: Database, product_id: int) -> dict[str, Any]:
+    batches = db.list_execution_batches(product_id, limit=1)
+    if not batches:
+        return {"status": "暂无批次", "summary": "当前还没有执行批次，先在操作清单里生成一批动作。", "chips": [], "improving": [], "risky": [], "batchCode": None, "batchStatus": None}
+    batch = batches[0]
+    preview = get_execution_batch_effect_preview(db, batch)
+    summary = summarize_execution_batch_effect(preview)
+    return {
+        "status": summary.get("status", "待观察"),
+        "summary": summary.get("summary", "当前还没有足够的信息来判断最近执行效果。"),
+        "chips": summary.get("chips", []),
+        "improving": summary.get("top_improving_terms", []),
+        "risky": summary.get("top_risky_terms", []),
+        "batchCode": batch.get("batch_code"),
+        "batchStatus": batch.get("status"),
+    }
+
+
+def _get_analysis_rows_payload(db: Database, product_id: int) -> list[dict[str, Any]]:
+    rows = _latest_snapshot_rows(db, product_id)
+    if rows:
+        return [
+            {
+                "term": row.get("term"),
+                "type": row.get("term_type", "keyword"),
+                "rule": row.get("triggered_rule") or "最近一次分析",
+                "action": row.get("suggested_action") or row.get("action_type") or "观察",
+                "spend": f"${float(row.get('spend') or 0.0):.2f}",
+                "orders": int(row.get("orders") or 0),
+                "confidence": f"{float(row.get('confidence') or 0):.0%}" if isinstance(row.get("confidence"), (int, float)) else str(row.get("confidence") or "-")
+            }
+            for row in rows[:8]
+        ]
+
+    results = analyze_search_terms(db, product_id)
+    payload = []
+    for result in results[:8]:
+        payload.append({
+            "term": result.term,
+            "type": result.term_type,
+            "rule": result.triggered_rule,
+            "action": result.suggested_action,
+            "spend": f"${float(result.data.get('spend') or result.data.get('total_spend') or 0.0):.2f}",
+            "orders": int(result.data.get('orders') or result.data.get('total_orders') or 0),
+            "confidence": f"{float(result.confidence):.0%}",
+        })
+    return payload
+
+
+def _get_execution_batches_payload(db: Database, product_id: int) -> list[dict[str, Any]]:
+    batches = db.list_execution_batches(product_id, limit=5)
+    payload = []
+    for batch in batches:
+        preview = get_execution_batch_effect_preview(db, batch)
+        summary = summarize_execution_batch_effect(preview)
+        payload.append({
+            "code": batch.get("batch_code"),
+            "type": batch.get("batch_type"),
+            "status": batch.get("status"),
+            "itemCount": batch.get("item_count") or len((batch.get("summary") or {}).get("items") or []),
+            "spend": f"${float(((batch.get('summary') or {}).get('spend_total') or 0.0)):.2f}",
+            "sales": f"${float(((batch.get('summary') or {}).get('sales_total') or 0.0)):.2f}",
+            "verdict": summary.get("status", "待观察"),
+            "summary": summary.get("summary", batch.get("draft_note") or "暂无复盘结论。"),
+            "improving": summary.get("top_improving_terms", []),
+            "risky": summary.get("top_risky_terms", []),
+        })
+    return payload
+
+
+def _derive_stage_title(pending_stats: dict[str, int], latest_snapshot: dict | None) -> tuple[str, str]:
+    if pending_stats.get("negative_count") or pending_stats.get("manual_count") or pending_stats.get("conflict_count"):
+        return "待执行优化动作", "先止损，再补量。"
+    if pending_stats.get("review_pending_count"):
+        return "待人工审核", "先拍板低置信度和分歧词。"
+    if latest_snapshot:
+        return "可开始新一轮", "本轮已完成，适合复盘或重新导入。"
+    return "待运行分析", "先导入或运行分析。"
+
+
+def build_workbench_payload(product_id: int | None = None) -> dict[str, Any]:
+    db_path = _get_app_database_path()
+    if not db_path.exists():
+        return {"source": "empty", "productContext": None}
+
+    with Database(str(db_path)) as db:
+        product = _resolve_product(db, product_id)
+        if not product:
+            return {"source": "empty", "productContext": None}
+
+        product_id = int(product["id"])
+        product_name = product.get("name") or "当前产品"
+        product_config = product.get("config") or {}
+        stats = _get_dashboard_stats(db, product_id)
+        pending_stats = _get_pending_stats(db, product_id)
+        snapshots = db.list_analysis_run_snapshots(product_id, limit=1)
+        latest_snapshot = snapshots[0] if snapshots else None
+        workspace_summary = db.get_workspace_summary(product_id)
+        stage_title, stage_detail = _derive_stage_title(pending_stats, latest_snapshot)
+        top_actions = _build_top_actions(pending_stats, _latest_snapshot_rows(db, product_id))
+        trend_cards, trend_bars = _get_trend_payload(db, product_id)
+        structure_buckets = _get_structure_payload(db, product_id, product_config)
+        execution_effect = _get_execution_effect_payload(db, product_id)
+        ops_templates = {
+            "boss_summary": f"{product_name} 当前处于「{stage_title}」。最近执行效果判断为「{execution_effect['status']}」，建议今天优先处理：" + "；".join(item['title'] for item in top_actions[:3]),
+            "handoff_note": f"【执行交接】先处理：" + "；".join(item['title'] for item in top_actions[:3]),
+            "weekly_review": f"【周度复盘】最近执行效果：{execution_effect['status']}；改善线索：{'、'.join(execution_effect.get('improving') or ['暂无'])}；仍需关注：{'、'.join(execution_effect.get('risky') or ['暂无'])}",
+        }
+
+        return {
+            "source": "live",
+            "productContext": {
+                "name": product_name,
+                "role": (workspace_summary.get("current_role") or "viewer").capitalize(),
+                "workspace": f"{product_name}工作区",
+                "lastAnalysisAt": _format_timestamp(latest_snapshot.get("created_at") if latest_snapshot else None),
+                "lastBackupAt": "暂无完整备份",
+            },
+            "workbenchStats": [
+                {"label": "当前阶段", "value": stage_title, "detail": stage_detail},
+                {"label": "最近一次分析", "value": _format_timestamp(latest_snapshot.get("created_at") if latest_snapshot else None).replace(" ", " · ", 1), "detail": "latest snapshot 已形成。" if latest_snapshot else "还没有分析快照。"},
+                {"label": "历史沉淀", "value": f"{len(db.list_analysis_run_snapshots(product_id, limit=200))} 个分析快照", "detail": f"{db.execute('SELECT COUNT(*) AS count FROM manual_reviews WHERE product_id = ?', (product_id,)).fetchone()['count']} 条人工审核、{len(db.list_execution_batches(product_id, limit=200))} 个执行批次。"},
+                {"label": "数据规模", "value": f"{stats['term_count']} 条词 · {db.execute('SELECT COUNT(*) AS count FROM campaigns WHERE product_id = ?', (product_id,)).fetchone()['count']} 个活动", "detail": f"当前已形成 {db.execute('SELECT COUNT(*) AS count FROM analysis_results ar JOIN search_terms st ON ar.search_term_id = st.id JOIN campaigns c ON st.campaign_id = c.id WHERE c.product_id = ?', (product_id,)).fetchone()['count']} 条建议动作。"},
+            ],
+            "topActions": top_actions,
+            "trendCards": trend_cards,
+            "trendBars": trend_bars,
+            "structureBuckets": structure_buckets,
+            "executionEffect": execution_effect,
+            "opsTemplates": ops_templates,
+            "aiCopilotCards": [
+                {
+                    "title": "AI 汇总简报",
+                    "context": f"当前产品：{product_name} · 上下文：最近一次分析结果",
+                    "summary": top_actions[0]["description"] if top_actions else "先导入数据或运行分析。",
+                    "prompts": ["解释 ACOS 为什么高", "给我 3 个最优先动作", "生成老板摘要"],
+                }
+            ],
+            "analysisRows": _get_analysis_rows_payload(db, product_id),
+            "executionBatches": _get_execution_batches_payload(db, product_id),
+        }

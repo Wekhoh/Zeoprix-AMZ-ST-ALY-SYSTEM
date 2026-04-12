@@ -5,11 +5,24 @@ import { usePathname } from "next/navigation";
 import { ArrowUpRight, Bot } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { aiCopilotCards, navItems, productContext } from "@/lib/mock-data";
+import { aiCopilotCards, navItems, productContext as defaultProductContext, type AICopilotCard, type ProductContext } from "@/lib/mock-data";
 
-export function DashboardShell({ children, title, subtitle }: { children: ReactNode; title: string; subtitle: string }) {
+export function DashboardShell({
+  children,
+  title,
+  subtitle,
+  productContext,
+  aiCard,
+}: {
+  children: ReactNode
+  title: string
+  subtitle: string
+  productContext?: ProductContext | null
+  aiCard?: AICopilotCard | null
+}) {
   const pathname = usePathname();
-  const primaryCard = aiCopilotCards[0];
+  const currentProduct = productContext ?? defaultProductContext
+  const primaryCard = aiCard ?? aiCopilotCards[0];
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
@@ -43,7 +56,7 @@ export function DashboardShell({ children, title, subtitle }: { children: ReactN
 
           <div className="flex items-center gap-2">
             <span className="hidden rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-medium text-zinc-700 sm:inline-flex">
-              {productContext.role}
+              {currentProduct.role}
             </span>
             <button className="rounded-full bg-zinc-950 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800">
               数据管理
@@ -76,13 +89,13 @@ export function DashboardShell({ children, title, subtitle }: { children: ReactN
                 <div className="grid gap-3">
                   <div className="rounded-2xl bg-zinc-50 p-5">
                     <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">当前产品</div>
-                    <div className="mt-2 text-[15px] font-medium text-zinc-900">{productContext.name}</div>
-                    <div className="mt-1 text-sm text-zinc-500">{productContext.workspace}</div>
+                    <div className="mt-2 text-[15px] font-medium text-zinc-900">{currentProduct.name}</div>
+                    <div className="mt-1 text-sm text-zinc-500">{currentProduct.workspace}</div>
                   </div>
                   <div className="rounded-2xl bg-zinc-50 p-5">
                     <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">最近更新</div>
-                    <div className="mt-2 text-sm font-medium text-zinc-900">分析 {productContext.lastAnalysisAt}</div>
-                    <div className="mt-1 text-sm text-zinc-500">备份 {productContext.lastBackupAt}</div>
+                    <div className="mt-2 text-sm font-medium text-zinc-900">分析 {currentProduct.lastAnalysisAt}</div>
+                    <div className="mt-1 text-sm text-zinc-500">备份 {currentProduct.lastBackupAt}</div>
                   </div>
                 </div>
               </div>

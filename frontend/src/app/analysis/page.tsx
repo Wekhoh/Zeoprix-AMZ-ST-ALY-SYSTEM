@@ -1,14 +1,20 @@
+import { getWorkbenchPayload } from "@/lib/backend";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { AnalysisTable } from "@/components/workbench-sections";
 
-export default function AnalysisPage() {
+export const dynamic = "force-dynamic";
+
+export default async function AnalysisPage() {
+  const payload = await getWorkbenchPayload();
   return (
     <DashboardShell
       title="搜索词分析"
       subtitle="汇总、按活动、按 ASIN 三种视角放进同一套分析页面，而不是拆成零散页面。重构版会让 AI 卡片、diff、导出和过滤条件都共享同一个分析心智。"
+      productContext={payload.productContext}
+      aiCard={payload.aiCopilotCards[0]}
     >
       <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
-        <AnalysisTable />
+        <AnalysisTable analysisRows={payload.analysisRows} />
         <section className="space-y-6">
           <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">AI Brief</div>
@@ -20,9 +26,9 @@ export default function AnalysisPage() {
             <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">三种分析视角</h3>
             <div className="mt-5 grid gap-3">
               {[
-                ['汇总', '先定今日最优先的经营动作。'],
-                ['按活动', '看哪个活动最差、最值得补量。'],
-                ['按 ASIN', '看问题更像词问题还是页面问题。'],
+                ["汇总", "先定今日最优先的经营动作。"],
+                ["按活动", "看哪个活动最差、最值得补量。"],
+                ["按 ASIN", "看问题更像词问题还是页面问题。"],
               ].map(([title, desc]) => (
                 <div key={title} className="rounded-2xl bg-zinc-50 p-4">
                   <div className="text-base font-semibold tracking-tight text-zinc-950">{title}</div>

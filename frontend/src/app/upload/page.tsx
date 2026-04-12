@@ -1,10 +1,16 @@
+import { getWorkbenchPayload } from "@/lib/backend";
 import { DashboardShell } from "@/components/dashboard-shell";
 
-export default function UploadPage() {
+export const dynamic = "force-dynamic";
+
+export default async function UploadPage() {
+  const payload = await getWorkbenchPayload();
   return (
     <DashboardShell
       title="数据导入"
       subtitle="把导入从技术动作重构成运营节奏的入口：先看数据健康，再决定是否建立新一轮分析。"
+      productContext={payload.productContext}
+      aiCard={payload.aiCopilotCards[0]}
     >
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">

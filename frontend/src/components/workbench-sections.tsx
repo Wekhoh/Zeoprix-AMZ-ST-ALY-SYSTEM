@@ -4,15 +4,24 @@ import { ArrowUpRight } from "lucide-react";
 import { useState } from "react";
 
 import {
-  analysisRows,
-  executionBatches,
-  executionEffect,
-  opsTemplates,
-  structureBuckets,
-  topActions,
-  trendBars,
-  trendCards,
-  workbenchStats,
+  analysisRows as defaultAnalysisRows,
+  executionBatches as defaultExecutionBatches,
+  executionEffect as defaultExecutionEffect,
+  opsTemplates as defaultOpsTemplates,
+  structureBuckets as defaultStructureBuckets,
+  topActions as defaultTopActions,
+  trendBars as defaultTrendBars,
+  trendCards as defaultTrendCards,
+  workbenchStats as defaultWorkbenchStats,
+  type AnalysisRow,
+  type ExecutionBatch,
+  type ExecutionEffect,
+  type OpsTemplates,
+  type StructureBucket,
+  type TopAction,
+  type TrendBar,
+  type TrendCard,
+  type WorkbenchStat,
 } from "@/lib/mock-data";
 
 function StatCard({ label, value, detail, className = "" }: { label: string; value: string; detail: string; className?: string }) {
@@ -54,7 +63,21 @@ function StatCard({ label, value, detail, className = "" }: { label: string; val
   );
 }
 
-export function WorkbenchOverview() {
+export function WorkbenchOverview({
+  workbenchStats = defaultWorkbenchStats,
+  topActions = defaultTopActions,
+  trendCards = defaultTrendCards,
+  trendBars = defaultTrendBars,
+  structureBuckets = defaultStructureBuckets,
+  executionEffect = defaultExecutionEffect,
+}: {
+  workbenchStats?: WorkbenchStat[]
+  topActions?: TopAction[]
+  trendCards?: TrendCard[]
+  trendBars?: TrendBar[]
+  structureBuckets?: StructureBucket[]
+  executionEffect?: ExecutionEffect
+}) {
   return (
     <div className="space-y-8">
       <section className="grid gap-6 lg:grid-cols-3">
@@ -177,7 +200,7 @@ export function WorkbenchOverview() {
   );
 }
 
-export function TemplatesCenter() {
+export function TemplatesCenter({ opsTemplates = defaultOpsTemplates }: { opsTemplates?: OpsTemplates }) {
   const [activeTab, setActiveTab] = useState<"boss_summary" | "handoff_note" | "weekly_review">("boss_summary");
   const tabMeta = {
     boss_summary: { label: "老板摘要模板" },
@@ -211,7 +234,7 @@ export function TemplatesCenter() {
   );
 }
 
-export function AnalysisTable() {
+export function AnalysisTable({ analysisRows = defaultAnalysisRows }: { analysisRows?: AnalysisRow[] }) {
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
       <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Analysis Table</div>
@@ -248,7 +271,7 @@ export function AnalysisTable() {
   );
 }
 
-export function ExecutionBatchBoard() {
+export function ExecutionBatchBoard({ executionBatches = defaultExecutionBatches }: { executionBatches?: ExecutionBatch[] }) {
   return (
     <section className="space-y-5">
       {executionBatches.map((batch) => (
