@@ -48,3 +48,5 @@
 - 2026-04-12: 新前端开始与 FastAPI 融合：新增 /frontend/workbench 聚合接口，首页与共享壳优先从后端拉真数据，后端不可用时自动回退 mock；最新联调预览地址为 http://127.0.0.1:3013（后端 8001）。
 
 - 2026-04-12: 前后端融合继续推进到二级页：upload / analysis / actions / review / settings 新增 page payload，前端页面按页消费真实数据块；联调建议使用后端 8001 + 前端 3013。
+
+- 2026-04-12: 新前端继续推进到写路径第一批：FastAPI 已支持创建执行批次、推进批次状态、提交人工审核；前端 actions/review 已接 client mutation 交互，相关后端单测新增并通过。

@@ -34,6 +34,9 @@ from src.backend.workbench_payload import (
     build_settings_page_payload,
     build_upload_page_payload,
     build_workbench_payload,
+    create_execution_batch_for_frontend,
+    submit_review_decision_for_frontend,
+    update_execution_batch_for_frontend,
 )
 
 
@@ -81,6 +84,27 @@ class WorkspaceMemberUpsertRequest(BaseModel):
     password: str
     role: str
     name: str | None = None
+
+
+class FrontendExecutionBatchCreateRequest(BaseModel):
+    product_id: int
+    batch_type: str
+    draft_note: str | None = None
+
+
+class FrontendExecutionBatchUpdateRequest(BaseModel):
+    status: str
+    execution_note: str | None = None
+    review_note: str | None = None
+
+
+class FrontendReviewDecisionRequest(BaseModel):
+    product_id: int
+    term: str
+    term_type: str
+    campaign_id: int | None = None
+    relevance: str
+    notes: str | None = None
 
 
 @asynccontextmanager
@@ -302,6 +326,34 @@ def create_app() -> FastAPI:
     @app.get('/frontend/settings', tags=['frontend'])
     async def read_frontend_settings(product_id: int | None = None) -> dict:
         return build_settings_page_payload(product_id=product_id)
+
+    @app.post('/frontend/actions/execution-batches', tags=['frontend'])
+    async def create_frontend_execution_batch(payload: FrontendExecutionBatchCreateRequest) -> dict:
+        return create_execution_batch_for_frontend(
+            product_id=payload.product_id,
+            batch_type=payload.batch_type,
+            draft_note=payload.draft_note,
+        )
+
+    @app.patch('/frontend/actions/execution-batches/{batch_id}', tags=['frontend'])
+    async def update_frontend_execution_batch(batch_id: int, payload: FrontendExecutionBatchUpdateRequest) -> dict:
+        return update_execution_batch_for_frontend(
+            batch_id=batch_id,
+            status=payload.status,
+            execution_note=payload.execution_note,
+            review_note=payload.review_note,
+        )
+
+    @app.post('/frontend/review/manual-reviews', tags=['frontend'])
+    async def create_frontend_review_decision(payload: FrontendReviewDecisionRequest) -> dict:
+        return submit_review_decision_for_frontend(
+            product_id=payload.product_id,
+            term=payload.term,
+            term_type=payload.term_type,
+            campaign_id=payload.campaign_id,
+            relevance=payload.relevance,
+            notes=payload.notes,
+        )
 
     @app.post('/auth/login', response_model=LoginResponse, tags=['auth'])
     async def login(payload: LoginRequest, request: Request) -> LoginResponse:

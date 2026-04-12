@@ -47,6 +47,7 @@ export type AnalysisRow = {
   confidence: string
 }
 export type ExecutionBatch = {
+  id?: number
   code: string
   type: string
   status: string
@@ -60,6 +61,7 @@ export type ExecutionBatch = {
 }
 export type WorkbenchPayload = {
   source?: string
+  productId?: number | null
   productContext: ProductContext | null
   workbenchStats: WorkbenchStat[]
   topActions: TopAction[]
@@ -117,6 +119,7 @@ export type ReviewPendingItem = {
   term: string
   termType: string
   campaignName: string
+  campaignId?: number | null
   relevance: string
   createdAt: string
 }
@@ -311,6 +314,7 @@ export const executionBatches = [
 
 export const mockWorkbenchPayload: WorkbenchPayload = {
   source: "mock",
+  productId: null,
   productContext,
   workbenchStats,
   topActions,

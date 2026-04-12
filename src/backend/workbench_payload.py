@@ -305,6 +305,7 @@ def _get_execution_batches_payload(db: Database, product_id: int) -> list[dict[s
         preview = get_execution_batch_effect_preview(db, batch)
         summary = summarize_execution_batch_effect(preview)
         payload.append({
+            "id": batch.get("id"),
             "code": batch.get("batch_code"),
             "type": batch.get("batch_type"),
             "status": batch.get("status"),
@@ -317,6 +318,112 @@ def _get_execution_batches_payload(db: Database, product_id: int) -> list[dict[s
             "risky": summary.get("top_risky_terms", []),
         })
     return payload
+
+
+def _build_execution_batch_summary(db: Database, product_id: int, batch_type: str) -> dict[str, Any]:
+    snapshot = _latest_snapshot(db, product_id)
+    snapshot_rows = snapshot.get("rows") or [] if snapshot else []
+    normalized_batch_type = str(batch_type).strip().lower() or "general"
+    if normalized_batch_type == "negative":
+        filtered = [row for row in snapshot_rows if str(row.get("action_type", "")).startswith("negative")]
+    elif normalized_batch_type == "manual":
+        filtered = [row for row in snapshot_rows if str(row.get("action_type", "")).startswith("manual")]
+    elif normalized_batch_type == "conflict":
+        filtered = [row for row in snapshot_rows if str(row.get("action_type", "")) == "conflict"]
+    else:
+        filtered = snapshot_rows
+
+    items = [
+        {
+            "term": row.get("term"),
+            "action_type": row.get("action_type"),
+            "suggested_action": row.get("suggested_action"),
+            "spend": float(row.get("spend") or 0.0),
+            "sales": float(row.get("sales") or 0.0),
+        }
+        for row in filtered[:50]
+        if row.get("term")
+    ]
+    return {
+        "item_count": len(items),
+        "items": items,
+        "baseline_snapshot_id": snapshot.get("id") if snapshot else None,
+        "spend_total": round(sum(item["spend"] for item in items), 2),
+        "sales_total": round(sum(item["sales"] for item in items), 2),
+    }
+
+
+def create_execution_batch_for_frontend(
+    *,
+    product_id: int,
+    batch_type: str,
+    draft_note: str | None = None,
+) -> dict[str, Any]:
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        summary = _build_execution_batch_summary(db, product_id, batch_type)
+        if not summary["item_count"]:
+            raise ValueError("当前没有可生成该批次的动作。")
+        batch = db.create_execution_batch(
+            product_id=product_id,
+            batch_type=batch_type,
+            summary=summary,
+            draft_note=draft_note,
+        )
+        preview = get_execution_batch_effect_preview(db, batch)
+        verdict = summarize_execution_batch_effect(preview)
+        batch["verdict"] = verdict.get("status", batch.get("status"))
+        batch["effect_summary"] = verdict
+        return batch
+
+
+def update_execution_batch_for_frontend(
+    *,
+    batch_id: int,
+    status: str,
+    execution_note: str | None = None,
+    review_note: str | None = None,
+) -> dict[str, Any]:
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        db.update_execution_batch(
+            batch_id,
+            status=status,
+            execution_note=execution_note,
+            review_note=review_note,
+        )
+        batch = db.get_execution_batch(batch_id)
+        if batch is None:
+            raise ValueError("执行批次不存在")
+        preview = get_execution_batch_effect_preview(db, batch)
+        verdict = summarize_execution_batch_effect(preview)
+        batch["verdict"] = verdict.get("status", batch.get("status"))
+        batch["effect_summary"] = verdict
+        return batch
+
+
+def submit_review_decision_for_frontend(
+    *,
+    product_id: int,
+    term: str,
+    term_type: str,
+    campaign_id: int | None,
+    relevance: str,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        review_id = db.upsert_manual_review(
+            product_id=product_id,
+            term=term,
+            term_type=term_type,
+            campaign_id=campaign_id,
+            relevance=relevance,
+            relevance_notes=notes,
+            reviewed=True,
+        )
+        stats = db.get_review_stats(product_id)
+        return {"reviewId": review_id, "stats": stats}
 
 
 def _derive_stage_title(pending_stats: dict[str, int], latest_snapshot: dict | None) -> tuple[str, str]:
@@ -359,6 +466,7 @@ def build_workbench_payload(product_id: int | None = None) -> dict[str, Any]:
 
         return {
             "source": "live",
+            "productId": product_id,
             "productContext": {
                 "name": product_name,
                 "role": (workspace_summary.get("current_role") or "viewer").capitalize(),
@@ -439,6 +547,7 @@ def build_review_page_payload(product_id: int | None = None) -> dict[str, Any]:
                         "term": item.get("term"),
                         "termType": item.get("term_type", "keyword"),
                         "campaignName": item.get("campaign_name") or "全局",
+                        "campaignId": item.get("campaign_id"),
                         "relevance": item.get("relevance") or "pending",
                         "createdAt": _format_timestamp(item.get("created_at")),
                     }

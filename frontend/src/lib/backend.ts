@@ -31,6 +31,7 @@ function mergeWorkbench(payload: Partial<WorkbenchPayload>): WorkbenchPayload {
     ...mockWorkbenchPayload,
     ...payload,
     productContext: payload.productContext ?? mockWorkbenchPayload.productContext,
+    productId: payload.productId ?? mockWorkbenchPayload.productId,
     workbenchStats: payload.workbenchStats ?? mockWorkbenchPayload.workbenchStats,
     topActions: payload.topActions ?? mockWorkbenchPayload.topActions,
     trendCards: payload.trendCards ?? mockWorkbenchPayload.trendCards,

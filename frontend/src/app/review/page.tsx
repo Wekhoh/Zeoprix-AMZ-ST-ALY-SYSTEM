@@ -1,5 +1,6 @@
 import { getReviewPayload } from "@/lib/backend";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { ReviewMutationPanel } from "@/components/review-mutation-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export default async function ReviewPage() {
       aiCard={payload.aiCopilotCards[0]}
     >
       <div className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
+        <ReviewMutationPanel payload={payload} backendBaseUrl={process.env.BACKEND_BASE_URL ?? process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? "http://127.0.0.1:8000"} />
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Review Queue</div>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">人工审核工作区</h3>
