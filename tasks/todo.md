@@ -43,3 +43,4 @@
 - 2026-04-11: 新前端已把 upload / analysis / actions / review / settings 从旧深色卡片文案统一迁回白底规范，稳定预览地址更新到 http://127.0.0.1:3009。
 
 - 2026-04-11: 新前端继续完成按钮/pill padding、Trend Pulse 柱状图、模板中心 segmented control 与 Structure Lens 轨道/数字对齐精修，预览刷新基于最新构建重新发布。
+- 2026-04-12: 继续精修新前端侧边 AI 助手：改成更轻的内嵌式 Copilot 卡，加入“当前聚焦”气泡与轻量上下文标签，减少长说明和后台感；最新稳定预览地址为 http://127.0.0.1:3010。

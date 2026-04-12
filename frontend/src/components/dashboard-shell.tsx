@@ -53,12 +53,12 @@ export function DashboardShell({ children, title, subtitle }: { children: ReactN
       </header>
 
       <div className="mx-auto max-w-[1440px] px-6 py-8 lg:px-10 lg:py-10">
-        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_308px]">
+        <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
           <main className="space-y-8">
             <section className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-white px-8 py-10 shadow-sm lg:px-10">
               <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(to_right,rgba(161,161,170,0.12)_1px,transparent_1px),linear-gradient(to_bottom,rgba(161,161,170,0.12)_1px,transparent_1px)] [background-size:64px_64px]" />
               <div className="pointer-events-none absolute inset-x-24 bottom-0 h-40 -z-0 bg-gradient-to-r from-cyan-300/30 via-violet-300/30 to-fuchsia-300/30 blur-[100px]" />
-              <div className="relative z-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-end">
+              <div className="relative z-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_272px] lg:items-end">
                 <div className="max-w-3xl">
                   <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-zinc-500">运营工作台</div>
                   <h1 className="mt-4 whitespace-nowrap text-4xl font-semibold tracking-tight text-zinc-950">{title}</h1>
@@ -103,7 +103,15 @@ export function DashboardShell({ children, title, subtitle }: { children: ReactN
                 </div>
               </div>
 
-              <p className="mt-5 text-sm leading-relaxed text-zinc-500">{primaryCard.summary}</p>
+              <div className="mt-5 rounded-2xl bg-zinc-50 p-4">
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">当前聚焦</div>
+                <p className="mt-2 text-sm leading-relaxed text-zinc-700">{primaryCard.summary}</p>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-medium text-zinc-700">最近一次分析</span>
+                <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-[12px] font-medium text-zinc-700">止损与补量</span>
+              </div>
 
               <div className="mt-5 flex flex-wrap gap-2">
                 {primaryCard.prompts.slice(0, 2).map((prompt) => (
