@@ -15,23 +15,45 @@ import {
   workbenchStats,
 } from "@/lib/mock-data";
 
+function StatValue({ value, label }: { value: string; label: string }) {
+  if (value.includes(" · ")) {
+    const [primary, secondary] = value.split(" · ");
+    return (
+      <div className="mt-4 flex items-end gap-2">
+        <div className="text-[2.15rem] font-bold tracking-[-0.06em] text-zinc-900">{primary}</div>
+        <div className="pb-1 text-sm text-zinc-500">{secondary}</div>
+      </div>
+    );
+  }
+
+  const match = value.match(/^(\d+)(.*)$/);
+  if (match) {
+    return (
+      <div className="mt-4 flex items-end gap-2">
+        <div className="text-[2.15rem] font-bold tracking-[-0.06em] text-zinc-900">{match[1]}</div>
+        <div className="pb-1 text-sm text-zinc-500">{match[2].trim()}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 font-display text-[1.15rem] font-semibold tracking-[-0.04em] text-zinc-900">
+      {label === "当前阶段" ? value.replace("优化动作", "优化\n动作") : value}
+    </div>
+  );
+}
+
 export function WorkbenchOverview() {
   return (
     <div className="space-y-8">
       <section className="grid gap-4 lg:grid-cols-4">
-        {workbenchStats.map((card) => {
-          const [number, ...rest] = card.value.split(" ");
-          return (
-            <div key={card.label} className="rounded-[28px] border border-zinc-200/60 bg-white p-6 shadow-sm">
-              <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">{card.label}</div>
-              <div className="mt-4 flex items-end gap-2">
-                <div className="text-3xl font-bold tracking-[-0.05em] text-zinc-900">{number}</div>
-                {rest.length > 0 ? <div className="pb-1 text-sm text-zinc-500">{rest.join(" ")}</div> : null}
-              </div>
-              <p className="mt-3 text-sm leading-relaxed text-zinc-700">{card.detail}</p>
-            </div>
-          );
-        })}
+        {workbenchStats.map((card) => (
+          <div key={card.label} className="rounded-[28px] border border-zinc-200/60 bg-white p-6 shadow-sm">
+            <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">{card.label}</div>
+            <StatValue value={card.value} label={card.label} />
+            <p className="mt-3 text-sm leading-relaxed text-zinc-700">{card.detail}</p>
+          </div>
+        ))}
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
@@ -39,7 +61,7 @@ export function WorkbenchOverview() {
           <div className="mb-6 flex items-center justify-between">
             <div>
               <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Action Radar</div>
-              <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">今日最优先 3 个动作</h2>
+              <h2 className="mt-3 font-display text-[1.45rem] font-semibold tracking-[-0.05em] text-zinc-900">今日最优先 3 个动作</h2>
             </div>
             <span className="rounded-full bg-indigo-50 px-3 py-1.5 text-[12px] font-medium text-indigo-700">按优先级排序</span>
           </div>
@@ -53,7 +75,7 @@ export function WorkbenchOverview() {
                   </span>
                   <ArrowUpRight className="h-4 w-4 text-indigo-600" />
                 </div>
-                <h3 className="mt-4 text-[1.02rem] font-semibold leading-relaxed text-zinc-900">{action.title}</h3>
+                <h3 className="mt-4 font-display text-[1rem] font-semibold leading-relaxed tracking-[-0.03em] text-zinc-900">{action.title}</h3>
                 <p className="mt-3 text-sm leading-relaxed text-zinc-700">{action.description}</p>
               </article>
             ))}
@@ -64,7 +86,7 @@ export function WorkbenchOverview() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Execution Review</div>
-              <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">最近执行效果</h2>
+              <h2 className="mt-3 font-display text-[1.45rem] font-semibold tracking-[-0.05em] text-zinc-900">最近执行效果</h2>
             </div>
             <span className="rounded-full bg-indigo-50 px-3 py-1.5 text-[12px] font-medium text-indigo-700">{executionEffect.status}</span>
           </div>
@@ -99,7 +121,7 @@ export function WorkbenchOverview() {
         <div className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
           <div>
             <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Trend Pulse</div>
-            <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">近 30 天趋势概览</h2>
+            <h2 className="mt-3 font-display text-[1.45rem] font-semibold tracking-[-0.05em] text-zinc-900">近 30 天趋势概览</h2>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             {trendCards.map((card) => (
@@ -128,7 +150,7 @@ export function WorkbenchOverview() {
         <div className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
           <div>
             <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Structure Lens</div>
-            <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">搜索词结构概览</h2>
+            <h2 className="mt-3 font-display text-[1.45rem] font-semibold tracking-[-0.05em] text-zinc-900">搜索词结构概览</h2>
           </div>
           <div className="mt-6 space-y-3">
             {structureBuckets.map((bucket) => (
@@ -158,7 +180,7 @@ export function TemplatesCenter() {
   return (
     <section className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
       <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Delivery Layer</div>
-      <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">运营模板中心</h2>
+      <h2 className="mt-3 font-display text-[1.45rem] font-semibold tracking-[-0.05em] text-zinc-900">运营模板中心</h2>
       <div className="mt-6 flex flex-wrap gap-2">
         {(Object.entries(tabMeta) as Array<[keyof typeof tabMeta, (typeof tabMeta)[keyof typeof tabMeta]]>).map(([key, item]) => (
           <button
@@ -183,7 +205,7 @@ export function AnalysisTable() {
   return (
     <section className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
       <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Analysis Table</div>
-      <h2 className="mt-3 text-[1.7rem] font-semibold tracking-[-0.05em] text-zinc-900">搜索词分析总览</h2>
+      <h2 className="mt-3 font-display text-[1.45rem] font-semibold tracking-[-0.05em] text-zinc-900">搜索词分析总览</h2>
       <div className="mt-6 overflow-hidden rounded-[28px] border border-zinc-200/70">
         <table className="w-full border-collapse text-left text-[13px] text-zinc-700">
           <thead className="bg-white text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
@@ -230,7 +252,7 @@ export function ExecutionBatchBoard() {
             <div className="space-y-4">
               <div className="rounded-[24px] bg-zinc-50 p-5">
                 <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">批次摘要</div>
-                <div className="mt-3 text-[1rem] font-semibold text-zinc-900">{batch.verdict}</div>
+                <div className="mt-3 font-display text-[1rem] font-semibold tracking-[-0.03em] text-zinc-900">{batch.verdict}</div>
                 <p className="mt-3 text-sm leading-relaxed text-zinc-700">{batch.summary}</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">

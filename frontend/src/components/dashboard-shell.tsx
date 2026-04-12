@@ -19,7 +19,7 @@ export function DashboardShell({ children, title, subtitle }: { children: ReactN
             <Link href="/" className="flex items-center gap-3">
               <div className="h-7 w-7 rounded-full bg-zinc-900" />
               <div>
-                <div className="font-display text-[17px] font-semibold tracking-[-0.03em] text-zinc-900">Zeoprix</div>
+                <div className="font-display text-[16px] font-semibold tracking-[-0.04em] text-zinc-900">Zeoprix</div>
                 <div className="text-[11px] text-zinc-500">Amazon Ads Workbench</div>
               </div>
             </Link>
@@ -59,10 +59,10 @@ export function DashboardShell({ children, title, subtitle }: { children: ReactN
               <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-end">
                 <div>
                   <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-zinc-500">运营工作台</div>
-                  <h1 className="mt-4 whitespace-nowrap font-display text-[2.55rem] font-semibold tracking-[-0.06em] text-zinc-900">
+                  <h1 className="mt-4 whitespace-nowrap font-display text-[2.2rem] font-semibold tracking-[-0.07em] text-zinc-900 lg:text-[2.35rem]">
                     {title}
                   </h1>
-                  <p className="mt-4 max-w-2xl text-base leading-relaxed text-zinc-700 font-normal">{subtitle}</p>
+                  <p className="mt-4 max-w-2xl text-[15px] leading-relaxed text-zinc-700 font-normal">{subtitle}</p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
@@ -91,7 +91,7 @@ export function DashboardShell({ children, title, subtitle }: { children: ReactN
                 </div>
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Copilot</div>
-                  <div className="text-[15px] font-medium text-zinc-900">AI 运营副驾驶</div>
+                  <div className="font-display text-[15px] font-semibold tracking-[-0.03em] text-zinc-900">AI 运营副驾驶</div>
                 </div>
               </div>
 

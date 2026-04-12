@@ -75,3 +75,10 @@
 - Preventive rule: 只要主人明确批评“UI 太乱/太丑/不像成熟产品/没用 frontend skill”，必须停止继续堆功能，优先做三件事：① 先定单一审美方向（本次是 Vercel 风白底 SaaS）；② 先收敛 typography、对比度、spacing 和卡片层级；③ 先做首页首屏减法，把状态、Top3、最近执行效果作为唯一主焦点，再决定是否保留其它模块。
 - Trigger to apply: 用户提到“参考 Vercel/Linear”“前端太乱”“字体太大/看不清”“边框套边框”“不够简洁”“请用 frontend skill 重构”等反馈时。
 - How to verify the rule worked: 至少保留一次真实浏览器快照或截图，证明页面满足：白底、正文对比度足够、标题不乱断行、Tabs 只有单内容区、卡片没有明显 box-in-box 拥挤感，并且 build/lint 通过。
+
+## 2026-04-11（前端精修不能只改颜色，必须单独校准字体系统）
+- Context: 主人继续指出白底版本虽然方向对了，但“字体太正式、太粗、大小不协调”，说明视觉问题已经进入 typography 精修阶段，而不是配色阶段。
+- Mistake pattern: 在 UI 重构里只关注配色、边框、卡片层级，而忽略字体家族、字重、字号比例与文案气质，导致页面虽然更干净，却仍然缺少审美上的轻松感和协调感。
+- Preventive rule: 当主人批评“字体太正式/太粗/不协调”时，必须单独做一次 typography pass：同时调整字体家族（display/body）、H1/H2/H3 比例、数据数字、正文行高和字重，不能只靠改颜色或间距来假装完成。
+- Trigger to apply: 用户提到“字体变化能再有点创意”“太正式”“太粗”“大小比例没协调好”等与字体系统相关的反馈时。
+- How to verify the rule worked: 至少通过一次真实页面预览，确认标题、数据数字、正文和 pills 在同一屏内具有清晰但不突兀的层级，并保留 build/lint 通过证据。
