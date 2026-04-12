@@ -5,12 +5,15 @@ import os
 from pathlib import Path
 from typing import Any
 
+from fastapi import UploadFile
+
 from src.analysis.truth_replay import (
     get_execution_batch_effect_preview,
     get_truth_first_pending_stats,
     summarize_execution_batch_effect,
 )
 from src.data.db import Database
+from src.data.parser import FileParser
 from src.rules.engine import analyze_search_terms
 from src.ui.pages.settings_data import (
     build_full_backup_export_payload,
@@ -497,6 +500,51 @@ def run_analysis_for_frontend(*, product_id: int) -> dict[str, Any]:
             "termsAnalyzed": len(df),
             "resultsSaved": results_saved,
             "pendingReviews": pending_reviews,
+        }
+
+
+def upload_files_for_frontend(
+    *,
+    product_id: int,
+    files: list[UploadFile],
+    auto_analyze: bool = True,
+) -> dict[str, Any]:
+    db_path = _get_app_database_path()
+    parser = FileParser()
+    imported_files: list[dict[str, Any]] = []
+    total_rows = 0
+
+    with Database(str(db_path)) as db:
+        for upload in files:
+            upload.file.seek(0)
+            df = parser.parse(upload.file, upload.filename)
+            if df is None or df.empty:
+                continue
+            campaign_name = Path(upload.filename or "Uploaded Campaign").stem
+            campaign_id = db.create_campaign(
+                product_id=product_id,
+                name=campaign_name,
+            )
+            saved_count = db.save_search_terms(df, campaign_id)
+            imported_files.append(
+                {
+                    "fileName": upload.filename or "uploaded.csv",
+                    "campaignName": campaign_name,
+                    "rows": int(saved_count),
+                }
+            )
+            total_rows += int(saved_count)
+
+        analysis_state: dict[str, Any] | None = None
+        if auto_analyze and total_rows > 0:
+            analysis_state = run_analysis_for_frontend(product_id=product_id)
+
+        return {
+            "status": "success",
+            "importedFiles": imported_files,
+            "importedRows": total_rows,
+            "campaignsCreated": len(imported_files),
+            "analysisState": analysis_state,
         }
 
 

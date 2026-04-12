@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
@@ -41,6 +41,7 @@ from src.backend.workbench_payload import (
     restore_full_backup_for_frontend,
     run_analysis_for_frontend,
     submit_review_decision_for_frontend,
+    upload_files_for_frontend,
     update_execution_batch_for_frontend,
 )
 
@@ -386,6 +387,18 @@ def create_app() -> FastAPI:
     @app.post('/frontend/upload/run-analysis', tags=['frontend'])
     async def run_frontend_analysis(payload: FrontendProductRequest) -> dict:
         return run_analysis_for_frontend(product_id=payload.product_id)
+
+    @app.post('/frontend/upload/files', tags=['frontend'])
+    async def upload_frontend_files(
+        product_id: int = Form(...),
+        auto_analyze: bool = Form(True),
+        files: list[UploadFile] = File(...),
+    ) -> dict:
+        return upload_files_for_frontend(
+            product_id=product_id,
+            files=files,
+            auto_analyze=auto_analyze,
+        )
 
     @app.post('/frontend/settings/clear-runtime', tags=['frontend'])
     async def clear_frontend_runtime(payload: FrontendProductRequest) -> dict:
