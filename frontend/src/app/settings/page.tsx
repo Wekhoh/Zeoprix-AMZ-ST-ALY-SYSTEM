@@ -1,10 +1,18 @@
-import { getWorkbenchPayload } from "@/lib/backend";
+import { getSettingsPayload } from "@/lib/backend";
 import { DashboardShell } from "@/components/dashboard-shell";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const payload = await getWorkbenchPayload();
+  const payload = await getSettingsPayload();
+  const settings = payload.settings ?? {
+    ruleVersionCount: 0,
+    strategyProfileCount: 0,
+    keywordLibraryCounts: { irrelevant: 0, weak: 0, generic: 0, car: 0, variants: 0 },
+    backupSummary: { searchTerms: 0, analysisResults: 0, manualReviews: 0, snapshots: 0, executionBatches: 0 },
+  };
+  const libs = settings.keywordLibraryCounts;
+  const backup = settings.backupSummary;
   return (
     <DashboardShell
       title="数据管理与系统设置"
@@ -16,12 +24,22 @@ export default async function SettingsPage() {
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Configuration</div>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">规则与产品配置</h3>
-          <p className="mt-3 text-sm leading-relaxed text-zinc-500">这里会承接规则阈值、关键词库、产品信息、AI 配置等长期设置项。</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl bg-zinc-50 p-4"><div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">规则版本</div><div className="mt-2 text-base font-semibold text-zinc-950">{settings.ruleVersionCount ?? 0}</div></div>
+            <div className="rounded-2xl bg-zinc-50 p-4"><div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">策略组合</div><div className="mt-2 text-base font-semibold text-zinc-950">{settings.strategyProfileCount ?? 0}</div></div>
+            <div className="rounded-2xl bg-zinc-50 p-4"><div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">不相关词库</div><div className="mt-2 text-base font-semibold text-zinc-950">{libs.irrelevant ?? 0}</div></div>
+            <div className="rounded-2xl bg-zinc-50 p-4"><div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">弱相关 / 泛词</div><div className="mt-2 text-base font-semibold text-zinc-950">{(libs.weak ?? 0) + (libs.generic ?? 0)}</div></div>
+          </div>
         </section>
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Data Management</div>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">清空、备份、恢复</h3>
-          <p className="mt-3 text-sm leading-relaxed text-zinc-500">这里会明确展示最近一次分析、最近一次备份、最近一次恢复，以及所有危险操作会影响哪些资产。</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl bg-zinc-50 p-4"><div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">搜索词</div><div className="mt-2 text-base font-semibold text-zinc-950">{backup.searchTerms ?? 0}</div></div>
+            <div className="rounded-2xl bg-zinc-50 p-4"><div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">分析结果</div><div className="mt-2 text-base font-semibold text-zinc-950">{backup.analysisResults ?? 0}</div></div>
+            <div className="rounded-2xl bg-zinc-50 p-4"><div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">审核记录</div><div className="mt-2 text-base font-semibold text-zinc-950">{backup.manualReviews ?? 0}</div></div>
+            <div className="rounded-2xl bg-zinc-50 p-4"><div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">执行批次</div><div className="mt-2 text-base font-semibold text-zinc-950">{backup.executionBatches ?? 0}</div></div>
+          </div>
         </section>
       </div>
     </DashboardShell>

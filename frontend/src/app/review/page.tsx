@@ -1,10 +1,11 @@
-import { getWorkbenchPayload } from "@/lib/backend";
+import { getReviewPayload } from "@/lib/backend";
 import { DashboardShell } from "@/components/dashboard-shell";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReviewPage() {
-  const payload = await getWorkbenchPayload();
+  const payload = await getReviewPayload();
+  const review = payload.review ?? { stats: { total: 0, reviewed: 0, pending: 0 }, pendingItems: [] as Array<{ term: string; termType: string; campaignName: string; relevance: string; createdAt: string }> };
   return (
     <DashboardShell
       title="审核中心"
@@ -16,12 +17,24 @@ export default async function ReviewPage() {
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Review Queue</div>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">人工审核工作区</h3>
-          <p className="mt-3 text-sm leading-relaxed text-zinc-500">这里会围绕相似词、AI 建议采纳、风险提示和批量审核效率做重构，不再是传统表单页。</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl bg-zinc-50 p-4"><div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">总数</div><div className="mt-2 text-base font-semibold text-zinc-950">{review.stats.total ?? 0}</div></div>
+            <div className="rounded-2xl bg-zinc-50 p-4"><div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">已审核</div><div className="mt-2 text-base font-semibold text-zinc-950">{review.stats.reviewed ?? 0}</div></div>
+            <div className="rounded-2xl bg-zinc-50 p-4"><div className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">待审核</div><div className="mt-2 text-base font-semibold text-zinc-950">{review.stats.pending ?? 0}</div></div>
+          </div>
+          <div className="mt-5 space-y-3">
+            {(review.pendingItems ?? []).length ? review.pendingItems.map((item) => (
+              <div key={`${item.term}-${item.campaignName}`} className="rounded-2xl bg-zinc-50 p-4">
+                <div className="text-sm font-medium text-zinc-950">{item.term}</div>
+                <div className="mt-1 text-sm text-zinc-500">{item.campaignName} ｜ {item.termType} ｜ {item.createdAt}</div>
+              </div>
+            )) : <p className="text-sm leading-relaxed text-zinc-500">当前没有待审核项。</p>}
+          </div>
         </section>
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">AI Review Brief</div>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">AI 审核建议</h3>
-          <p className="mt-3 text-sm leading-relaxed text-zinc-500">先解释为什么这么判，再决定是否采纳。后续会在这里直接记录 accepted / rejected / ignored。</p>
+          <p className="mt-3 text-sm leading-relaxed text-zinc-500">当前待审核队列已接入真实后端数据，下一步会把人工采纳 / 驳回动作也直接接到这里。</p>
         </section>
       </div>
     </DashboardShell>

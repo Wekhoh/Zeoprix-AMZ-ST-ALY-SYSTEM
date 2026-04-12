@@ -73,6 +73,86 @@ export type WorkbenchPayload = {
   executionBatches: ExecutionBatch[]
 }
 
+export type UploadSnapshotItem = {
+  id: number
+  createdAt: string
+  itemCount: number
+}
+
+export type UploadCampaignItem = {
+  id: number
+  name: string
+  createdAt: string
+}
+
+export type UploadPayload = WorkbenchPayload & {
+  upload?: {
+    latestReportDate: string
+    searchTerms: number
+    campaigns: number
+    snapshotCount: number
+    recentSnapshots: UploadSnapshotItem[]
+    recentCampaigns: UploadCampaignItem[]
+  }
+}
+
+export type AnalysisPayload = WorkbenchPayload & {
+  analysis?: {
+    rowCount: number
+    typeCounts: Record<string, number>
+    actionCounts: Record<string, number>
+  }
+}
+
+export type ActionsPayload = WorkbenchPayload & {
+  actions?: {
+    negativeCount: number
+    manualCount: number
+    conflictCount: number
+    latestBatchCode?: string | null
+  }
+}
+
+export type ReviewPendingItem = {
+  term: string
+  termType: string
+  campaignName: string
+  relevance: string
+  createdAt: string
+}
+
+export type ReviewPayload = WorkbenchPayload & {
+  review?: {
+    stats: {
+      total: number
+      reviewed: number
+      pending: number
+    }
+    pendingItems: ReviewPendingItem[]
+  }
+}
+
+export type SettingsPayload = WorkbenchPayload & {
+  settings?: {
+    ruleVersionCount: number
+    strategyProfileCount: number
+    keywordLibraryCounts: {
+      irrelevant: number
+      weak: number
+      generic: number
+      car: number
+      variants: number
+    }
+    backupSummary: {
+      searchTerms: number
+      analysisResults: number
+      manualReviews: number
+      snapshots: number
+      executionBatches: number
+    }
+  }
+}
+
 export const navItems: NavItem[] = [
   { href: '/', label: '运营工作台', eyebrow: 'Home' },
   { href: '/upload', label: '数据导入', eyebrow: 'Import' },

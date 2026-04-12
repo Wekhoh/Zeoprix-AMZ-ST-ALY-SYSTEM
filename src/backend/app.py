@@ -27,7 +27,14 @@ from src.backend.database import (
     get_backend_database_url,
     init_backend_schema,
 )
-from src.backend.workbench_payload import build_workbench_payload
+from src.backend.workbench_payload import (
+    build_actions_page_payload,
+    build_analysis_page_payload,
+    build_review_page_payload,
+    build_settings_page_payload,
+    build_upload_page_payload,
+    build_workbench_payload,
+)
 
 
 APP_TITLE = 'AMZ 搜索词分析系统 Backend'
@@ -275,6 +282,26 @@ def create_app() -> FastAPI:
     async def read_frontend_workbench(product_id: int | None = None) -> dict:
         """为独立前端壳返回首页/共享壳聚合数据。"""
         return build_workbench_payload(product_id=product_id)
+
+    @app.get('/frontend/upload', tags=['frontend'])
+    async def read_frontend_upload(product_id: int | None = None) -> dict:
+        return build_upload_page_payload(product_id=product_id)
+
+    @app.get('/frontend/analysis', tags=['frontend'])
+    async def read_frontend_analysis(product_id: int | None = None) -> dict:
+        return build_analysis_page_payload(product_id=product_id)
+
+    @app.get('/frontend/actions', tags=['frontend'])
+    async def read_frontend_actions(product_id: int | None = None) -> dict:
+        return build_actions_page_payload(product_id=product_id)
+
+    @app.get('/frontend/review', tags=['frontend'])
+    async def read_frontend_review(product_id: int | None = None) -> dict:
+        return build_review_page_payload(product_id=product_id)
+
+    @app.get('/frontend/settings', tags=['frontend'])
+    async def read_frontend_settings(product_id: int | None = None) -> dict:
+        return build_settings_page_payload(product_id=product_id)
 
     @app.post('/auth/login', response_model=LoginResponse, tags=['auth'])
     async def login(payload: LoginRequest, request: Request) -> LoginResponse:

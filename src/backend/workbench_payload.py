@@ -7,12 +7,10 @@ from typing import Any
 
 from src.analysis.truth_replay import (
     get_execution_batch_effect_preview,
-    get_truth_first_overview_distribution,
     get_truth_first_pending_stats,
     summarize_execution_batch_effect,
 )
 from src.data.db import Database
-from src.data.models import RelevanceLevel
 from src.rules.engine import analyze_search_terms
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -44,20 +42,43 @@ def _resolve_product(db: Database, product_id: int | None) -> dict | None:
     return products[0] if products else None
 
 
+def _campaign_count(db: Database, product_id: int) -> int:
+    return int(db.execute("SELECT COUNT(*) AS count FROM campaigns WHERE product_id = ?", (product_id,)).fetchone()["count"])
+
+
+def _manual_review_count(db: Database, product_id: int) -> int:
+    return int(db.execute("SELECT COUNT(*) AS count FROM manual_reviews WHERE product_id = ?", (product_id,)).fetchone()["count"])
+
+
+def _analysis_result_count(db: Database, product_id: int) -> int:
+    return int(
+        db.execute(
+            """
+            SELECT COUNT(*) AS count FROM analysis_results ar
+            JOIN search_terms st ON ar.search_term_id = st.id
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ?
+            """,
+            (product_id,),
+        ).fetchone()["count"]
+    )
+
+
 def _get_dashboard_stats(db: Database, product_id: int) -> dict[str, Any]:
     query = """
         SELECT
             COUNT(DISTINCT st.term) as term_count,
             COALESCE(SUM(st.spend), 0) as total_spend,
             COALESCE(SUM(st.orders), 0) as total_orders,
-            COALESCE(SUM(st.sales), 0) as total_sales
+            COALESCE(SUM(st.sales), 0) as total_sales,
+            MAX(COALESCE(st.report_date, date(st.created_at))) AS latest_report_date
         FROM search_terms st
         JOIN campaigns c ON st.campaign_id = c.id
         WHERE c.product_id = ?
     """
     row = db.execute(query, (product_id,)).fetchone()
     if not row:
-        return {"term_count": 0, "total_spend": 0.0, "total_orders": 0, "total_sales": 0.0, "acos": 0.0}
+        return {"term_count": 0, "total_spend": 0.0, "total_orders": 0, "total_sales": 0.0, "acos": 0.0, "latest_report_date": None}
     spend = float(row["total_spend"] or 0.0)
     sales = float(row["total_sales"] or 0.0)
     return {
@@ -65,6 +86,7 @@ def _get_dashboard_stats(db: Database, product_id: int) -> dict[str, Any]:
         "total_spend": spend,
         "total_orders": int(row["total_orders"] or 0),
         "total_sales": sales,
+        "latest_report_date": row["latest_report_date"],
         "acos": round((spend / sales), 4) if sales > 0 else 0.0,
     }
 
@@ -91,11 +113,14 @@ def _get_pending_stats(db: Database, product_id: int) -> dict[str, int]:
     return stats
 
 
-def _latest_snapshot_rows(db: Database, product_id: int) -> list[dict]:
+def _latest_snapshot(db: Database, product_id: int) -> dict | None:
     snapshots = db.list_analysis_run_snapshots(product_id, limit=1)
-    if not snapshots:
-        return []
-    return snapshots[0].get("rows") or []
+    return snapshots[0] if snapshots else None
+
+
+def _latest_snapshot_rows(db: Database, product_id: int) -> list[dict]:
+    snapshot = _latest_snapshot(db, product_id)
+    return snapshot.get("rows") or [] if snapshot else []
 
 
 def _build_top_actions(pending_stats: dict[str, int], snapshot_rows: list[dict]) -> list[dict[str, str]]:
@@ -220,7 +245,8 @@ def _get_structure_payload(db: Database, product_id: int, product_config: dict) 
     for row in source_rows:
         bucket = _classify_bucket(row.get("term", ""), row.get("term_type", "keyword"), product_config)
         counts[bucket] = counts.get(bucket, 0) + 1
-    return [{"label": label, "count": count, "ratio": f"{round((count / sum(counts.values())) * 100)}%" if sum(counts.values()) else "0%"} for label, count in sorted(counts.items(), key=lambda i: i[1], reverse=True)]
+    total = sum(counts.values()) or 1
+    return [{"label": label, "count": count, "ratio": f"{round((count / total) * 100)}%"} for label, count in sorted(counts.items(), key=lambda i: i[1], reverse=True)]
 
 
 def _get_execution_effect_payload(db: Database, product_id: int) -> dict[str, Any]:
@@ -318,8 +344,7 @@ def build_workbench_payload(product_id: int | None = None) -> dict[str, Any]:
         product_config = product.get("config") or {}
         stats = _get_dashboard_stats(db, product_id)
         pending_stats = _get_pending_stats(db, product_id)
-        snapshots = db.list_analysis_run_snapshots(product_id, limit=1)
-        latest_snapshot = snapshots[0] if snapshots else None
+        latest_snapshot = _latest_snapshot(db, product_id)
         workspace_summary = db.get_workspace_summary(product_id)
         stage_title, stage_detail = _derive_stage_title(pending_stats, latest_snapshot)
         top_actions = _build_top_actions(pending_stats, _latest_snapshot_rows(db, product_id))
@@ -344,8 +369,8 @@ def build_workbench_payload(product_id: int | None = None) -> dict[str, Any]:
             "workbenchStats": [
                 {"label": "当前阶段", "value": stage_title, "detail": stage_detail},
                 {"label": "最近一次分析", "value": _format_timestamp(latest_snapshot.get("created_at") if latest_snapshot else None).replace(" ", " · ", 1), "detail": "latest snapshot 已形成。" if latest_snapshot else "还没有分析快照。"},
-                {"label": "历史沉淀", "value": f"{len(db.list_analysis_run_snapshots(product_id, limit=200))} 个分析快照", "detail": f"{db.execute('SELECT COUNT(*) AS count FROM manual_reviews WHERE product_id = ?', (product_id,)).fetchone()['count']} 条人工审核、{len(db.list_execution_batches(product_id, limit=200))} 个执行批次。"},
-                {"label": "数据规模", "value": f"{stats['term_count']} 条词 · {db.execute('SELECT COUNT(*) AS count FROM campaigns WHERE product_id = ?', (product_id,)).fetchone()['count']} 个活动", "detail": f"当前已形成 {db.execute('SELECT COUNT(*) AS count FROM analysis_results ar JOIN search_terms st ON ar.search_term_id = st.id JOIN campaigns c ON st.campaign_id = c.id WHERE c.product_id = ?', (product_id,)).fetchone()['count']} 条建议动作。"},
+                {"label": "历史沉淀", "value": f"{len(db.list_analysis_run_snapshots(product_id, limit=200))} 个分析快照", "detail": f"{_manual_review_count(db, product_id)} 条人工审核、{len(db.list_execution_batches(product_id, limit=200))} 个执行批次。"},
+                {"label": "数据规模", "value": f"{stats['term_count']} 条词 · {_campaign_count(db, product_id)} 个活动", "detail": f"当前已形成 {_analysis_result_count(db, product_id)} 条建议动作。"},
             ],
             "topActions": top_actions,
             "trendCards": trend_cards,
@@ -364,3 +389,137 @@ def build_workbench_payload(product_id: int | None = None) -> dict[str, Any]:
             "analysisRows": _get_analysis_rows_payload(db, product_id),
             "executionBatches": _get_execution_batches_payload(db, product_id),
         }
+
+
+def build_upload_page_payload(product_id: int | None = None) -> dict[str, Any]:
+    workbench = build_workbench_payload(product_id)
+    if workbench.get("source") != "live":
+        return {"source": workbench.get("source", "empty")}
+
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        product = _resolve_product(db, product_id)
+        product_id = int(product["id"])
+        stats = _get_dashboard_stats(db, product_id)
+        snapshots = db.list_analysis_run_snapshots(product_id, limit=5)
+        campaigns = [dict(row) for row in db.execute("SELECT id, name, created_at FROM campaigns WHERE product_id = ? ORDER BY created_at DESC LIMIT 5", (product_id,)).fetchall()]
+        return {
+            **workbench,
+            "upload": {
+                "latestReportDate": stats.get("latest_report_date") or "暂无导入",
+                "searchTerms": stats["term_count"],
+                "campaigns": _campaign_count(db, product_id),
+                "snapshotCount": len(db.list_analysis_run_snapshots(product_id, limit=200)),
+                "recentSnapshots": [
+                    {"id": s["id"], "createdAt": _format_timestamp(s["created_at"]), "itemCount": int((s.get("summary") or {}).get("item_count") or len(s.get("rows") or []))}
+                    for s in snapshots
+                ],
+                "recentCampaigns": [{"id": c["id"], "name": c["name"], "createdAt": _format_timestamp(c["created_at"])} for c in campaigns],
+            },
+        }
+
+
+def build_review_page_payload(product_id: int | None = None) -> dict[str, Any]:
+    workbench = build_workbench_payload(product_id)
+    if workbench.get("source") != "live":
+        return {"source": workbench.get("source", "empty")}
+
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        product = _resolve_product(db, product_id)
+        product_id = int(product["id"])
+        review_stats = db.get_review_stats(product_id)
+        pending_items = db.get_pending_reviews_list(product_id, limit=8)
+        return {
+            **workbench,
+            "review": {
+                "stats": review_stats,
+                "pendingItems": [
+                    {
+                        "term": item.get("term"),
+                        "termType": item.get("term_type", "keyword"),
+                        "campaignName": item.get("campaign_name") or "全局",
+                        "relevance": item.get("relevance") or "pending",
+                        "createdAt": _format_timestamp(item.get("created_at")),
+                    }
+                    for item in pending_items
+                ],
+            },
+        }
+
+
+def build_settings_page_payload(product_id: int | None = None) -> dict[str, Any]:
+    workbench = build_workbench_payload(product_id)
+    if workbench.get("source") != "live":
+        return {"source": workbench.get("source", "empty")}
+
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        product = _resolve_product(db, product_id)
+        product_id = int(product["id"])
+        product_config = product.get("config") or {}
+        keyword_libraries = product_config.get("keyword_libraries") or {}
+        backup_summary = {
+            "searchTerms": _get_dashboard_stats(db, product_id)["term_count"],
+            "analysisResults": _analysis_result_count(db, product_id),
+            "manualReviews": _manual_review_count(db, product_id),
+            "snapshots": len(db.list_analysis_run_snapshots(product_id, limit=200)),
+            "executionBatches": len(db.list_execution_batches(product_id, limit=200)),
+        }
+        return {
+            **workbench,
+            "settings": {
+                "ruleVersionCount": len(db.get_rule_versions(product_id)),
+                "strategyProfileCount": len(db.list_strategy_profiles()),
+                "keywordLibraryCounts": {
+                    "irrelevant": len(keyword_libraries.get("irrelevant_keywords", [])),
+                    "weak": len(keyword_libraries.get("weak_category_keywords", [])),
+                    "generic": len(keyword_libraries.get("generic_keywords", [])),
+                    "car": len(keyword_libraries.get("car_keywords", [])),
+                    "variants": len(product_config.get("own_variants", [])),
+                },
+                "backupSummary": backup_summary,
+            },
+        }
+
+
+def build_actions_page_payload(product_id: int | None = None) -> dict[str, Any]:
+    workbench = build_workbench_payload(product_id)
+    if workbench.get("source") != "live":
+        return {"source": workbench.get("source", "empty")}
+
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        product = _resolve_product(db, product_id)
+        product_id = int(product["id"])
+        pending_stats = _get_pending_stats(db, product_id)
+        return {
+            **workbench,
+            "actions": {
+                "negativeCount": int(pending_stats.get("negative_count") or 0),
+                "manualCount": int(pending_stats.get("manual_count") or 0),
+                "conflictCount": int(pending_stats.get("conflict_count") or 0),
+                "latestBatchCode": (workbench.get("executionBatches") or [{}])[0].get("code"),
+            },
+        }
+
+
+def build_analysis_page_payload(product_id: int | None = None) -> dict[str, Any]:
+    workbench = build_workbench_payload(product_id)
+    if workbench.get("source") != "live":
+        return {"source": workbench.get("source", "empty")}
+
+    rows = workbench.get("analysisRows") or []
+    type_counts: dict[str, int] = {}
+    action_counts: dict[str, int] = {}
+    for row in rows:
+        type_counts[row.get("type") or "unknown"] = type_counts.get(row.get("type") or "unknown", 0) + 1
+        action_counts[row.get("action") or "unknown"] = action_counts.get(row.get("action") or "unknown", 0) + 1
+    return {
+        **workbench,
+        "analysis": {
+            "rowCount": len(rows),
+            "typeCounts": type_counts,
+            "actionCounts": action_counts,
+        },
+    }
