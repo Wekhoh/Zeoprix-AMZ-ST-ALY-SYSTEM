@@ -9,6 +9,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -37,6 +38,7 @@ from src.backend.workbench_payload import (
     clear_runtime_for_frontend,
     create_execution_batch_for_frontend,
     export_full_backup_for_frontend,
+    restore_full_backup_for_frontend,
     run_analysis_for_frontend,
     submit_review_decision_for_frontend,
     update_execution_batch_for_frontend,
@@ -112,6 +114,12 @@ class FrontendReviewDecisionRequest(BaseModel):
 
 class FrontendProductRequest(BaseModel):
     product_id: int
+
+
+class FrontendRestoreBackupRequest(BaseModel):
+    product_id: int | None = None
+    restore_as_new_product: bool = False
+    backup_data: dict
 
 
 @asynccontextmanager
@@ -293,6 +301,47 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001",
+            "http://127.0.0.1:3002",
+            "http://127.0.0.1:3003",
+            "http://127.0.0.1:3004",
+            "http://127.0.0.1:3005",
+            "http://127.0.0.1:3006",
+            "http://127.0.0.1:3007",
+            "http://127.0.0.1:3008",
+            "http://127.0.0.1:3009",
+            "http://127.0.0.1:3010",
+            "http://127.0.0.1:3011",
+            "http://127.0.0.1:3012",
+            "http://127.0.0.1:3013",
+            "http://127.0.0.1:3014",
+            "http://127.0.0.1:3015",
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:3002",
+            "http://localhost:3003",
+            "http://localhost:3004",
+            "http://localhost:3005",
+            "http://localhost:3006",
+            "http://localhost:3007",
+            "http://localhost:3008",
+            "http://localhost:3009",
+            "http://localhost:3010",
+            "http://localhost:3011",
+            "http://localhost:3012",
+            "http://localhost:3013",
+            "http://localhost:3014",
+            "http://localhost:3015",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     @app.get('/', tags=['system'])
     async def read_root() -> dict[str, str]:
         return {
@@ -345,6 +394,14 @@ def create_app() -> FastAPI:
     @app.get('/frontend/settings/full-backup', tags=['frontend'])
     async def export_frontend_full_backup(product_id: int) -> dict:
         return export_full_backup_for_frontend(product_id=product_id)
+
+    @app.post('/frontend/settings/restore-backup', tags=['frontend'])
+    async def restore_frontend_full_backup(payload: FrontendRestoreBackupRequest) -> dict:
+        return restore_full_backup_for_frontend(
+            product_id=payload.product_id,
+            restore_as_new_product=payload.restore_as_new_product,
+            backup_data=payload.backup_data,
+        )
 
     @app.post('/frontend/actions/execution-batches', tags=['frontend'])
     async def create_frontend_execution_batch(payload: FrontendExecutionBatchCreateRequest) -> dict:

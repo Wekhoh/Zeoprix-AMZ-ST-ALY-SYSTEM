@@ -12,7 +12,11 @@ from src.analysis.truth_replay import (
 )
 from src.data.db import Database
 from src.rules.engine import analyze_search_terms
-from src.ui.pages.settings_data import build_full_backup_export_payload, clear_product_runtime_data
+from src.ui.pages.settings_data import (
+    build_full_backup_export_payload,
+    clear_product_runtime_data,
+    restore_full_backup,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_APP_DB_PATH = PROJECT_ROOT / "data" / "db" / "app.db"
@@ -514,6 +518,28 @@ def export_full_backup_for_frontend(*, product_id: int) -> dict[str, Any]:
             "mime": payload["mime"],
             "content": payload["data"].decode("utf-8"),
             "summary": payload["summary"],
+        }
+
+
+def restore_full_backup_for_frontend(
+    *,
+    product_id: int | None,
+    restore_as_new_product: bool,
+    backup_data: dict,
+) -> dict[str, Any]:
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        restored_product_id = restore_full_backup(
+            db,
+            backup_data,
+            current_product_id=product_id,
+            restore_as_new_product=restore_as_new_product,
+        )
+        product = db.get_product(restored_product_id)
+        return {
+            "status": "success",
+            "restoredProductId": restored_product_id,
+            "productName": product.get("name") if product else "恢复产品",
         }
 
 
