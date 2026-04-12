@@ -107,11 +107,11 @@ export function DashboardShell({ children, title, subtitle }: { children: ReactN
 
               <div className="mt-5 flex flex-wrap gap-2">
                 {primaryCard.prompts.slice(0, 2).map((prompt) => (
-                  <button key={prompt} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-900 shadow-sm transition hover:bg-zinc-50">
+                  <button key={prompt} className="rounded-full border border-zinc-200 bg-white px-5 py-2.5 text-sm font-medium text-zinc-900 shadow-sm transition hover:bg-zinc-50">
                     {prompt}
                   </button>
                 ))}
-                <button className="rounded-full bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800">
+                <button className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800">
                   生成老板摘要
                 </button>
               </div>

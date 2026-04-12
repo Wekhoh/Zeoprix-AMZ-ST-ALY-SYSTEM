@@ -71,7 +71,7 @@ export function WorkbenchOverview() {
               <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Action Radar</div>
               <h2 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-950">今日最优先 3 个动作</h2>
             </div>
-            <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900">按优先级排序</span>
+            <span className="rounded-full bg-zinc-100 px-5 py-2.5 text-sm font-medium text-zinc-900">按优先级排序</span>
           </div>
 
           <div className="grid gap-4">
@@ -96,12 +96,12 @@ export function WorkbenchOverview() {
               <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Execution Review</div>
               <h2 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-950">最近执行效果</h2>
             </div>
-            <span className="rounded-full bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700">{executionEffect.status}</span>
+            <span className="rounded-full bg-indigo-50 px-5 py-2.5 text-sm font-medium text-indigo-700">{executionEffect.status}</span>
           </div>
           <p className="mt-4 text-sm leading-relaxed text-zinc-500">{executionEffect.summary}</p>
           <div className="mt-5 flex flex-wrap gap-2">
             {executionEffect.chips.map((chip) => (
-              <span key={chip} className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900">{chip}</span>
+              <span key={chip} className="rounded-full bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900">{chip}</span>
             ))}
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
@@ -145,8 +145,8 @@ export function WorkbenchOverview() {
               {trendBars.map((bar, index) => (
                 <div key={bar.label} className="flex flex-1 flex-col items-center gap-2">
                   <div
-                    className={`rounded-full ${index === trendBars.length - 1 ? "bg-indigo-600" : "bg-zinc-200"}`}
-                    style={{ width: index === trendBars.length - 1 ? 10 : 8, height: `${bar.value * 1.2}px` }}
+                    className={`${index === trendBars.length - 1 ? "w-8 bg-zinc-900" : "w-6 bg-zinc-100"} rounded-t-md`}
+                    style={{ height: `${bar.value * 1.2}px` }}
                   />
                   <span className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">{bar.label}</span>
                 </div>
@@ -189,13 +189,15 @@ export function TemplatesCenter() {
     <section className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
       <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Delivery Layer</div>
       <h2 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-950">运营模板中心</h2>
-      <div className="mt-6 flex flex-wrap gap-2">
+      <div className="mt-6 inline-flex flex-wrap gap-1 rounded-full bg-zinc-100/80 p-1">
         {(Object.entries(tabMeta) as Array<[keyof typeof tabMeta, (typeof tabMeta)[keyof typeof tabMeta]]>).map(([key, item]) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
-            className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-              activeTab === key ? "bg-indigo-50 text-indigo-700" : "bg-zinc-100 text-zinc-900 hover:bg-zinc-50"
+            className={`rounded-full px-5 py-2.5 text-sm font-medium transition ${
+              activeTab === key
+                ? "bg-white text-zinc-950 shadow-sm"
+                : "bg-transparent text-zinc-600 hover:text-zinc-900"
             }`}
           >
             {item.label}
@@ -203,7 +205,7 @@ export function TemplatesCenter() {
         ))}
       </div>
       <div className="mt-6 rounded-2xl bg-zinc-50 p-8">
-        <div className="whitespace-pre-wrap text-base leading-relaxed text-zinc-500">{opsTemplates[activeTab]}</div>
+        <div className="whitespace-pre-wrap text-base leading-relaxed text-zinc-700">{opsTemplates[activeTab]}</div>
       </div>
     </section>
   );
