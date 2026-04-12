@@ -39,3 +39,5 @@
 - 2026-04-11: 新前端首页继续切换到 Vercel / Next.js 风格：Inter 字体、Hero 网格+柔光、Bento Grid、药丸按钮、Copilot 降噪，稳定预览地址更新到 http://127.0.0.1:3007。
 
 - 2026-04-11: 新前端进一步完成 Vercel 风细节打磨：Trend Pulse 柱状图加粗并统一顶部圆角，Copilot/操作 pills padding 收敛，模板中心 Tabs 改为 segmented control，Structure Lens 轨道与数字对齐继续精修；稳定预览地址更新到 http://127.0.0.1:3008。
+
+- 2026-04-11: 新前端已把 upload / analysis / actions / review / settings 从旧深色卡片文案统一迁回白底规范，稳定预览地址更新到 http://127.0.0.1:3009。
