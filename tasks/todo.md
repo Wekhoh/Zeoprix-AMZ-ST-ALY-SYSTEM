@@ -35,3 +35,5 @@
   - Streamlit 旧前端与新前端壳当前并行存在，需要后续决定切换策略
 
 - 2026-04-11: 新前端继续做 typography 精修：接入 Sora + Instrument Sans 双字体组合，收敛 H1/H2/H3 比例，弱化过粗标题并强化数据数字识别，预览地址更新到 http://127.0.0.1:3005。
+
+- 2026-04-11: 新前端首页继续切换到 Vercel / Next.js 风格：Inter 字体、Hero 网格+柔光、Bento Grid、药丸按钮、Copilot 降噪，稳定预览地址更新到 http://127.0.0.1:3007。

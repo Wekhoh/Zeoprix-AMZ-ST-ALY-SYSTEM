@@ -1,8 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --font-display: "Sora", "SF Pro Display", sans-serif;
-  --font-body: "Instrument Sans", "Segoe UI", sans-serif;
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
 }
 
 * {
@@ -15,15 +14,11 @@ html {
 
 body {
   margin: 0;
-  font-family: var(--font-body);
-  background: #f6f8fb;
-  color: #18181b;
+  font-family: var(--font-sans);
+  background: #fafafa;
+  color: #09090b;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-}
-
-.font-display {
-  font-family: var(--font-display);
 }
 
 button,
