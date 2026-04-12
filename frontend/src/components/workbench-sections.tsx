@@ -164,10 +164,10 @@ export function WorkbenchOverview() {
             {structureBuckets.map((bucket) => (
               <div key={bucket.label} className="grid grid-cols-[96px_1fr_40px] items-center gap-4 rounded-2xl bg-zinc-50 px-4 py-3">
                 <div className="text-[13px] font-medium text-zinc-900">{bucket.label}</div>
-                <div className="h-2 rounded-full bg-zinc-200">
-                  <div className="h-2 rounded-full bg-zinc-950" style={{ width: bucket.ratio === '<1%' ? '4%' : bucket.ratio }} />
+                <div className="h-2 rounded-full bg-zinc-100">
+                  <div className="h-2 rounded-full bg-zinc-800" style={{ width: bucket.ratio === '<1%' ? '4%' : bucket.ratio }} />
                 </div>
-                <div className="text-right text-[12px] text-zinc-500">{bucket.count}</div>
+                <div className="text-right text-[12px] tabular-nums text-zinc-500">{bucket.count}</div>
               </div>
             ))}
           </div>
@@ -298,3 +298,4 @@ export function ExecutionBatchBoard() {
     </section>
   );
 }
+
