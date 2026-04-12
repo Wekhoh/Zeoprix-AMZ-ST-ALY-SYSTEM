@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
-import { Instrument_Sans, Sora } from "next/font/google";
+import { Noto_Sans_SC, Noto_Serif_SC } from "next/font/google";
 import "./globals.css";
 
-const display = Sora({
+const display = Noto_Serif_SC({
   subsets: ["latin"],
   variable: "--font-display",
   weight: ["500", "600", "700"],
 });
 
-const body = Instrument_Sans({
+const body = Noto_Sans_SC({
   subsets: ["latin"],
   variable: "--font-body",
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "700"],
 });
 
 export const metadata: Metadata = {

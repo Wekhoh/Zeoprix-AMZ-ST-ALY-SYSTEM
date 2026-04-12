@@ -15,30 +15,41 @@ import {
   workbenchStats,
 } from "@/lib/mock-data";
 
-function StatValue({ value, label }: { value: string; label: string }) {
-  if (value.includes(" · ")) {
-    const [primary, secondary] = value.split(" · ");
+function StatCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+  if (label === "最近一次分析") {
+    const [date, time] = value.split(" · ");
     return (
-      <div className="mt-4 flex items-end gap-2">
-        <div className="text-[2.15rem] font-bold tracking-[-0.06em] text-zinc-900">{primary}</div>
-        <div className="pb-1 text-sm text-zinc-500">{secondary}</div>
+      <div className="min-w-[240px] flex-1 rounded-[28px] border border-zinc-200/60 bg-white p-6 shadow-sm">
+        <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">{label}</div>
+        <div className="mt-4 flex items-end justify-between gap-3">
+          <div className="whitespace-nowrap font-display text-[1.75rem] font-semibold tracking-[-0.06em] text-zinc-900">{date}</div>
+          <div className="pb-1 text-sm text-zinc-500">{time}</div>
+        </div>
+        <p className="mt-3 text-sm leading-relaxed text-zinc-700">{detail}</p>
       </div>
     );
   }
 
-  const match = value.match(/^(\d+)(.*)$/);
-  if (match) {
+  if (label === "当前阶段") {
     return (
-      <div className="mt-4 flex items-end gap-2">
-        <div className="text-[2.15rem] font-bold tracking-[-0.06em] text-zinc-900">{match[1]}</div>
-        <div className="pb-1 text-sm text-zinc-500">{match[2].trim()}</div>
+      <div className="min-w-[260px] flex-[1.1] rounded-[28px] border border-zinc-200/60 bg-white p-6 shadow-sm">
+        <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">{label}</div>
+        <div className="mt-4 max-w-[11ch] font-display text-[1.75rem] font-semibold leading-tight tracking-[-0.05em] text-zinc-900">{value}</div>
+        <p className="mt-3 text-sm leading-relaxed text-zinc-700">{detail}</p>
       </div>
     );
   }
 
+  const separator = value.includes(" · ") ? " · " : " ";
+  const [primary, secondary] = value.split(separator);
   return (
-    <div className="mt-4 font-display text-[1.15rem] font-semibold tracking-[-0.04em] text-zinc-900">
-      {label === "当前阶段" ? value.replace("优化动作", "优化\n动作") : value}
+    <div className="min-w-[240px] flex-1 rounded-[28px] border border-zinc-200/60 bg-white p-6 shadow-sm">
+      <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">{label}</div>
+      <div className="mt-4 flex items-end gap-2">
+        <div className="text-[2.05rem] font-bold tracking-[-0.06em] text-zinc-900">{primary}</div>
+        {secondary ? <div className="pb-1 text-sm text-zinc-500">{secondary}</div> : null}
+      </div>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-700">{detail}</p>
     </div>
   );
 }
@@ -46,17 +57,13 @@ function StatValue({ value, label }: { value: string; label: string }) {
 export function WorkbenchOverview() {
   return (
     <div className="space-y-8">
-      <section className="grid gap-4 lg:grid-cols-4">
+      <section className="flex flex-wrap gap-4">
         {workbenchStats.map((card) => (
-          <div key={card.label} className="rounded-[28px] border border-zinc-200/60 bg-white p-6 shadow-sm">
-            <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">{card.label}</div>
-            <StatValue value={card.value} label={card.label} />
-            <p className="mt-3 text-sm leading-relaxed text-zinc-700">{card.detail}</p>
-          </div>
+          <StatCard key={card.label} label={card.label} value={card.value} detail={card.detail} />
         ))}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+      <section className="grid items-start gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
           <div className="mb-6 flex items-center justify-between">
             <div>
@@ -82,7 +89,7 @@ export function WorkbenchOverview() {
           </div>
         </div>
 
-        <div className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
+        <div className="self-start rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Execution Review</div>
@@ -117,7 +124,7 @@ export function WorkbenchOverview() {
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+      <section className="grid items-start gap-6 xl:grid-cols-[1fr_1fr]">
         <div className="rounded-[32px] border border-zinc-200/60 bg-white p-8 shadow-sm">
           <div>
             <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-500">Trend Pulse</div>
