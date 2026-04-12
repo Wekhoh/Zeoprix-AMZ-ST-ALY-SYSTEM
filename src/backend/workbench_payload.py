@@ -12,6 +12,7 @@ from src.analysis.truth_replay import (
 )
 from src.data.db import Database
 from src.rules.engine import analyze_search_terms
+from src.ui.pages.settings_data import build_full_backup_export_payload, clear_product_runtime_data
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_APP_DB_PATH = PROJECT_ROOT / "data" / "db" / "app.db"
@@ -424,6 +425,96 @@ def submit_review_decision_for_frontend(
         )
         stats = db.get_review_stats(product_id)
         return {"reviewId": review_id, "stats": stats}
+
+
+def run_analysis_for_frontend(*, product_id: int) -> dict[str, Any]:
+    from src.analysis.truth_replay import (
+        apply_reviewed_truth,
+        build_analysis_run_snapshot_rows,
+        build_analysis_run_snapshot_summary,
+    )
+    from src.data.aggregator import DataAggregator
+    from src.rules.engine import RuleEngine
+
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        aggregator = DataAggregator(db)
+        df = aggregator.aggregate_by_term(product_id)
+
+        if df.empty:
+            return {"status": "warning", "message": "当前导入数据暂时不足以生成搜索词分析结果。", "termsAnalyzed": 0, "resultsSaved": 0}
+
+        engine = RuleEngine(db, product_id)
+        results = engine.analyze(df)
+        if not results:
+            return {"status": "warning", "message": "规则分析已运行，但当前没有生成可保存的建议。", "termsAnalyzed": len(df), "resultsSaved": 0}
+
+        effective_results = apply_reviewed_truth(db, product_id, results)
+        snapshot_rows = build_analysis_run_snapshot_rows(effective_results)
+        if snapshot_rows:
+            db.save_analysis_run_snapshot(
+                product_id,
+                snapshot_rows,
+                run_source="manual",
+                summary=build_analysis_run_snapshot_summary(snapshot_rows),
+            )
+
+        results_saved = 0
+        pending_reviews = 0
+        for result in effective_results:
+            db.save_analysis_result_by_term(
+                product_id=product_id,
+                term=result.term,
+                triggered_rule=result.triggered_rule,
+                suggested_action=result.suggested_action,
+                action_type=result.action_type,
+                confidence=result.confidence,
+                ai_reasoning=result.ai_reasoning,
+            )
+            results_saved += 1
+
+        for result in effective_results:
+            needs_review = getattr(result, "needs_review", False)
+            relevance = getattr(result, "relevance", None)
+            if needs_review or relevance in (None, "pending"):
+                db.upsert_manual_review(
+                    product_id=product_id,
+                    term=result.term,
+                    term_type=result.term_type,
+                    system_action=result.suggested_action,
+                    relevance="pending",
+                    reviewed=False,
+                )
+                pending_reviews += 1
+
+        return {
+            "status": "success",
+            "message": "分析完成。",
+            "termsAnalyzed": len(df),
+            "resultsSaved": results_saved,
+            "pendingReviews": pending_reviews,
+        }
+
+
+def clear_runtime_for_frontend(*, product_id: int) -> dict[str, Any]:
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        clear_product_runtime_data(db, product_id)
+        return {"status": "success", "message": "运行数据已清空。"}
+
+
+def export_full_backup_for_frontend(*, product_id: int) -> dict[str, Any]:
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        payload = build_full_backup_export_payload(db, product_id)
+        if not payload:
+            raise ValueError("产品不存在")
+        return {
+            "fileName": payload["file_name"],
+            "mime": payload["mime"],
+            "content": payload["data"].decode("utf-8"),
+            "summary": payload["summary"],
+        }
 
 
 def _derive_stage_title(pending_stats: dict[str, int], latest_snapshot: dict | None) -> tuple[str, str]:

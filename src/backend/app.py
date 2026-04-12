@@ -34,7 +34,10 @@ from src.backend.workbench_payload import (
     build_settings_page_payload,
     build_upload_page_payload,
     build_workbench_payload,
+    clear_runtime_for_frontend,
     create_execution_batch_for_frontend,
+    export_full_backup_for_frontend,
+    run_analysis_for_frontend,
     submit_review_decision_for_frontend,
     update_execution_batch_for_frontend,
 )
@@ -105,6 +108,10 @@ class FrontendReviewDecisionRequest(BaseModel):
     campaign_id: int | None = None
     relevance: str
     notes: str | None = None
+
+
+class FrontendProductRequest(BaseModel):
+    product_id: int
 
 
 @asynccontextmanager
@@ -326,6 +333,18 @@ def create_app() -> FastAPI:
     @app.get('/frontend/settings', tags=['frontend'])
     async def read_frontend_settings(product_id: int | None = None) -> dict:
         return build_settings_page_payload(product_id=product_id)
+
+    @app.post('/frontend/upload/run-analysis', tags=['frontend'])
+    async def run_frontend_analysis(payload: FrontendProductRequest) -> dict:
+        return run_analysis_for_frontend(product_id=payload.product_id)
+
+    @app.post('/frontend/settings/clear-runtime', tags=['frontend'])
+    async def clear_frontend_runtime(payload: FrontendProductRequest) -> dict:
+        return clear_runtime_for_frontend(product_id=payload.product_id)
+
+    @app.get('/frontend/settings/full-backup', tags=['frontend'])
+    async def export_frontend_full_backup(product_id: int) -> dict:
+        return export_full_backup_for_frontend(product_id=product_id)
 
     @app.post('/frontend/actions/execution-batches', tags=['frontend'])
     async def create_frontend_execution_batch(payload: FrontendExecutionBatchCreateRequest) -> dict:

@@ -1,5 +1,6 @@
 import { getSettingsPayload } from "@/lib/backend";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { SettingsMutationPanel } from "@/components/settings-mutation-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ export default async function SettingsPage() {
       aiCard={payload.aiCopilotCards[0]}
     >
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <SettingsMutationPanel payload={payload} />
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Configuration</div>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">规则与产品配置</h3>

@@ -98,3 +98,5 @@ export async function getSettingsPayload(productId?: number): Promise<SettingsPa
     return mockWorkbenchPayload as SettingsPayload
   }
 }
+
+export { BACKEND_BASE_URL }
