@@ -70,3 +70,5 @@
 - 2026-04-13: 继续把剩余体验短板往下推：Upload 增加失败文件反馈与更明确的处理中状态，Copilot 后端返回结构化 actionLinks 并在前端直接联动页面，Analysis 增加视角模式切换；最新稳定预览将切到 3020/8007。
 
 - 2026-04-13: 继续推进体验层：Upload 改成真实上传进度条并补失败文件清单，Copilot 页面联动从前端关键词猜测切到后端结构化 actionLinks；下一步应继续做更细的局部状态更新与更完整 Copilot 动作 schema。
+
+- 2026-04-13: 继续推进剩余体验：Actions/Review 开始记录当前页活动日志，Review 改用 item-key 级移除避免同词误删；后续优先继续做更细的 optimistic update 与主页/二级页联动。

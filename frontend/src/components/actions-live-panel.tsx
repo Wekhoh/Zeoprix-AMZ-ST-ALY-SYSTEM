@@ -46,9 +46,14 @@ function normalizeBatch(response: BatchMutationResponse): ExecutionBatch {
   }
 }
 
+function buildActionLog(line: string, previous: string[]) {
+  return [line, ...previous].slice(0, 4)
+}
+
 export function ActionsLivePanel({ payload, backendBaseUrl }: Props) {
   const [executionBatches, setExecutionBatches] = useState<ExecutionBatch[]>(payload.executionBatches ?? [])
   const [actions, setActions] = useState(payload.actions ?? { negativeCount: 0, manualCount: 0, conflictCount: 0, latestBatchCode: null as string | null })
+  const [activityLog, setActivityLog] = useState<string[]>([])
 
   const latestBatch = executionBatches[0]
 
@@ -66,10 +71,14 @@ export function ActionsLivePanel({ payload, backendBaseUrl }: Props) {
     setExecutionBatches((current) => [batch, ...current.filter((item) => item.id !== batch.id)].slice(0, 5))
     setActions((current) => ({
       ...current,
-      negativeCount: batchType === "negative" ? current.negativeCount + 1 : current.negativeCount,
-      manualCount: batchType === "manual" ? current.manualCount + 1 : current.manualCount,
       latestBatchCode: batch.code,
     }))
+    setActivityLog((current) =>
+      buildActionLog(
+        `${batchType === "negative" ? "已生成否词批次" : "已生成手动批次"} ${batch.code}，覆盖 ${batch.itemCount} 项。`,
+        current,
+      ),
+    )
   }
 
   function handleBatchUpdated(response: BatchMutationResponse) {
@@ -79,6 +88,7 @@ export function ActionsLivePanel({ payload, backendBaseUrl }: Props) {
       ...current,
       latestBatchCode: batch.code,
     }))
+    setActivityLog((current) => buildActionLog(`批次 ${batch.code} 已更新为 ${batch.status}。`, current))
   }
 
   return (
@@ -94,6 +104,13 @@ export function ActionsLivePanel({ payload, backendBaseUrl }: Props) {
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Action Workbench</div>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">今日执行清单</h3>
           <p className="mt-3 text-sm leading-relaxed text-zinc-500">当前待执行：否词 {actions.negativeCount} ｜ 手动补量 {actions.manualCount} ｜ 分歧词 {actions.conflictCount}。</p>
+          {activityLog.length ? (
+            <div className="mt-4 space-y-2">
+              {activityLog.map((item) => (
+                <div key={item} className="rounded-2xl bg-zinc-50 px-4 py-3 text-sm leading-relaxed text-zinc-500">{item}</div>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Execution Layer</div>

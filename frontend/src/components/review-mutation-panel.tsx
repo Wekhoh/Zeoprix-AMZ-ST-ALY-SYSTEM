@@ -7,7 +7,7 @@ import type { ReviewPayload } from "@/lib/mock-data";
 type Props = {
   payload: ReviewPayload
   backendBaseUrl: string
-  onDecisionSubmitted?: (term: string, response: ReviewMutationResponse) => void
+  onDecisionSubmitted?: (itemKey: string, response: ReviewMutationResponse, decisionLabel: string) => void
 }
 
 type ReviewMutationResponse = {
@@ -16,6 +16,23 @@ type ReviewMutationResponse = {
     total?: number
     reviewed?: number
     pending?: number
+  }
+}
+
+function buildReviewKey(item: NonNullable<ReviewPayload["review"]>["pendingItems"][number]) {
+  return `${item.term}::${item.campaignName}::${item.createdAt}`
+}
+
+function formatDecisionLabel(relevance: string) {
+  switch (relevance) {
+    case "strong_core":
+      return "强相关"
+    case "generic":
+      return "泛词"
+    case "irrelevant":
+      return "不相关"
+    default:
+      return relevance
   }
 }
 
@@ -48,8 +65,8 @@ export function ReviewMutationPanel({ payload, backendBaseUrl, onDecisionSubmitt
         return
       }
       const body = (await response.json().catch(() => ({}))) as ReviewMutationResponse
-      setMessage(`已提交 ${item.term} 的人工审核：${relevance}`)
-      onDecisionSubmitted?.(item.term, body)
+      setMessage(`已提交 ${item.term} 的人工审核：${formatDecisionLabel(relevance)}`)
+      onDecisionSubmitted?.(buildReviewKey(item), body, formatDecisionLabel(relevance))
       setNotes((current) => {
         const next = { ...current }
         delete next[item.term]
@@ -65,7 +82,7 @@ export function ReviewMutationPanel({ payload, backendBaseUrl, onDecisionSubmitt
       <p className="mt-3 text-sm leading-relaxed text-zinc-500">直接在新前端里提交人工相关性判断，刷新后队列会减少。</p>
       <div className="mt-5 space-y-4">
         {(review?.pendingItems ?? []).slice(0, 5).map((item) => (
-          <div key={`${item.term}-${item.campaignName}`} className="rounded-2xl bg-zinc-50 p-4">
+          <div key={buildReviewKey(item)} className="rounded-2xl bg-zinc-50 p-4">
             <div className="text-sm font-medium text-zinc-950">{item.term}</div>
             <div className="mt-1 text-sm text-zinc-500">{item.campaignName} ｜ {item.termType}</div>
             <textarea
