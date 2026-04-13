@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import type { ReviewPayload } from "@/lib/mock-data";
@@ -10,6 +11,7 @@ type Props = {
 }
 
 export function ReviewMutationPanel({ payload, backendBaseUrl }: Props) {
+  const router = useRouter()
   const review = payload.review
   const productId = payload.productId
   const [notes, setNotes] = useState<Record<string, string>>({})
@@ -38,7 +40,7 @@ export function ReviewMutationPanel({ payload, backendBaseUrl }: Props) {
         return
       }
       setMessage(`已提交 ${item.term} 的人工审核：${relevance}`)
-      window.location.reload()
+      router.refresh()
     })
   }
 

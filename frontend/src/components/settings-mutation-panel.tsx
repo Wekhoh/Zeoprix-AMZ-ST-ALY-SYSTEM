@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { BACKEND_BASE_URL } from "@/lib/backend";
@@ -10,6 +11,7 @@ type Props = {
 }
 
 export function SettingsMutationPanel({ payload }: Props) {
+  const router = useRouter()
   const productId = payload.productId
   const [message, setMessage] = useState<string | null>(null)
   const [restoreAsNew, setRestoreAsNew] = useState(false)
@@ -30,7 +32,7 @@ export function SettingsMutationPanel({ payload }: Props) {
         return
       }
       setMessage(body.message ?? "运行数据已清空")
-      window.location.reload()
+      router.refresh()
     })
   }
 
@@ -75,7 +77,7 @@ export function SettingsMutationPanel({ payload }: Props) {
         return
       }
       setMessage(`备份已恢复到 ${body.productName}`)
-      window.location.reload()
+      router.refresh()
     })
   }
 

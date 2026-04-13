@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import type { ActionsPayload } from "@/lib/mock-data";
@@ -10,6 +11,7 @@ type Props = {
 }
 
 export function ActionsMutationPanel({ payload, backendBaseUrl }: Props) {
+  const router = useRouter()
   const productId = payload.productId
   const [note, setNote] = useState("")
   const [message, setMessage] = useState<string | null>(null)
@@ -32,7 +34,7 @@ export function ActionsMutationPanel({ payload, backendBaseUrl }: Props) {
         return
       }
       setMessage(batchType === "negative" ? "否词执行批次已生成" : "手动投放批次已生成")
-      window.location.reload()
+      router.refresh()
     })
   }
 
@@ -51,7 +53,7 @@ export function ActionsMutationPanel({ payload, backendBaseUrl }: Props) {
         return
       }
       setMessage(status === "executed" ? "批次已标记为已执行" : "批次已标记为已复盘")
-      window.location.reload()
+      router.refresh()
     })
   }
 

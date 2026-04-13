@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { BACKEND_BASE_URL } from "@/lib/backend";
@@ -10,6 +11,7 @@ type Props = {
 }
 
 export function UploadMutationPanel({ payload }: Props) {
+  const router = useRouter()
   const productId = payload.productId
   const [message, setMessage] = useState<string | null>(null)
   const [autoAnalyze, setAutoAnalyze] = useState(true)
@@ -38,7 +40,7 @@ export function UploadMutationPanel({ payload }: Props) {
       }
       const analysisMessage = body.analysisState?.message ? `；${body.analysisState.message}` : ""
       setMessage(`已导入 ${body.campaignsCreated ?? 0} 个活动，${body.importedRows ?? 0} 条记录${analysisMessage}`)
-      window.location.reload()
+      router.refresh()
     })
   }
 
@@ -57,7 +59,7 @@ export function UploadMutationPanel({ payload }: Props) {
         return
       }
       setMessage(`${body.message ?? '分析完成'}（分析词数 ${body.termsAnalyzed ?? 0}，建议 ${body.resultsSaved ?? 0} 条）`)
-      window.location.reload()
+      router.refresh()
     })
   }
 
