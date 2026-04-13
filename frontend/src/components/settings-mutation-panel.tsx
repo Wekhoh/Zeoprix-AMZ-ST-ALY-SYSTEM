@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { BACKEND_BASE_URL } from "@/lib/backend";
@@ -8,10 +7,17 @@ import type { SettingsPayload } from "@/lib/mock-data";
 
 type Props = {
   payload: SettingsPayload
+  onRuntimeCleared?: () => void
+  onBackupRestored?: (response: RestoreBackupResponse, restoreAsNew: boolean) => void
 }
 
-export function SettingsMutationPanel({ payload }: Props) {
-  const router = useRouter()
+type RestoreBackupResponse = {
+  status?: string
+  restoredProductId?: number
+  productName?: string
+}
+
+export function SettingsMutationPanel({ payload, onRuntimeCleared, onBackupRestored }: Props) {
   const productId = payload.productId
   const [message, setMessage] = useState<string | null>(null)
   const [restoreAsNew, setRestoreAsNew] = useState(false)
@@ -32,7 +38,7 @@ export function SettingsMutationPanel({ payload }: Props) {
         return
       }
       setMessage(body.message ?? "运行数据已清空")
-      router.refresh()
+      onRuntimeCleared?.()
     })
   }
 
@@ -46,11 +52,11 @@ export function SettingsMutationPanel({ payload }: Props) {
         setMessage(body.detail ?? "导出失败")
         return
       }
-      const blob = new Blob([body.content], { type: body.mime ?? 'application/json' })
+      const blob = new Blob([body.content], { type: body.mime ?? "application/json" })
       const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
+      const anchor = document.createElement("a")
       anchor.href = url
-      anchor.download = body.fileName ?? 'backup.json'
+      anchor.download = body.fileName ?? "backup.json"
       anchor.click()
       URL.revokeObjectURL(url)
       setMessage(`完整备份已导出：${body.fileName}`)
@@ -71,13 +77,13 @@ export function SettingsMutationPanel({ payload }: Props) {
           backup_data: backupData,
         }),
       })
-      const body = await response.json().catch(() => ({ detail: "恢复失败" }))
+      const body = (await response.json().catch(() => ({ detail: "恢复失败" }))) as RestoreBackupResponse & { detail?: string }
       if (!response.ok) {
         setMessage(body.detail ?? "恢复失败")
         return
       }
       setMessage(`备份已恢复到 ${body.productName}`)
-      router.refresh()
+      onBackupRestored?.(body, restoreAsNew)
     })
   }
 

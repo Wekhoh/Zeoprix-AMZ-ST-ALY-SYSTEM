@@ -89,6 +89,16 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
     }
   }, [contextLabel, messages, prompts, recommendedActions, storageKey, warning])
 
+  function clearConversation() {
+    const resetMessages = [{ role: "assistant" as const, content: aiCard.summary }]
+    setMessages(resetMessages)
+    setPrompts(aiCard.prompts)
+    setRecommendedActions([])
+    setContextLabel(aiCard.context)
+    setWarning(null)
+    setInput("")
+  }
+
   async function sendMessage(message: string) {
     const trimmed = message.trim()
     if (!trimmed) return
@@ -120,14 +130,19 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
 
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className="rounded-full bg-indigo-50 p-2 text-indigo-700">
-          <span className="block h-4 w-4 rounded-full bg-current opacity-90" />
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="rounded-full bg-indigo-50 p-2 text-indigo-700">
+            <span className="block h-4 w-4 rounded-full bg-current opacity-90" />
+          </div>
+          <div>
+            <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">Copilot</div>
+            <div className="text-[15px] font-semibold tracking-tight text-zinc-950">AI 运营副驾驶</div>
+          </div>
         </div>
-        <div>
-          <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">Copilot</div>
-          <div className="text-[15px] font-semibold tracking-tight text-zinc-950">AI 运营副驾驶</div>
-        </div>
+        <button onClick={clearConversation} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-600 shadow-sm transition hover:bg-zinc-50 hover:text-zinc-900">
+          重置
+        </button>
       </div>
 
       {contextLabel ? (
@@ -151,14 +166,13 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
       {recommendedActions.length ? (
         <div className="mt-4 rounded-2xl bg-zinc-50 p-4">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Recommended next</div>
-          <ul className="mt-3 space-y-2 text-sm leading-relaxed text-zinc-700">
+          <div className="mt-3 flex flex-wrap gap-2">
             {recommendedActions.slice(0, 3).map((action) => (
-              <li key={action} className="flex gap-2">
-                <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-indigo-600" />
-                <span>{action}</span>
-              </li>
+              <button key={action} onClick={() => sendMessage(action)} className="rounded-full bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm ring-1 ring-zinc-200 transition hover:bg-zinc-100 hover:text-zinc-900">
+                {action}
+              </button>
             ))}
-          </ul>
+          </div>
         </div>
       ) : null}
 

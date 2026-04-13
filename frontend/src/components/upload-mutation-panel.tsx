@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { BACKEND_BASE_URL } from "@/lib/backend";
@@ -8,10 +7,26 @@ import type { UploadPayload } from "@/lib/mock-data";
 
 type Props = {
   payload: UploadPayload
+  onUploadComplete?: (response: UploadMutationResponse) => void
+  onAnalysisComplete?: (response: AnalysisMutationResponse) => void
 }
 
-export function UploadMutationPanel({ payload }: Props) {
-  const router = useRouter()
+type AnalysisMutationResponse = {
+  status?: string
+  message?: string
+  termsAnalyzed?: number
+  resultsSaved?: number
+  pendingReviews?: number
+}
+
+type UploadMutationResponse = {
+  importedFiles?: Array<{ fileName?: string; campaignName?: string; rows?: number }>
+  importedRows?: number
+  campaignsCreated?: number
+  analysisState?: AnalysisMutationResponse | null
+}
+
+export function UploadMutationPanel({ payload, onUploadComplete, onAnalysisComplete }: Props) {
   const productId = payload.productId
   const [message, setMessage] = useState<string | null>(null)
   const [autoAnalyze, setAutoAnalyze] = useState(true)
@@ -33,14 +48,15 @@ export function UploadMutationPanel({ payload }: Props) {
         method: "POST",
         body: formData,
       })
-      const body = await response.json().catch(() => ({ message: "上传失败" }))
+      const body = (await response.json().catch(() => ({ message: "上传失败" }))) as UploadMutationResponse & { detail?: string; message?: string }
       if (!response.ok) {
         setMessage(body.detail ?? body.message ?? "上传失败")
         return
       }
       const analysisMessage = body.analysisState?.message ? `；${body.analysisState.message}` : ""
       setMessage(`已导入 ${body.campaignsCreated ?? 0} 个活动，${body.importedRows ?? 0} 条记录${analysisMessage}`)
-      router.refresh()
+      onUploadComplete?.(body)
+      setSelectedFiles([])
     })
   }
 
@@ -53,13 +69,13 @@ export function UploadMutationPanel({ payload }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ product_id: productId }),
       })
-      const body = await response.json().catch(() => ({ message: "分析执行失败" }))
+      const body = (await response.json().catch(() => ({ message: "分析执行失败" }))) as AnalysisMutationResponse & { detail?: string }
       if (!response.ok) {
         setMessage(body.detail ?? body.message ?? "分析执行失败")
         return
       }
-      setMessage(`${body.message ?? '分析完成'}（分析词数 ${body.termsAnalyzed ?? 0}，建议 ${body.resultsSaved ?? 0} 条）`)
-      router.refresh()
+      setMessage(`${body.message ?? "分析完成"}（分析词数 ${body.termsAnalyzed ?? 0}，建议 ${body.resultsSaved ?? 0} 条）`)
+      onAnalysisComplete?.(body)
     })
   }
 
@@ -67,7 +83,7 @@ export function UploadMutationPanel({ payload }: Props) {
     <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
       <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Write Path</div>
       <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">上传后动作</h3>
-      <p className="mt-3 text-sm leading-relaxed text-zinc-500">在新前端里直接重跑规则分析，形成新的快照和建议结果。</p>
+      <p className="mt-3 text-sm leading-relaxed text-zinc-500">在新前端里直接导入原始报表或重跑规则分析，形成新的快照和建议结果。</p>
       <label className="mt-5 flex cursor-pointer flex-col gap-3 rounded-2xl bg-zinc-50 p-4 text-sm text-zinc-500">
         <span className="font-medium text-zinc-900">上传原始报表</span>
         <span>支持 CSV / Excel，多文件时会自动按文件名创建活动。</span>

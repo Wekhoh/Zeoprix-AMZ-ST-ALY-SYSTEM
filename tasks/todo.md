@@ -62,3 +62,5 @@
 - 2026-04-13: 新前端继续收口体验层：Actions/Review/Upload/Settings 成功后改用 router.refresh 局部刷新；Analysis 页补了真实筛选交互面板。
 
 - 2026-04-13: 新前端继续推进体验层：Copilot 会话开始做 sessionStorage 级历史保留与推荐动作展示；Actions/Review 改成当前页局部状态更新；Analysis 页继续补了搜索、排序与更完整的筛选控制面板。
+
+- 2026-04-13: 继续收口剩余体验层：Upload/Settings 改成当前页局部状态反馈，Copilot 增加会话保留 + 推荐动作直达追问，Analysis 增加搜索与排序；最新稳定预览切到 http://127.0.0.1:3018（后端 8005）。
