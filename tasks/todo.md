@@ -56,3 +56,5 @@
 - 2026-04-12: 新前端继续补写路径第二批：Settings 页已支持恢复完整备份，后端已加入 localhost/127.0.0.1 多端口 CORS 允许列表，供浏览器直接调用写接口。
 
 - 2026-04-12: 新前端继续推进到 Upload 真文件上传：FastAPI 已支持多文件上传并自动建活动/可选自动分析；前端 Upload 页已接 file input + FormData 提交。
+
+- 2026-04-13: 新前端继续推进到 AI 助手多轮对话雏形：新增 /frontend/copilot/chat、右侧 CopilotPanel 多轮消息区，并重新起最新联调环境 8004/3016；同时扩到 Upload 真文件上传与 Settings 恢复完整备份的前端交互。

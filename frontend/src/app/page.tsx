@@ -10,6 +10,7 @@ export default async function Page() {
     <DashboardShell
       title="Amazon 运营工作台"
       subtitle="把状态、优先级、趋势和最近执行效果收进一个更清晰的判断界面。"
+      productId={payload.productId}
       productContext={payload.productContext}
       aiCard={payload.aiCopilotCards[0]}
     >

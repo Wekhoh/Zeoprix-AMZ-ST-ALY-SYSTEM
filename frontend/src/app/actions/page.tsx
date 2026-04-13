@@ -12,6 +12,7 @@ export default async function ActionsPage() {
     <DashboardShell
       title="操作清单与执行批次"
       subtitle="把建议、执行、复盘收进同一条工作流：先生成批次，再标记执行，最后在这里看 verdict 与 Top changes。"
+      productId={payload.productId}
       productContext={payload.productContext}
       aiCard={payload.aiCopilotCards[0]}
     >

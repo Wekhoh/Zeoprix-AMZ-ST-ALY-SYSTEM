@@ -28,6 +28,7 @@ from src.backend.database import (
     get_backend_database_url,
     init_backend_schema,
 )
+from src.backend.copilot_chat import process_frontend_copilot_turn
 from src.backend.workbench_payload import (
     build_actions_page_payload,
     build_analysis_page_payload,
@@ -115,6 +116,19 @@ class FrontendReviewDecisionRequest(BaseModel):
 
 class FrontendProductRequest(BaseModel):
     product_id: int
+
+
+class FrontendCopilotMessage(BaseModel):
+    role: str
+    content: str
+
+
+class FrontendCopilotChatRequest(BaseModel):
+    product_id: int | None = None
+    page_key: str
+    page_title: str
+    user_message: str
+    history: list[FrontendCopilotMessage] = []
 
 
 class FrontendRestoreBackupRequest(BaseModel):
@@ -442,6 +456,16 @@ def create_app() -> FastAPI:
             campaign_id=payload.campaign_id,
             relevance=payload.relevance,
             notes=payload.notes,
+        )
+
+    @app.post('/frontend/copilot/chat', tags=['frontend'])
+    async def chat_frontend_copilot(payload: FrontendCopilotChatRequest) -> dict:
+        return process_frontend_copilot_turn(
+            product_id=payload.product_id,
+            page_key=payload.page_key,
+            page_title=payload.page_title,
+            user_message=payload.user_message,
+            history=[msg.model_dump() for msg in payload.history],
         )
 
     @app.post('/auth/login', response_model=LoginResponse, tags=['auth'])
