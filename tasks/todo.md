@@ -72,3 +72,5 @@
 - 2026-04-13: 继续推进体验层：Upload 改成真实上传进度条并补失败文件清单，Copilot 页面联动从前端关键词猜测切到后端结构化 actionLinks；下一步应继续做更细的局部状态更新与更完整 Copilot 动作 schema。
 
 - 2026-04-13: 继续推进剩余体验：Actions/Review 开始记录当前页活动日志，Review 改用 item-key 级移除避免同词误删；后续优先继续做更细的 optimistic update 与主页/二级页联动。
+
+- 2026-04-13: 继续往替代旧系统推进：执行批次开始暴露 itemsPreview 并在前端卡片展示；下一层可继续做主页联动和更细的 optimistic update。

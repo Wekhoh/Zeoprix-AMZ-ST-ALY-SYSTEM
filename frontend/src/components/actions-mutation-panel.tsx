@@ -20,6 +20,12 @@ type BatchMutationResponse = {
     item_count?: number
     spend_total?: number
     sales_total?: number
+    items?: Array<{
+      term?: string
+      suggested_action?: string
+      action_type?: string
+      spend?: number
+    }>
   }
   verdict?: string
   effect_summary?: {

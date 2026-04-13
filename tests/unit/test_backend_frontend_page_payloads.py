@@ -48,7 +48,7 @@ def _seed_product(db: Database) -> int:
     db.create_execution_batch(
         product_id=product_id,
         batch_type='negative',
-        summary={'item_count': 1, 'items': [{'term': 'travel pillow'}], 'baseline_snapshot_id': snapshot_id, 'spend_total': 18.5, 'sales_total': 42.0},
+        summary={'item_count': 1, 'items': [{'term': 'travel pillow', 'suggested_action': '否定精准', 'spend': 18.5}], 'baseline_snapshot_id': snapshot_id, 'spend_total': 18.5, 'sales_total': 42.0},
         draft_note='test batch',
     )
     return product_id
@@ -86,4 +86,5 @@ def test_frontend_page_payload_endpoints_return_live_data(monkeypatch, tmp_path)
     assert review.json()['review']['stats']['reviewed'] >= 1
     assert settings.json()['settings']['backupSummary']['searchTerms'] == 1
     assert actions.json()['actions']['latestBatchCode'].startswith('NEG-')
+    assert actions.json()['executionBatches'][0]['itemsPreview'][0]['term'] == 'travel pillow'
     assert analysis.json()['analysis']['rowCount'] >= 1

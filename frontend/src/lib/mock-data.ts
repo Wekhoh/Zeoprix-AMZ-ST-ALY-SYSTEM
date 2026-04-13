@@ -46,6 +46,12 @@ export type AnalysisRow = {
   orders: number
   confidence: string
 }
+export type ExecutionBatchItemPreview = {
+  term: string
+  action: string
+  spend: string
+}
+
 export type ExecutionBatch = {
   id?: number
   code: string
@@ -58,6 +64,7 @@ export type ExecutionBatch = {
   summary: string
   improving: string[]
   risky: string[]
+  itemsPreview?: ExecutionBatchItemPreview[]
 }
 export type WorkbenchPayload = {
   source?: string
@@ -297,6 +304,11 @@ export const executionBatches = [
     summary: '执行后，建议否定和分歧词数量下降，手动机会开始增加。',
     improving: ['travel pillow', 'airplane pillow case'],
     risky: ['massager', 'soft neck support'],
+    itemsPreview: [
+      { term: 'travel pillow', action: '否定精准', spend: '$24.00' },
+      { term: 'soft neck support', action: '否定词组', spend: '$17.50' },
+      { term: 'massager', action: '否定词组', spend: '$16.20' },
+    ],
   },
   {
     code: 'MAN-20260410-184500-FD220A',
@@ -309,6 +321,10 @@ export const executionBatches = [
     summary: '执行后还没有形成新的分析快照，建议 3 天后再回来复盘。',
     improving: [],
     risky: ['memory foam pillow'],
+    itemsPreview: [
+      { term: 'best neck pillow', action: '手动精准', spend: '$8.00' },
+      { term: 'airplane pillow case', action: '手动精准', spend: '$6.50' },
+    ],
   },
 ]
 

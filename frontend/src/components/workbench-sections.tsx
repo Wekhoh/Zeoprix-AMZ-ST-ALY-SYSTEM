@@ -318,6 +318,20 @@ export function ExecutionBatchBoard({ executionBatches = defaultExecutionBatches
               </div>
             </div>
           </div>
+          {batch.itemsPreview?.length ? (
+            <div className="mt-4 rounded-2xl bg-zinc-50 p-5">
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">批次内重点词</div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {batch.itemsPreview.map((item) => (
+                  <div key={`${batch.code}-${item.term}`} className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200/80">
+                    <div className="text-sm font-medium text-zinc-950">{item.term}</div>
+                    <div className="mt-2 text-sm leading-relaxed text-zinc-500">{item.action}</div>
+                    <div className="mt-3 text-sm tabular-nums text-zinc-500">{item.spend}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </article>
       ))}
     </section>

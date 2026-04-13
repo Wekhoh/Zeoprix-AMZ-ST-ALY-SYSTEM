@@ -20,6 +20,12 @@ type BatchMutationResponse = {
     item_count?: number
     spend_total?: number
     sales_total?: number
+    items?: Array<{
+      term?: string
+      suggested_action?: string
+      action_type?: string
+      spend?: number
+    }>
   }
   verdict?: string
   effect_summary?: {
@@ -43,6 +49,11 @@ function normalizeBatch(response: BatchMutationResponse): ExecutionBatch {
     summary: response.effect_summary?.summary ?? "暂无批次说明。",
     improving: response.effect_summary?.top_improving_terms ?? [],
     risky: response.effect_summary?.top_risky_terms ?? [],
+    itemsPreview: (response.summary?.items ?? []).slice(0, 5).map((item) => ({
+      term: item.term ?? "未命名词",
+      action: item.suggested_action ?? item.action_type ?? "待执行",
+      spend: `$${Number(item.spend ?? 0).toFixed(2)}`,
+    })),
   }
 }
 

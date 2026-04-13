@@ -312,18 +312,27 @@ def _get_execution_batches_payload(db: Database, product_id: int) -> list[dict[s
     for batch in batches:
         preview = get_execution_batch_effect_preview(db, batch)
         summary = summarize_execution_batch_effect(preview)
+        items = (batch.get("summary") or {}).get("items") or []
         payload.append({
             "id": batch.get("id"),
             "code": batch.get("batch_code"),
             "type": batch.get("batch_type"),
             "status": batch.get("status"),
-            "itemCount": batch.get("item_count") or len((batch.get("summary") or {}).get("items") or []),
+            "itemCount": batch.get("item_count") or len(items),
             "spend": f"${float(((batch.get('summary') or {}).get('spend_total') or 0.0)):.2f}",
             "sales": f"${float(((batch.get('summary') or {}).get('sales_total') or 0.0)):.2f}",
             "verdict": summary.get("status", "待观察"),
             "summary": summary.get("summary", batch.get("draft_note") or "暂无复盘结论。"),
             "improving": summary.get("top_improving_terms", []),
             "risky": summary.get("top_risky_terms", []),
+            "itemsPreview": [
+                {
+                    "term": str(item.get("term") or "未命名词"),
+                    "action": str(item.get("suggested_action") or item.get("action_type") or "待执行"),
+                    "spend": f"${float(item.get('spend') or 0.0):.2f}",
+                }
+                for item in items[:5]
+            ],
         })
     return payload
 
