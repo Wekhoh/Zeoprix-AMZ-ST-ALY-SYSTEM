@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import type { ActionsPayload } from "@/lib/mock-data";
@@ -8,10 +7,30 @@ import type { ActionsPayload } from "@/lib/mock-data";
 type Props = {
   payload: ActionsPayload
   backendBaseUrl: string
+  onBatchCreated?: (response: BatchMutationResponse, batchType: string) => void
+  onBatchUpdated?: (response: BatchMutationResponse) => void
 }
 
-export function ActionsMutationPanel({ payload, backendBaseUrl }: Props) {
-  const router = useRouter()
+type BatchMutationResponse = {
+  id?: number
+  batch_code?: string
+  batch_type?: string
+  status?: string
+  summary?: {
+    item_count?: number
+    spend_total?: number
+    sales_total?: number
+  }
+  verdict?: string
+  effect_summary?: {
+    status?: string
+    summary?: string
+    top_improving_terms?: string[]
+    top_risky_terms?: string[]
+  }
+}
+
+export function ActionsMutationPanel({ payload, backendBaseUrl, onBatchCreated, onBatchUpdated }: Props) {
   const productId = payload.productId
   const [note, setNote] = useState("")
   const [message, setMessage] = useState<string | null>(null)
@@ -33,8 +52,10 @@ export function ActionsMutationPanel({ payload, backendBaseUrl }: Props) {
         setMessage(body.detail ?? "创建失败")
         return
       }
+      const body = (await response.json().catch(() => ({}))) as BatchMutationResponse
       setMessage(batchType === "negative" ? "否词执行批次已生成" : "手动投放批次已生成")
-      router.refresh()
+      onBatchCreated?.(body, batchType)
+      setNote("")
     })
   }
 
@@ -52,8 +73,10 @@ export function ActionsMutationPanel({ payload, backendBaseUrl }: Props) {
         setMessage(body.detail ?? "更新失败")
         return
       }
+      const body = (await response.json().catch(() => ({}))) as BatchMutationResponse
       setMessage(status === "executed" ? "批次已标记为已执行" : "批次已标记为已复盘")
-      router.refresh()
+      onBatchUpdated?.(body)
+      setNote("")
     })
   }
 

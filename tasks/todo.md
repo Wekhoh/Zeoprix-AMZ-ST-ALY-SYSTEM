@@ -60,3 +60,5 @@
 - 2026-04-13: 新前端继续推进到 AI 助手多轮对话雏形：新增 /frontend/copilot/chat、右侧 CopilotPanel 多轮消息区，并重新起最新联调环境 8004/3016；同时扩到 Upload 真文件上传与 Settings 恢复完整备份的前端交互。
 
 - 2026-04-13: 新前端继续收口体验层：Actions/Review/Upload/Settings 成功后改用 router.refresh 局部刷新；Analysis 页补了真实筛选交互面板。
+
+- 2026-04-13: 新前端继续推进体验层：Copilot 会话开始做 sessionStorage 级历史保留与推荐动作展示；Actions/Review 改成当前页局部状态更新；Analysis 页继续补了搜索、排序与更完整的筛选控制面板。

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { BACKEND_BASE_URL } from "@/lib/backend";
 import type { AICopilotCard } from "@/lib/mock-data";
@@ -17,12 +17,77 @@ type ChatMessage = {
   content: string
 }
 
+type CopilotResponse = {
+  message?: string
+  followUpPrompts?: string[]
+  recommendedNextActions?: string[]
+  contextLabel?: string | null
+  warning?: string | null
+}
+
+type StoredCopilotState = {
+  messages: ChatMessage[]
+  prompts: string[]
+  recommendedActions: string[]
+  contextLabel: string | null
+  warning: string | null
+}
+
+function buildStorageKey(productId: number | null | undefined, pageKey: string) {
+  return `zeoprix-copilot:${productId ?? "global"}:${pageKey}`
+}
+
+function readInitialState(storageKey: string, aiCard: AICopilotCard): StoredCopilotState {
+  const fallback = {
+    messages: [{ role: "assistant" as const, content: aiCard.summary }],
+    prompts: aiCard.prompts,
+    recommendedActions: [],
+    contextLabel: aiCard.context,
+    warning: null,
+  }
+
+  if (typeof window === "undefined") {
+    return fallback
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(storageKey)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw) as Partial<StoredCopilotState>
+    return {
+      messages: parsed.messages?.length ? parsed.messages : fallback.messages,
+      prompts: parsed.prompts?.length ? parsed.prompts : fallback.prompts,
+      recommendedActions: parsed.recommendedActions ?? [],
+      contextLabel: parsed.contextLabel ?? fallback.contextLabel,
+      warning: parsed.warning ?? null,
+    }
+  } catch {
+    return fallback
+  }
+}
+
 export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
-  const [messages, setMessages] = useState<ChatMessage[]>([{ role: "assistant", content: aiCard.summary }])
+  const storageKey = useMemo(() => buildStorageKey(productId, pageKey), [pageKey, productId])
+  const initialState = useMemo(() => readInitialState(storageKey, aiCard), [aiCard, storageKey])
+
+  const [messages, setMessages] = useState<ChatMessage[]>(initialState.messages)
   const [input, setInput] = useState("")
-  const [prompts, setPrompts] = useState<string[]>(aiCard.prompts)
-  const [warning, setWarning] = useState<string | null>(null)
+  const [prompts, setPrompts] = useState<string[]>(initialState.prompts)
+  const [recommendedActions, setRecommendedActions] = useState<string[]>(initialState.recommendedActions)
+  const [contextLabel, setContextLabel] = useState<string | null>(initialState.contextLabel)
+  const [warning, setWarning] = useState<string | null>(initialState.warning)
   const [pending, startTransition] = useTransition()
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        storageKey,
+        JSON.stringify({ messages, prompts, recommendedActions, contextLabel, warning }),
+      )
+    } catch {
+      // ignore storage failures
+    }
+  }, [contextLabel, messages, prompts, recommendedActions, storageKey, warning])
 
   async function sendMessage(message: string) {
     const trimmed = message.trim()
@@ -44,9 +109,11 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
           history: nextMessages.slice(-6),
         }),
       })
-      const body = await response.json().catch(() => ({ message: "AI 助手当前不可用。" }))
+      const body = (await response.json().catch(() => ({ message: "AI 助手当前不可用。" }))) as CopilotResponse
       setMessages((current) => [...current, { role: "assistant", content: body.message ?? "AI 助手当前不可用。" }])
-      setPrompts((body.followUpPrompts as string[] | undefined) ?? aiCard.prompts)
+      setPrompts(body.followUpPrompts?.length ? body.followUpPrompts : aiCard.prompts)
+      setRecommendedActions(body.recommendedNextActions ?? [])
+      setContextLabel(body.contextLabel ?? aiCard.context)
       setWarning(body.warning ?? null)
     })
   }
@@ -63,7 +130,13 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
         </div>
       </div>
 
-      <div className="mt-5 space-y-3">
+      {contextLabel ? (
+        <div className="mt-5 inline-flex items-center rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-700">
+          {contextLabel}
+        </div>
+      ) : null}
+
+      <div className="mt-4 space-y-3">
         {messages.slice(-4).map((message, index) => (
           <div
             key={`${message.role}-${index}`}
@@ -74,6 +147,20 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
         ))}
         {pending ? <div className="rounded-2xl bg-zinc-50 p-4 text-sm leading-relaxed text-zinc-500">AI 正在思考…</div> : null}
       </div>
+
+      {recommendedActions.length ? (
+        <div className="mt-4 rounded-2xl bg-zinc-50 p-4">
+          <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Recommended next</div>
+          <ul className="mt-3 space-y-2 text-sm leading-relaxed text-zinc-700">
+            {recommendedActions.slice(0, 3).map((action) => (
+              <li key={action} className="flex gap-2">
+                <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-indigo-600" />
+                <span>{action}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
         {prompts.slice(0, 3).map((prompt) => (

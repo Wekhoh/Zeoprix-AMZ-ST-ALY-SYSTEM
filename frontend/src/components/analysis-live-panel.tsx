@@ -9,35 +9,85 @@ type Props = {
   payload: AnalysisPayload
 }
 
+type SortKey = "spend-desc" | "orders-desc" | "confidence-desc" | "term-asc"
+
+function parseCurrency(value: string) {
+  return Number(value.replace(/[^\d.-]/g, "")) || 0
+}
+
+function parseConfidence(value: string) {
+  const normalized = value.replace("%", "")
+  return Number(normalized) || 0
+}
+
 export function AnalysisLivePanel({ payload }: Props) {
   const analysis = payload.analysis ?? { rowCount: 0, typeCounts: {} as Record<string, number>, actionCounts: {} as Record<string, number> }
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [actionFilter, setActionFilter] = useState<string>("all")
+  const [query, setQuery] = useState("")
+  const [sortKey, setSortKey] = useState<SortKey>("spend-desc")
 
   const filteredRows = useMemo(() => {
-    return (payload.analysisRows ?? []).filter((row: AnalysisRow) => {
+    const normalizedQuery = query.trim().toLowerCase()
+    const base = (payload.analysisRows ?? []).filter((row: AnalysisRow) => {
       const typePass = typeFilter === "all" || row.type === typeFilter
       const actionPass = actionFilter === "all" || row.action === actionFilter
-      return typePass && actionPass
+      const queryPass = !normalizedQuery || [row.term, row.type, row.rule, row.action].some((value) => value.toLowerCase().includes(normalizedQuery))
+      return typePass && actionPass && queryPass
     })
-  }, [payload.analysisRows, typeFilter, actionFilter])
+
+    return [...base].sort((left, right) => {
+      switch (sortKey) {
+        case "orders-desc":
+          return right.orders - left.orders
+        case "confidence-desc":
+          return parseConfidence(right.confidence) - parseConfidence(left.confidence)
+        case "term-asc":
+          return left.term.localeCompare(right.term, "zh-CN")
+        case "spend-desc":
+        default:
+          return parseCurrency(right.spend) - parseCurrency(left.spend)
+      }
+    })
+  }, [actionFilter, payload.analysisRows, query, sortKey, typeFilter])
 
   const typeOptions = useMemo(() => ["all", ...Object.keys(analysis.typeCounts ?? {})], [analysis.typeCounts])
   const actionOptions = useMemo(() => ["all", ...Object.keys(analysis.actionCounts ?? {})], [analysis.actionCounts])
+  const visibleActionCounts = useMemo(() => {
+    return filteredRows.reduce<Record<string, number>>((acc, row) => {
+      acc[row.action] = (acc[row.action] ?? 0) + 1
+      return acc
+    }, {})
+  }, [filteredRows])
+  const visibleTypeCounts = useMemo(() => {
+    return filteredRows.reduce<Record<string, number>>((acc, row) => {
+      acc[row.type] = (acc[row.type] ?? 0) + 1
+      return acc
+    }, {})
+  }, [filteredRows])
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
       <div className="space-y-6">
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Interactive Filters</div>
-          <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">筛选与切换</h3>
-          <p className="mt-3 text-sm leading-relaxed text-zinc-500">先按词类型和建议动作过滤，再看明细表，避免一次盯太多信息。</p>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">筛选与排序</h3>
+          <p className="mt-3 text-sm leading-relaxed text-zinc-500">先按词类型、建议动作和关键词过滤，再按花费、订单或置信度排序，避免一次盯太多信息。</p>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <label className="flex flex-col gap-2 text-sm text-zinc-500 xl:col-span-2">
+              <span className="font-medium text-zinc-900">搜索词 / 规则 / 动作</span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索关键词、规则或动作…"
+                className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+              />
+            </label>
             <label className="flex flex-col gap-2 text-sm text-zinc-500">
               <span className="font-medium text-zinc-900">词类型</span>
               <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none">
                 {typeOptions.map((option) => (
-                  <option key={option} value={option}>{option === 'all' ? '全部' : option}</option>
+                  <option key={option} value={option}>{option === "all" ? "全部" : option}</option>
                 ))}
               </select>
             </label>
@@ -45,8 +95,24 @@ export function AnalysisLivePanel({ payload }: Props) {
               <span className="font-medium text-zinc-900">建议动作</span>
               <select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none">
                 {actionOptions.map((option) => (
-                  <option key={option} value={option}>{option === 'all' ? '全部' : option}</option>
+                  <option key={option} value={option}>{option === "all" ? "全部" : option}</option>
                 ))}
+              </select>
+            </label>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(visibleActionCounts).slice(0, 4).map(([action, count]) => (
+                <span key={action} className="rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-700">{action} {count}</span>
+              ))}
+            </div>
+            <label className="flex flex-col gap-2 text-sm text-zinc-500 sm:min-w-40">
+              <span className="font-medium text-zinc-900">排序方式</span>
+              <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 outline-none">
+                <option value="spend-desc">按花费降序</option>
+                <option value="orders-desc">按订单降序</option>
+                <option value="confidence-desc">按置信度降序</option>
+                <option value="term-asc">按关键词排序</option>
               </select>
             </label>
           </div>
@@ -59,7 +125,7 @@ export function AnalysisLivePanel({ payload }: Props) {
         <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">AI Brief</div>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">AI 汇总简报</h3>
-          <p className="mt-3 text-sm leading-relaxed text-zinc-500">当前真实分析结果共 {analysis.rowCount ?? 0} 行，主要动作分布和类型分布已经开始从后端同步。</p>
+          <p className="mt-3 text-sm leading-relaxed text-zinc-500">当前真实分析结果共 {analysis.rowCount ?? 0} 行，筛选后还有 {filteredRows.length} 行。你可以先缩小到一个动作，再回到右侧 Copilot 追问为什么。</p>
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">View Modes</div>
@@ -67,11 +133,11 @@ export function AnalysisLivePanel({ payload }: Props) {
           <div className="mt-5 grid gap-3">
             <div className="rounded-2xl bg-zinc-50 p-4">
               <div className="text-sm font-semibold tracking-tight text-zinc-950">动作分布</div>
-              <div className="mt-2 text-sm leading-relaxed text-zinc-500">{Object.entries(analysis.actionCounts ?? {}).map(([k, v]) => `${k} ${v}`).join(' ｜ ') || '暂无'}</div>
+              <div className="mt-2 text-sm leading-relaxed text-zinc-500">{Object.entries(visibleActionCounts).map(([k, v]) => `${k} ${v}`).join(" ｜ ") || "暂无"}</div>
             </div>
             <div className="rounded-2xl bg-zinc-50 p-4">
               <div className="text-sm font-semibold tracking-tight text-zinc-950">类型分布</div>
-              <div className="mt-2 text-sm leading-relaxed text-zinc-500">{Object.entries(analysis.typeCounts ?? {}).map(([k, v]) => `${k} ${v}`).join(' ｜ ') || '暂无'}</div>
+              <div className="mt-2 text-sm leading-relaxed text-zinc-500">{Object.entries(visibleTypeCounts).map(([k, v]) => `${k} ${v}`).join(" ｜ ") || "暂无"}</div>
             </div>
           </div>
         </div>

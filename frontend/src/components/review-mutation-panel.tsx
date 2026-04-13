@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import type { ReviewPayload } from "@/lib/mock-data";
@@ -8,10 +7,19 @@ import type { ReviewPayload } from "@/lib/mock-data";
 type Props = {
   payload: ReviewPayload
   backendBaseUrl: string
+  onDecisionSubmitted?: (term: string, response: ReviewMutationResponse) => void
 }
 
-export function ReviewMutationPanel({ payload, backendBaseUrl }: Props) {
-  const router = useRouter()
+type ReviewMutationResponse = {
+  reviewId: number
+  stats?: {
+    total?: number
+    reviewed?: number
+    pending?: number
+  }
+}
+
+export function ReviewMutationPanel({ payload, backendBaseUrl, onDecisionSubmitted }: Props) {
   const review = payload.review
   const productId = payload.productId
   const [notes, setNotes] = useState<Record<string, string>>({})
@@ -39,8 +47,14 @@ export function ReviewMutationPanel({ payload, backendBaseUrl }: Props) {
         setMessage(body.detail ?? "提交失败")
         return
       }
+      const body = (await response.json().catch(() => ({}))) as ReviewMutationResponse
       setMessage(`已提交 ${item.term} 的人工审核：${relevance}`)
-      router.refresh()
+      onDecisionSubmitted?.(item.term, body)
+      setNotes((current) => {
+        const next = { ...current }
+        delete next[item.term]
+        return next
+      })
     })
   }
 
