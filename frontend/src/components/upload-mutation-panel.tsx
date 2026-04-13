@@ -20,7 +20,10 @@ type AnalysisMutationResponse = {
 }
 
 type UploadMutationResponse = {
+  status?: string
+  message?: string
   importedFiles?: Array<{ fileName?: string; campaignName?: string; rows?: number }>
+  failedFiles?: Array<{ fileName?: string; reason?: string }>
   importedRows?: number
   campaignsCreated?: number
   analysisState?: AnalysisMutationResponse | null
@@ -35,7 +38,7 @@ export function UploadMutationPanel({ payload, onUploadComplete, onAnalysisCompl
 
   async function uploadFiles(files: File[]) {
     if (!productId || !files.length) return
-    setMessage(null)
+    setMessage(`正在上传 ${files.length} 个文件…`)
     startTransition(async () => {
       const formData = new FormData()
       formData.append("product_id", String(productId))
@@ -48,21 +51,26 @@ export function UploadMutationPanel({ payload, onUploadComplete, onAnalysisCompl
         method: "POST",
         body: formData,
       })
-      const body = (await response.json().catch(() => ({ message: "上传失败" }))) as UploadMutationResponse & { detail?: string; message?: string }
+      const body = (await response.json().catch(() => ({ message: "上传失败" }))) as UploadMutationResponse & { detail?: string }
       if (!response.ok) {
         setMessage(body.detail ?? body.message ?? "上传失败")
         return
       }
+      const importedMessage = `已导入 ${body.campaignsCreated ?? 0} 个活动，${body.importedRows ?? 0} 条记录`
+      const failureMessage = body.failedFiles?.length ? `；${body.failedFiles.length} 个文件失败` : ""
       const analysisMessage = body.analysisState?.message ? `；${body.analysisState.message}` : ""
-      setMessage(`已导入 ${body.campaignsCreated ?? 0} 个活动，${body.importedRows ?? 0} 条记录${analysisMessage}`)
+      setMessage(`${importedMessage}${failureMessage}${analysisMessage}`)
       onUploadComplete?.(body)
+      if (body.analysisState) {
+        onAnalysisComplete?.(body.analysisState)
+      }
       setSelectedFiles([])
     })
   }
 
   async function rerunAnalysis() {
     if (!productId) return
-    setMessage(null)
+    setMessage("正在重新运行分析…")
     startTransition(async () => {
       const response = await fetch(`${BACKEND_BASE_URL}/frontend/upload/run-analysis`, {
         method: "POST",
@@ -107,10 +115,10 @@ export function UploadMutationPanel({ payload, onUploadComplete, onAnalysisCompl
       </label>
       <div className="mt-5 flex flex-wrap gap-3">
         <button disabled={pending || !productId || !selectedFiles.length} onClick={() => uploadFiles(selectedFiles)} className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50">
-          上传原始报表
+          {pending ? "处理中…" : "上传原始报表"}
         </button>
         <button disabled={pending || !productId} onClick={rerunAnalysis} className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50">
-          重新运行分析
+          {pending ? "处理中…" : "重新运行分析"}
         </button>
       </div>
       {message ? <p className="mt-4 text-sm leading-relaxed text-zinc-500">{message}</p> : null}

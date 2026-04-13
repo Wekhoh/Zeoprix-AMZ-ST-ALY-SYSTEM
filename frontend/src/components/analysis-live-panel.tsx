@@ -10,6 +10,7 @@ type Props = {
 }
 
 type SortKey = "spend-desc" | "orders-desc" | "confidence-desc" | "term-asc"
+type FocusMode = "all" | "stoploss" | "scale" | "review"
 
 function parseCurrency(value: string) {
   return Number(value.replace(/[^\d.-]/g, "")) || 0
@@ -20,12 +21,21 @@ function parseConfidence(value: string) {
   return Number(normalized) || 0
 }
 
+function passesFocusMode(row: AnalysisRow, focusMode: FocusMode) {
+  if (focusMode === "all") return true
+  if (focusMode === "stoploss") return /否定|negative/i.test(row.action)
+  if (focusMode === "scale") return /手动|补量|manual/i.test(row.action)
+  if (focusMode === "review") return parseConfidence(row.confidence) < 100 || /冲突|审核|conflict/i.test(row.action)
+  return true
+}
+
 export function AnalysisLivePanel({ payload }: Props) {
   const analysis = payload.analysis ?? { rowCount: 0, typeCounts: {} as Record<string, number>, actionCounts: {} as Record<string, number> }
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [actionFilter, setActionFilter] = useState<string>("all")
   const [query, setQuery] = useState("")
   const [sortKey, setSortKey] = useState<SortKey>("spend-desc")
+  const [focusMode, setFocusMode] = useState<FocusMode>("all")
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -33,7 +43,8 @@ export function AnalysisLivePanel({ payload }: Props) {
       const typePass = typeFilter === "all" || row.type === typeFilter
       const actionPass = actionFilter === "all" || row.action === actionFilter
       const queryPass = !normalizedQuery || [row.term, row.type, row.rule, row.action].some((value) => value.toLowerCase().includes(normalizedQuery))
-      return typePass && actionPass && queryPass
+      const focusPass = passesFocusMode(row, focusMode)
+      return typePass && actionPass && queryPass && focusPass
     })
 
     return [...base].sort((left, right) => {
@@ -49,7 +60,7 @@ export function AnalysisLivePanel({ payload }: Props) {
           return parseCurrency(right.spend) - parseCurrency(left.spend)
       }
     })
-  }, [actionFilter, payload.analysisRows, query, sortKey, typeFilter])
+  }, [actionFilter, focusMode, payload.analysisRows, query, sortKey, typeFilter])
 
   const typeOptions = useMemo(() => ["all", ...Object.keys(analysis.typeCounts ?? {})], [analysis.typeCounts])
   const actionOptions = useMemo(() => ["all", ...Object.keys(analysis.actionCounts ?? {})], [analysis.actionCounts])
@@ -72,7 +83,25 @@ export function AnalysisLivePanel({ payload }: Props) {
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Interactive Filters</div>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">筛选与排序</h3>
-          <p className="mt-3 text-sm leading-relaxed text-zinc-500">先按词类型、建议动作和关键词过滤，再按花费、订单或置信度排序，避免一次盯太多信息。</p>
+          <p className="mt-3 text-sm leading-relaxed text-zinc-500">先选一个视角，再按词类型、建议动作和关键词过滤，最后按花费、订单或置信度排序。</p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {[
+              ["all", "全部视角"],
+              ["stoploss", "止损优先"],
+              ["scale", "补量机会"],
+              ["review", "待人工拍板"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setFocusMode(value as FocusMode)}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                  focusMode === value ? "bg-zinc-950 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <label className="flex flex-col gap-2 text-sm text-zinc-500 xl:col-span-2">
               <span className="font-medium text-zinc-900">搜索词 / 规则 / 动作</span>

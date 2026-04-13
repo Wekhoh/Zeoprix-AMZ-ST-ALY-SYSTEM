@@ -11,6 +11,7 @@ type Props = {
 
 type UploadMutationResponse = {
   importedFiles?: Array<{ fileName?: string; campaignName?: string; rows?: number }>
+  failedFiles?: Array<{ fileName?: string; reason?: string }>
   importedRows?: number
   campaignsCreated?: number
   analysisState?: {
@@ -51,6 +52,7 @@ export function UploadLivePanel({ payload }: Props) {
     },
   )
   const [activityLog, setActivityLog] = useState<string[]>([])
+  const [fileFailures, setFileFailures] = useState<Array<{ fileName?: string; reason?: string }>>([])
 
   const historyItems = useMemo(() => {
     const snapshotItems = uploadState.recentSnapshots.map((item) => ({
@@ -70,7 +72,7 @@ export function UploadLivePanel({ payload }: Props) {
     const stamp = nowLabel()
     setUploadState((current) => ({
       ...current,
-      latestReportDate: stamp,
+      latestReportDate: response.importedRows ? stamp : current.latestReportDate,
       searchTerms: current.searchTerms + (response.importedRows ?? 0),
       campaigns: current.campaigns + (response.campaignsCreated ?? 0),
       snapshotCount: current.snapshotCount + ((response.analysisState?.resultsSaved ?? 0) > 0 ? 1 : 0),
@@ -89,8 +91,10 @@ export function UploadLivePanel({ payload }: Props) {
           ].slice(0, 4)
         : current.recentSnapshots,
     }))
+    setFileFailures(response.failedFiles ?? [])
     setActivityLog((current) => [
       `已导入 ${(response.importedFiles ?? []).length} 个文件，新增 ${response.importedRows ?? 0} 条记录。`,
+      ...((response.failedFiles ?? []).length ? [`有 ${(response.failedFiles ?? []).length} 个文件未导入成功。`] : []),
       ...current,
     ].slice(0, 4))
   }
@@ -134,6 +138,18 @@ export function UploadLivePanel({ payload }: Props) {
                 <li key={item} className="rounded-2xl bg-zinc-50 px-4 py-3">{item}</li>
               ))}
             </ul>
+          ) : null}
+          {fileFailures.length ? (
+            <div className="mt-4 rounded-2xl bg-zinc-50 p-4">
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Failed files</div>
+              <ul className="mt-3 space-y-2 text-sm leading-relaxed text-zinc-500">
+                {fileFailures.map((item) => (
+                  <li key={`${item.fileName}-${item.reason}`}>
+                    <span className="font-medium text-zinc-900">{item.fileName}</span>：{item.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : null}
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">

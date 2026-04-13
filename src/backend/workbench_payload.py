@@ -512,15 +512,24 @@ def upload_files_for_frontend(
     db_path = _get_app_database_path()
     parser = FileParser()
     imported_files: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
     total_rows = 0
 
     with Database(str(db_path)) as db:
         for upload in files:
-            upload.file.seek(0)
-            df = parser.parse(upload.file, upload.filename)
-            if df is None or df.empty:
+            upload_name = upload.filename or "uploaded.csv"
+            try:
+                upload.file.seek(0)
+                df = parser.parse(upload.file, upload_name)
+            except Exception as exc:
+                failures.append({"fileName": upload_name, "reason": f"解析失败：{exc}"})
                 continue
-            campaign_name = Path(upload.filename or "Uploaded Campaign").stem
+
+            if df is None or df.empty:
+                failures.append({"fileName": upload_name, "reason": "文件中没有可导入的数据。"})
+                continue
+
+            campaign_name = Path(upload_name).stem
             campaign_id = db.create_campaign(
                 product_id=product_id,
                 name=campaign_name,
@@ -528,7 +537,7 @@ def upload_files_for_frontend(
             saved_count = db.save_search_terms(df, campaign_id)
             imported_files.append(
                 {
-                    "fileName": upload.filename or "uploaded.csv",
+                    "fileName": upload_name,
                     "campaignName": campaign_name,
                     "rows": int(saved_count),
                 }
@@ -539,9 +548,13 @@ def upload_files_for_frontend(
         if auto_analyze and total_rows > 0:
             analysis_state = run_analysis_for_frontend(product_id=product_id)
 
+        status = "success" if imported_files else "warning"
+        message = "上传完成。" if imported_files else "没有任何文件成功导入。"
         return {
-            "status": "success",
+            "status": status,
+            "message": message,
             "importedFiles": imported_files,
+            "failedFiles": failures,
             "importedRows": total_rows,
             "campaignsCreated": len(imported_files),
             "analysisState": analysis_state,

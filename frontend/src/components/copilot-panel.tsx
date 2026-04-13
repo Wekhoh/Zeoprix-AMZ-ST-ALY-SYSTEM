@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 import { BACKEND_BASE_URL } from "@/lib/backend";
 import type { AICopilotCard } from "@/lib/mock-data";
@@ -31,6 +32,11 @@ type StoredCopilotState = {
   recommendedActions: string[]
   contextLabel: string | null
   warning: string | null
+}
+
+type ActionLink = {
+  label: string
+  href: string
 }
 
 function buildStorageKey(productId: number | null | undefined, pageKey: string) {
@@ -66,7 +72,32 @@ function readInitialState(storageKey: string, aiCard: AICopilotCard): StoredCopi
   }
 }
 
+function deriveActionLinks(actions: string[], pageKey: string): ActionLink[] {
+  const links = new Map<string, ActionLink>()
+
+  for (const action of actions) {
+    if (/(审核|拍板|分歧)/.test(action) && pageKey !== "review") {
+      links.set("review", { label: "去审核中心", href: "/review" })
+    }
+    if (/(批次|执行|否词|手动投放|补量)/.test(action) && pageKey !== "actions") {
+      links.set("actions", { label: "去操作清单", href: "/actions" })
+    }
+    if (/(导入|上传|重跑分析|重新运行分析)/.test(action) && pageKey !== "upload") {
+      links.set("upload", { label: "去数据导入", href: "/upload" })
+    }
+    if (/(备份|恢复|清空|数据管理)/.test(action) && pageKey !== "settings") {
+      links.set("settings", { label: "去数据管理", href: "/settings" })
+    }
+    if (/(筛选|结构|分布|趋势|搜索词分析)/.test(action) && pageKey !== "analysis") {
+      links.set("analysis", { label: "去搜索词分析", href: "/analysis" })
+    }
+  }
+
+  return Array.from(links.values()).slice(0, 3)
+}
+
 export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
+  const router = useRouter()
   const storageKey = useMemo(() => buildStorageKey(productId, pageKey), [pageKey, productId])
   const initialState = useMemo(() => readInitialState(storageKey, aiCard), [aiCard, storageKey])
 
@@ -77,6 +108,8 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
   const [contextLabel, setContextLabel] = useState<string | null>(initialState.contextLabel)
   const [warning, setWarning] = useState<string | null>(initialState.warning)
   const [pending, startTransition] = useTransition()
+
+  const actionLinks = useMemo(() => deriveActionLinks(recommendedActions, pageKey), [pageKey, recommendedActions])
 
   useEffect(() => {
     try {
@@ -173,6 +206,15 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
               </button>
             ))}
           </div>
+          {actionLinks.length ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {actionLinks.map((link) => (
+                <button key={link.href} onClick={() => router.push(link.href)} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-600 shadow-sm transition hover:bg-zinc-50 hover:text-zinc-900">
+                  {link.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

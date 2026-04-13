@@ -38,4 +38,24 @@ def test_frontend_upload_files_endpoint_saves_rows_and_can_analyze(monkeypatch, 
     body = response.json()
     assert body['campaignsCreated'] == 1
     assert body['importedRows'] == 1
+    assert body['failedFiles'] == []
     assert body['analysisState']['status'] in {'success', 'warning'}
+
+
+def test_frontend_upload_files_endpoint_reports_failures(monkeypatch, tmp_path):
+    product_id = _bootstrap(monkeypatch, tmp_path)
+    invalid_csv = b"Customer Search Term,Impressions\n"
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            '/frontend/upload/files',
+            data={'product_id': str(product_id), 'auto_analyze': 'false'},
+            files=[('files', ('Broken Campaign.csv', BytesIO(invalid_csv), 'text/csv'))],
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['status'] == 'warning'
+    assert body['campaignsCreated'] == 0
+    assert body['importedRows'] == 0
+    assert body['failedFiles'][0]['fileName'] == 'Broken Campaign.csv'
