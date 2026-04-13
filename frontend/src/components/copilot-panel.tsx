@@ -18,10 +18,16 @@ type ChatMessage = {
   content: string
 }
 
+type ActionLink = {
+  label: string
+  href: string
+}
+
 type CopilotResponse = {
   message?: string
   followUpPrompts?: string[]
   recommendedNextActions?: string[]
+  actionLinks?: ActionLink[]
   contextLabel?: string | null
   warning?: string | null
 }
@@ -30,49 +36,16 @@ type StoredCopilotState = {
   messages: ChatMessage[]
   prompts: string[]
   recommendedActions: string[]
+  actionLinks: ActionLink[]
   contextLabel: string | null
   warning: string | null
-}
-
-type ActionLink = {
-  label: string
-  href: string
 }
 
 function buildStorageKey(productId: number | null | undefined, pageKey: string) {
   return `zeoprix-copilot:${productId ?? "global"}:${pageKey}`
 }
 
-function readInitialState(storageKey: string, aiCard: AICopilotCard): StoredCopilotState {
-  const fallback = {
-    messages: [{ role: "assistant" as const, content: aiCard.summary }],
-    prompts: aiCard.prompts,
-    recommendedActions: [],
-    contextLabel: aiCard.context,
-    warning: null,
-  }
-
-  if (typeof window === "undefined") {
-    return fallback
-  }
-
-  try {
-    const raw = window.sessionStorage.getItem(storageKey)
-    if (!raw) return fallback
-    const parsed = JSON.parse(raw) as Partial<StoredCopilotState>
-    return {
-      messages: parsed.messages?.length ? parsed.messages : fallback.messages,
-      prompts: parsed.prompts?.length ? parsed.prompts : fallback.prompts,
-      recommendedActions: parsed.recommendedActions ?? [],
-      contextLabel: parsed.contextLabel ?? fallback.contextLabel,
-      warning: parsed.warning ?? null,
-    }
-  } catch {
-    return fallback
-  }
-}
-
-function deriveActionLinks(actions: string[], pageKey: string): ActionLink[] {
+function deriveFallbackActionLinks(actions: string[], pageKey: string): ActionLink[] {
   const links = new Map<string, ActionLink>()
 
   for (const action of actions) {
@@ -96,6 +69,38 @@ function deriveActionLinks(actions: string[], pageKey: string): ActionLink[] {
   return Array.from(links.values()).slice(0, 3)
 }
 
+function readInitialState(storageKey: string, aiCard: AICopilotCard): StoredCopilotState {
+  const fallbackActions: string[] = []
+  const fallback = {
+    messages: [{ role: "assistant" as const, content: aiCard.summary }],
+    prompts: aiCard.prompts,
+    recommendedActions: fallbackActions,
+    actionLinks: deriveFallbackActionLinks(fallbackActions, "workbench"),
+    contextLabel: aiCard.context,
+    warning: null,
+  }
+
+  if (typeof window === "undefined") {
+    return fallback
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(storageKey)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw) as Partial<StoredCopilotState>
+    return {
+      messages: parsed.messages?.length ? parsed.messages : fallback.messages,
+      prompts: parsed.prompts?.length ? parsed.prompts : fallback.prompts,
+      recommendedActions: parsed.recommendedActions ?? [],
+      actionLinks: parsed.actionLinks ?? [],
+      contextLabel: parsed.contextLabel ?? fallback.contextLabel,
+      warning: parsed.warning ?? null,
+    }
+  } catch {
+    return fallback
+  }
+}
+
 export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
   const router = useRouter()
   const storageKey = useMemo(() => buildStorageKey(productId, pageKey), [pageKey, productId])
@@ -105,28 +110,28 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
   const [input, setInput] = useState("")
   const [prompts, setPrompts] = useState<string[]>(initialState.prompts)
   const [recommendedActions, setRecommendedActions] = useState<string[]>(initialState.recommendedActions)
+  const [actionLinks, setActionLinks] = useState<ActionLink[]>(initialState.actionLinks)
   const [contextLabel, setContextLabel] = useState<string | null>(initialState.contextLabel)
   const [warning, setWarning] = useState<string | null>(initialState.warning)
   const [pending, startTransition] = useTransition()
-
-  const actionLinks = useMemo(() => deriveActionLinks(recommendedActions, pageKey), [pageKey, recommendedActions])
 
   useEffect(() => {
     try {
       window.sessionStorage.setItem(
         storageKey,
-        JSON.stringify({ messages, prompts, recommendedActions, contextLabel, warning }),
+        JSON.stringify({ messages, prompts, recommendedActions, actionLinks, contextLabel, warning }),
       )
     } catch {
       // ignore storage failures
     }
-  }, [contextLabel, messages, prompts, recommendedActions, storageKey, warning])
+  }, [actionLinks, contextLabel, messages, prompts, recommendedActions, storageKey, warning])
 
   function clearConversation() {
     const resetMessages = [{ role: "assistant" as const, content: aiCard.summary }]
     setMessages(resetMessages)
     setPrompts(aiCard.prompts)
     setRecommendedActions([])
+    setActionLinks([])
     setContextLabel(aiCard.context)
     setWarning(null)
     setInput("")
@@ -153,9 +158,11 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
         }),
       })
       const body = (await response.json().catch(() => ({ message: "AI 助手当前不可用。" }))) as CopilotResponse
+      const nextActions = body.recommendedNextActions ?? []
       setMessages((current) => [...current, { role: "assistant", content: body.message ?? "AI 助手当前不可用。" }])
       setPrompts(body.followUpPrompts?.length ? body.followUpPrompts : aiCard.prompts)
-      setRecommendedActions(body.recommendedNextActions ?? [])
+      setRecommendedActions(nextActions)
+      setActionLinks(body.actionLinks?.length ? body.actionLinks : deriveFallbackActionLinks(nextActions, pageKey))
       setContextLabel(body.contextLabel ?? aiCard.context)
       setWarning(body.warning ?? null)
     })

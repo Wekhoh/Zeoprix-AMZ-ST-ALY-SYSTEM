@@ -12,6 +12,7 @@ def test_frontend_copilot_chat_endpoint_can_be_monkeypatched(monkeypatch):
             'message': '测试回复',
             'followUpPrompts': ['继续问'],
             'recommendedNextActions': ['查看动作'],
+            'actionLinks': [{'label': '去操作清单', 'href': '/actions'}],
             'contextLabel': '当前产品：测试',
             'warning': None,
         },
@@ -33,3 +34,4 @@ def test_frontend_copilot_chat_endpoint_can_be_monkeypatched(monkeypatch):
     body = response.json()
     assert body['message'] == '测试回复'
     assert body['followUpPrompts'] == ['继续问']
+    assert body['actionLinks'][0]['href'] == '/actions'
