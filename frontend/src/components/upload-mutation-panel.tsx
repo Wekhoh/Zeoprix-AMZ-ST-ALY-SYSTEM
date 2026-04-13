@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 
 import { BACKEND_BASE_URL } from "@/lib/backend";
 import type { UploadPayload } from "@/lib/mock-data";
@@ -29,63 +29,99 @@ type UploadMutationResponse = {
   analysisState?: AnalysisMutationResponse | null
 }
 
+function uploadWithProgress(
+  url: string,
+  formData: FormData,
+  onProgress: (percent: number) => void,
+): Promise<{ ok: boolean; status: number; body: UploadMutationResponse & { detail?: string } }> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("POST", url)
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return
+      onProgress(Math.max(5, Math.min(100, Math.round((event.loaded / event.total) * 100))))
+    }
+    xhr.onload = () => {
+      let body: UploadMutationResponse & { detail?: string } = { message: "上传失败" }
+      try {
+        body = JSON.parse(xhr.responseText || "{}")
+      } catch {
+        body = { message: "上传失败" }
+      }
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, body })
+    }
+    xhr.onerror = () => resolve({ ok: false, status: xhr.status, body: { message: "上传失败" } })
+    xhr.send(formData)
+  })
+}
+
 export function UploadMutationPanel({ payload, onUploadComplete, onAnalysisComplete }: Props) {
   const productId = payload.productId
   const [message, setMessage] = useState<string | null>(null)
   const [autoAnalyze, setAutoAnalyze] = useState(true)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
-  const [pending, startTransition] = useTransition()
+  const [pendingAction, setPendingAction] = useState<"upload" | "analysis" | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
 
   async function uploadFiles(files: File[]) {
     if (!productId || !files.length) return
     setMessage(`正在上传 ${files.length} 个文件…`)
-    startTransition(async () => {
-      const formData = new FormData()
-      formData.append("product_id", String(productId))
-      formData.append("auto_analyze", String(autoAnalyze))
-      for (const file of files) {
-        formData.append("files", file)
-      }
+    setPendingAction("upload")
+    setUploadProgress(0)
 
-      const response = await fetch(`${BACKEND_BASE_URL}/frontend/upload/files`, {
-        method: "POST",
-        body: formData,
-      })
-      const body = (await response.json().catch(() => ({ message: "上传失败" }))) as UploadMutationResponse & { detail?: string }
-      if (!response.ok) {
-        setMessage(body.detail ?? body.message ?? "上传失败")
-        return
-      }
-      const importedMessage = `已导入 ${body.campaignsCreated ?? 0} 个活动，${body.importedRows ?? 0} 条记录`
-      const failureMessage = body.failedFiles?.length ? `；${body.failedFiles.length} 个文件失败` : ""
-      const analysisMessage = body.analysisState?.message ? `；${body.analysisState.message}` : ""
-      setMessage(`${importedMessage}${failureMessage}${analysisMessage}`)
-      onUploadComplete?.(body)
-      if (body.analysisState) {
-        onAnalysisComplete?.(body.analysisState)
-      }
-      setSelectedFiles([])
-    })
+    const formData = new FormData()
+    formData.append("product_id", String(productId))
+    formData.append("auto_analyze", String(autoAnalyze))
+    for (const file of files) {
+      formData.append("files", file)
+    }
+
+    const result = await uploadWithProgress(`${BACKEND_BASE_URL}/frontend/upload/files`, formData, setUploadProgress)
+    if (!result.ok) {
+      setMessage(result.body.detail ?? result.body.message ?? "上传失败")
+      setPendingAction(null)
+      setUploadProgress(null)
+      return
+    }
+
+    const body = result.body
+    const importedMessage = `已导入 ${body.campaignsCreated ?? 0} 个活动，${body.importedRows ?? 0} 条记录`
+    const failureMessage = body.failedFiles?.length ? `；${body.failedFiles.length} 个文件失败` : ""
+    const analysisMessage = body.analysisState?.message ? `；${body.analysisState.message}` : ""
+    setMessage(`${importedMessage}${failureMessage}${analysisMessage}`)
+    onUploadComplete?.(body)
+    if (body.analysisState) {
+      onAnalysisComplete?.(body.analysisState)
+    }
+    setSelectedFiles([])
+    setPendingAction(null)
+    setUploadProgress(100)
+    window.setTimeout(() => setUploadProgress(null), 800)
   }
 
   async function rerunAnalysis() {
     if (!productId) return
     setMessage("正在重新运行分析…")
-    startTransition(async () => {
-      const response = await fetch(`${BACKEND_BASE_URL}/frontend/upload/run-analysis`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ product_id: productId }),
-      })
-      const body = (await response.json().catch(() => ({ message: "分析执行失败" }))) as AnalysisMutationResponse & { detail?: string }
-      if (!response.ok) {
-        setMessage(body.detail ?? body.message ?? "分析执行失败")
-        return
-      }
-      setMessage(`${body.message ?? "分析完成"}（分析词数 ${body.termsAnalyzed ?? 0}，建议 ${body.resultsSaved ?? 0} 条）`)
-      onAnalysisComplete?.(body)
+    setPendingAction("analysis")
+
+    const response = await fetch(`${BACKEND_BASE_URL}/frontend/upload/run-analysis`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ product_id: productId }),
     })
+    const body = (await response.json().catch(() => ({ message: "分析执行失败" }))) as AnalysisMutationResponse & { detail?: string }
+    if (!response.ok) {
+      setMessage(body.detail ?? body.message ?? "分析执行失败")
+      setPendingAction(null)
+      return
+    }
+    setMessage(`${body.message ?? "分析完成"}（分析词数 ${body.termsAnalyzed ?? 0}，建议 ${body.resultsSaved ?? 0} 条）`)
+    onAnalysisComplete?.(body)
+    setPendingAction(null)
   }
+
+  const isUploading = pendingAction === "upload"
+  const isAnalyzing = pendingAction === "analysis"
 
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
@@ -113,12 +149,23 @@ export function UploadMutationPanel({ payload, onUploadComplete, onAnalysisCompl
           <div className="text-sm text-zinc-500">{selectedFiles.map((file) => file.name).join(" ｜ ")}</div>
         ) : null}
       </label>
+      {uploadProgress !== null ? (
+        <div className="mt-4 rounded-2xl bg-zinc-50 p-4">
+          <div className="flex items-center justify-between text-sm text-zinc-500">
+            <span>{isUploading ? "上传进度" : "最近上传"}</span>
+            <span className="tabular-nums">{uploadProgress}%</span>
+          </div>
+          <div className="mt-3 h-2 rounded-full bg-zinc-100">
+            <div className="h-2 rounded-full bg-zinc-900 transition-all" style={{ width: `${uploadProgress}%` }} />
+          </div>
+        </div>
+      ) : null}
       <div className="mt-5 flex flex-wrap gap-3">
-        <button disabled={pending || !productId || !selectedFiles.length} onClick={() => uploadFiles(selectedFiles)} className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50">
-          {pending ? "处理中…" : "上传原始报表"}
+        <button disabled={pendingAction !== null || !productId || !selectedFiles.length} onClick={() => void uploadFiles(selectedFiles)} className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50">
+          {isUploading ? "上传中…" : "上传原始报表"}
         </button>
-        <button disabled={pending || !productId} onClick={rerunAnalysis} className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50">
-          {pending ? "处理中…" : "重新运行分析"}
+        <button disabled={pendingAction !== null || !productId} onClick={() => void rerunAnalysis()} className="rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50">
+          {isAnalyzing ? "分析中…" : "重新运行分析"}
         </button>
       </div>
       {message ? <p className="mt-4 text-sm leading-relaxed text-zinc-500">{message}</p> : null}
