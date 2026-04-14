@@ -74,3 +74,5 @@
 - 2026-04-13: 继续推进剩余体验：Actions/Review 开始记录当前页活动日志，Review 改用 item-key 级移除避免同词误删；后续优先继续做更细的 optimistic update 与主页/二级页联动。
 
 - 2026-04-13: 继续往替代旧系统推进：执行批次开始暴露 itemsPreview 并在前端卡片展示；下一层可继续做主页联动和更细的 optimistic update。
+
+- 2026-04-13: 首页 workbench 继续产品化：后端新增 recentActivity，首页加入最近动态卡；Actions 页暴露 itemsPreview，批次卡可直接看到重点词/action/spend。

@@ -69,18 +69,21 @@ def test_frontend_page_payload_endpoints_return_live_data(monkeypatch, tmp_path)
     _bootstrap(monkeypatch, tmp_path)
 
     with TestClient(create_app()) as client:
+        workbench = client.get('/frontend/workbench')
         upload = client.get('/frontend/upload')
         review = client.get('/frontend/review')
         settings = client.get('/frontend/settings')
         actions = client.get('/frontend/actions')
         analysis = client.get('/frontend/analysis')
 
+    assert workbench.status_code == 200
     assert upload.status_code == 200
     assert review.status_code == 200
     assert settings.status_code == 200
     assert actions.status_code == 200
     assert analysis.status_code == 200
 
+    assert workbench.json()['recentActivity'][0]['label'] == '最近分析'
     assert upload.json()['source'] == 'live'
     assert upload.json()['upload']['searchTerms'] == 1
     assert review.json()['review']['stats']['reviewed'] >= 1

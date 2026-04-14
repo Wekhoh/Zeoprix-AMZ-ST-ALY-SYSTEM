@@ -37,6 +37,11 @@ export type AICopilotCard = {
   summary: string
   prompts: string[]
 }
+export type RecentActivityItem = {
+  label: string
+  title: string
+  detail: string
+}
 export type AnalysisRow = {
   term: string
   type: string
@@ -78,6 +83,7 @@ export type WorkbenchPayload = {
   executionEffect: ExecutionEffect
   opsTemplates: OpsTemplates
   aiCopilotCards: AICopilotCard[]
+  recentActivity: RecentActivityItem[]
   analysisRows: AnalysisRow[]
   executionBatches: ExecutionBatch[]
 }
@@ -262,6 +268,29 @@ export const aiCopilotCards = [
   },
 ]
 
+export const recentActivity = [
+  {
+    label: '最近上传',
+    title: 'Auto Campaign.csv 已导入并建活动',
+    detail: '新增 316 条搜索词，随后自动运行分析。',
+  },
+  {
+    label: '最近分析',
+    title: '最新快照已形成 98 条建议动作',
+    detail: '高花费止损词和补量机会已进入工作台。',
+  },
+  {
+    label: '最近执行',
+    title: 'NEG-20260411-120000-ABC123 已复盘',
+    detail: 'travel pillow 改善，massager 仍需关注。',
+  },
+  {
+    label: '最近审核',
+    title: '人工审核已拍板 3 个分歧词',
+    detail: '相关性结论已回写，后续动作更稳定。',
+  },
+]
+
 export const analysisRows = [
   {
     term: 'travel pillow',
@@ -340,6 +369,7 @@ export const mockWorkbenchPayload: WorkbenchPayload = {
   executionEffect,
   opsTemplates,
   aiCopilotCards,
+  recentActivity,
   analysisRows,
   executionBatches,
 }

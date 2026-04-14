@@ -10,6 +10,7 @@ import {
   opsTemplates as defaultOpsTemplates,
   structureBuckets as defaultStructureBuckets,
   topActions as defaultTopActions,
+  recentActivity as defaultRecentActivity,
   trendBars as defaultTrendBars,
   trendCards as defaultTrendCards,
   workbenchStats as defaultWorkbenchStats,
@@ -19,6 +20,7 @@ import {
   type OpsTemplates,
   type StructureBucket,
   type TopAction,
+  type RecentActivityItem,
   type TrendBar,
   type TrendCard,
   type WorkbenchStat,
@@ -66,6 +68,7 @@ function StatCard({ label, value, detail, className = "" }: { label: string; val
 export function WorkbenchOverview({
   workbenchStats = defaultWorkbenchStats,
   topActions = defaultTopActions,
+  recentActivity = defaultRecentActivity,
   trendCards = defaultTrendCards,
   trendBars = defaultTrendBars,
   structureBuckets = defaultStructureBuckets,
@@ -73,6 +76,7 @@ export function WorkbenchOverview({
 }: {
   workbenchStats?: WorkbenchStat[]
   topActions?: TopAction[]
+  recentActivity?: RecentActivityItem[]
   trendCards?: TrendCard[]
   trendBars?: TrendBar[]
   structureBuckets?: StructureBucket[]
@@ -113,39 +117,54 @@ export function WorkbenchOverview({
           </div>
         </article>
 
-        <article className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm lg:col-span-1 lg:self-start">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Execution Review</div>
-              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-950">最近执行效果</h2>
+        <div className="space-y-6 lg:col-span-1 lg:self-start">
+          <article className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Execution Review</div>
+                <h2 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-950">最近执行效果</h2>
+              </div>
+              <span className="rounded-full bg-indigo-50 px-5 py-2.5 text-sm font-medium text-indigo-700">{executionEffect.status}</span>
             </div>
-            <span className="rounded-full bg-indigo-50 px-5 py-2.5 text-sm font-medium text-indigo-700">{executionEffect.status}</span>
-          </div>
-          <p className="mt-4 text-sm leading-relaxed text-zinc-500">{executionEffect.summary}</p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            {executionEffect.chips.map((chip) => (
-              <span key={chip} className="rounded-full bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900">{chip}</span>
-            ))}
-          </div>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <div className="rounded-2xl bg-zinc-50 p-5">
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">改善线索</div>
-              <ul className="mt-3 space-y-2 text-sm text-zinc-900">
-                {executionEffect.improving.map((term) => (
-                  <li key={term}>{term}</li>
-                ))}
-              </ul>
+            <p className="mt-4 text-sm leading-relaxed text-zinc-500">{executionEffect.summary}</p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {executionEffect.chips.map((chip) => (
+                <span key={chip} className="rounded-full bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900">{chip}</span>
+              ))}
             </div>
-            <div className="rounded-2xl bg-zinc-50 p-5">
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">仍需关注</div>
-              <ul className="mt-3 space-y-2 text-sm text-zinc-900">
-                {executionEffect.risky.map((term) => (
-                  <li key={term}>{term}</li>
-                ))}
-              </ul>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <div className="rounded-2xl bg-zinc-50 p-5">
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">改善线索</div>
+                <ul className="mt-3 space-y-2 text-sm text-zinc-900">
+                  {executionEffect.improving.map((term) => (
+                    <li key={term}>{term}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-2xl bg-zinc-50 p-5">
+                <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">仍需关注</div>
+                <ul className="mt-3 space-y-2 text-sm text-zinc-900">
+                  {executionEffect.risky.map((term) => (
+                    <li key={term}>{term}</li>
+                  ))}
+                </ul>
+              </div>
             </div>
-          </div>
-        </article>
+          </article>
+          <article className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Recent Activity</div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">工作台最近动态</h2>
+            <div className="mt-4 space-y-3">
+              {recentActivity.map((item) => (
+                <div key={`${item.label}-${item.title}`} className="rounded-2xl bg-zinc-50 p-4">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-500">{item.label}</div>
+                  <div className="mt-2 text-sm font-medium text-zinc-950">{item.title}</div>
+                  <div className="mt-2 text-sm leading-relaxed text-zinc-500">{item.detail}</div>
+                </div>
+              ))}
+            </div>
+          </article>
+        </div>
       </section>
 
       <section className="grid gap-6 lg:grid-cols-3">

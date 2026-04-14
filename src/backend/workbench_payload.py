@@ -613,6 +613,61 @@ def restore_full_backup_for_frontend(
         }
 
 
+def _build_recent_activity(
+    db: Database,
+    product_id: int,
+    latest_snapshot: dict | None,
+    execution_batches: list[dict[str, Any]],
+    pending_stats: dict[str, int],
+) -> list[dict[str, str]]:
+    activity: list[dict[str, str]] = []
+
+    if latest_snapshot:
+        item_count = int((latest_snapshot.get("summary") or {}).get("item_count") or len(latest_snapshot.get("rows") or []))
+        activity.append(
+            {
+                "label": "最近分析",
+                "title": f"最新快照已形成 {item_count} 条建议动作",
+                "detail": f"生成于 {_format_timestamp(latest_snapshot.get('created_at'))}。",
+            }
+        )
+
+    if execution_batches:
+        batch = execution_batches[0]
+        activity.append(
+            {
+                "label": "最近执行",
+                "title": f"{batch.get('code') or '最近批次'} 当前状态：{batch.get('status') or 'draft'}",
+                "detail": batch.get("summary") or "执行批次已经同步回工作台。",
+            }
+        )
+
+    pending_reviews = int(pending_stats.get("review_pending_count") or 0)
+    if pending_reviews:
+        activity.append(
+            {
+                "label": "最近审核",
+                "title": f"当前仍有 {pending_reviews} 个词待人工拍板",
+                "detail": "先处理低置信度与分歧词，后续动作会更稳定。",
+            }
+        )
+
+    latest_campaign = db.execute(
+        "SELECT name, created_at FROM campaigns WHERE product_id = ? ORDER BY created_at DESC LIMIT 1",
+        (product_id,),
+    ).fetchone()
+    if latest_campaign:
+        activity.append(
+            {
+                "label": "最近导入",
+                "title": f"{latest_campaign['name']} 已进入当前产品",
+                "detail": f"创建于 {_format_timestamp(latest_campaign['created_at'])}。",
+            }
+        )
+
+    return activity[:4]
+
+
 def _derive_stage_title(pending_stats: dict[str, int], latest_snapshot: dict | None) -> tuple[str, str]:
     if pending_stats.get("negative_count") or pending_stats.get("manual_count") or pending_stats.get("conflict_count"):
         return "待执行优化动作", "先止损，再补量。"
@@ -645,6 +700,8 @@ def build_workbench_payload(product_id: int | None = None) -> dict[str, Any]:
         trend_cards, trend_bars = _get_trend_payload(db, product_id)
         structure_buckets = _get_structure_payload(db, product_id, product_config)
         execution_effect = _get_execution_effect_payload(db, product_id)
+        execution_batches = _get_execution_batches_payload(db, product_id)
+        recent_activity = _build_recent_activity(db, product_id, latest_snapshot, execution_batches, pending_stats)
         ops_templates = {
             "boss_summary": f"{product_name} 当前处于「{stage_title}」。最近执行效果判断为「{execution_effect['status']}」，建议今天优先处理：" + "；".join(item['title'] for item in top_actions[:3]),
             "handoff_note": f"【执行交接】先处理：" + "；".join(item['title'] for item in top_actions[:3]),
@@ -681,8 +738,9 @@ def build_workbench_payload(product_id: int | None = None) -> dict[str, Any]:
                     "prompts": ["解释 ACOS 为什么高", "给我 3 个最优先动作", "生成老板摘要"],
                 }
             ],
+            "recentActivity": recent_activity,
             "analysisRows": _get_analysis_rows_payload(db, product_id),
-            "executionBatches": _get_execution_batches_payload(db, product_id),
+            "executionBatches": execution_batches,
         }
 
 
