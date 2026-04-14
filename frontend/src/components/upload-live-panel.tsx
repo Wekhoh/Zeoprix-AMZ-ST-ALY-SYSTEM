@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { recordFrontendActivity } from "@/components/live-activity";
+import { writePageContext } from "@/components/page-context";
 import { UploadMutationPanel } from "@/components/upload-mutation-panel";
 import type { UploadPayload } from "@/lib/mock-data";
 
@@ -54,6 +55,15 @@ export function UploadLivePanel({ payload }: Props) {
   )
   const [activityLog, setActivityLog] = useState<string[]>([])
   const [fileFailures, setFileFailures] = useState<Array<{ fileName?: string; reason?: string }>>([])
+
+  useEffect(() => {
+    writePageContext(payload.productId, "upload", {
+      summary: `最近报表 ${uploadState.latestReportDate ?? "暂无"}，搜索词 ${uploadState.searchTerms ?? 0}，快照 ${uploadState.snapshotCount ?? 0}。`,
+      campaigns: uploadState.campaigns ?? 0,
+      snapshot_count: uploadState.snapshotCount ?? 0,
+      failure_count: fileFailures.length,
+    })
+  }, [fileFailures.length, payload.productId, uploadState])
 
   const historyItems = useMemo(() => {
     const snapshotItems = uploadState.recentSnapshots.map((item) => ({

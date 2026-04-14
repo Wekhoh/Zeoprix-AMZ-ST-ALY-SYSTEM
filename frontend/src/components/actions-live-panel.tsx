@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { recordFrontendActivity } from "@/components/live-activity";
+import { writePageContext } from "@/components/page-context";
 import { ActionsMutationPanel } from "@/components/actions-mutation-panel";
 import { ExecutionBatchBoard } from "@/components/workbench-sections";
 import type { ActionsPayload, ExecutionBatch } from "@/lib/mock-data";
@@ -68,6 +69,17 @@ export function ActionsLivePanel({ payload, backendBaseUrl }: Props) {
   const [activityLog, setActivityLog] = useState<string[]>([])
 
   const latestBatch = executionBatches[0]
+
+  useEffect(() => {
+    writePageContext(payload.productId, "actions", {
+      summary: `待执行：否词 ${actions.negativeCount}、手动补量 ${actions.manualCount}、分歧词 ${actions.conflictCount}；最近批次 ${latestBatch?.code ?? actions.latestBatchCode ?? "暂无"}。`,
+      latest_batch_code: latestBatch?.code ?? actions.latestBatchCode ?? null,
+      latest_batch_status: latestBatch?.status ?? null,
+      negative_count: actions.negativeCount,
+      manual_count: actions.manualCount,
+      conflict_count: actions.conflictCount,
+    })
+  }, [actions, latestBatch, payload.productId])
 
   const mutationPanelPayload = useMemo(
     () => ({

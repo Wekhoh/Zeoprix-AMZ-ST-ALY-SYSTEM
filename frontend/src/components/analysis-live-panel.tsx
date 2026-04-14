@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { writePageContext } from "@/components/page-context";
 import type { AnalysisPayload, AnalysisRow } from "@/lib/mock-data";
 import { AnalysisTable } from "@/components/workbench-sections";
 
@@ -76,6 +77,18 @@ export function AnalysisLivePanel({ payload }: Props) {
       return acc
     }, {})
   }, [filteredRows])
+
+  useEffect(() => {
+    writePageContext(payload.productId, "analysis", {
+      summary: `当前视角 ${focusMode}，词类型 ${typeFilter}，建议动作 ${actionFilter}，筛选后 ${filteredRows.length} 条。`,
+      focus_mode: focusMode,
+      type_filter: typeFilter,
+      action_filter: actionFilter,
+      visible_rows: filteredRows.length,
+      query,
+      sort_key: sortKey,
+    })
+  }, [actionFilter, filteredRows.length, focusMode, payload.productId, query, sortKey, typeFilter])
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">

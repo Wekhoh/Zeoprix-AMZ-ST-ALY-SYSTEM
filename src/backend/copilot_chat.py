@@ -24,6 +24,20 @@ def _derive_action_links(actions: list[str], page_key: str) -> list[dict[str, st
     return list(links.values())[:3]
 
 
+def _build_page_context_summary(page_context: dict[str, Any] | None) -> str:
+    if not isinstance(page_context, dict):
+        return ""
+    summary = str(page_context.get("summary") or "").strip()
+    if summary:
+        return summary
+    pieces: list[str] = []
+    for key, value in page_context.items():
+        if key == "product_name" or value in (None, "", [], {}):
+            continue
+        pieces.append(f"{key}: {value}")
+    return "；".join(pieces[:4])
+
+
 def process_frontend_copilot_turn(
     *,
     product_id: int | None,
@@ -31,9 +45,11 @@ def process_frontend_copilot_turn(
     page_title: str,
     user_message: str,
     history: list[dict[str, str]] | None = None,
+    page_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     db_path = _get_app_database_path()
     history = history or []
+    page_context = page_context or {}
 
     with Database(str(db_path)) as db:
         context_pack = build_ai_context_pack(
@@ -41,7 +57,7 @@ def process_frontend_copilot_turn(
             product_id,
             page_key=page_key,
             page_title=page_title,
-            page_context={},
+            page_context=page_context,
         )
         assistant = get_chat_assistant(db=db, product_id=product_id)
 
@@ -52,9 +68,14 @@ def process_frontend_copilot_turn(
             if content:
                 history_lines.append(f"{role}: {content}")
 
-        prompt = user_message.strip()
+        prompt_sections: list[str] = []
+        page_summary = _build_page_context_summary(page_context)
+        if page_summary:
+            prompt_sections.append(f"当前页面状态：{page_summary}")
         if history_lines:
-            prompt = "最近对话：\n" + "\n".join(history_lines) + f"\n\n当前问题：{prompt}"
+            prompt_sections.append("最近对话：\n" + "\n".join(history_lines))
+        prompt_sections.append(f"当前问题：{user_message.strip()}")
+        prompt = "\n\n".join(section for section in prompt_sections if section.strip())
 
         try:
             response = assistant.process_message(prompt)

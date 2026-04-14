@@ -7,6 +7,7 @@ V1 先提供可部署、可探活的后端骨架，并补最小登录能力。
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -129,6 +130,7 @@ class FrontendCopilotChatRequest(BaseModel):
     page_title: str
     user_message: str
     history: list[FrontendCopilotMessage] = []
+    page_context: dict[str, Any] | None = None
 
 
 class FrontendRestoreBackupRequest(BaseModel):
@@ -466,6 +468,7 @@ def create_app() -> FastAPI:
             page_title=payload.page_title,
             user_message=payload.user_message,
             history=[msg.model_dump() for msg in payload.history],
+            page_context=payload.page_context,
         )
 
     @app.post('/auth/login', response_model=LoginResponse, tags=['auth'])
@@ -530,4 +533,6 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
 

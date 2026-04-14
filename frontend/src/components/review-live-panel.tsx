@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { recordFrontendActivity } from "@/components/live-activity";
+import { writePageContext } from "@/components/page-context";
 import { ReviewMutationPanel } from "@/components/review-mutation-panel";
 import type { ReviewPayload } from "@/lib/mock-data";
 
@@ -29,6 +30,15 @@ export function ReviewLivePanel({ payload, backendBaseUrl }: Props) {
     payload.review ?? { stats: { total: 0, reviewed: 0, pending: 0 }, pendingItems: [] },
   )
   const [activityLog, setActivityLog] = useState<string[]>([])
+
+  useEffect(() => {
+    writePageContext(payload.productId, "review", {
+      summary: `待审核 ${reviewState.stats.pending ?? 0} 条，已审核 ${reviewState.stats.reviewed ?? 0} 条。`,
+      pending_count: reviewState.stats.pending ?? 0,
+      reviewed_count: reviewState.stats.reviewed ?? 0,
+      queue_terms: reviewState.pendingItems.slice(0, 3).map((item) => item.term).join("、"),
+    })
+  }, [payload.productId, reviewState])
 
   const mutationPayload = useMemo(
     () => ({
