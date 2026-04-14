@@ -78,3 +78,5 @@
 - 2026-04-13: 首页 workbench 继续产品化：后端新增 recentActivity，首页加入最近动态卡；Actions 页暴露 itemsPreview，批次卡可直接看到重点词/action/spend。
 
 - 2026-04-13: 继续把剩余联动往首页收：recentActivity 现在附带 href，首页卡片可直接跳到 Upload/Analysis/Actions/Review；执行批次继续显示 itemsPreview，便于不离页检查批次内容。
+
+- 2026-04-13: 继续往跨页联动推进：新增 local activity feed，把 Upload/Actions/Review/Settings 的最近动作写回首页 recentActivity；执行批次继续加展开层与内容预览。

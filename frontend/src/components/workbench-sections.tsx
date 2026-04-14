@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+import { readFrontendActivity } from "@/components/live-activity";
 
 import {
   analysisRows as defaultAnalysisRows,
@@ -69,6 +71,7 @@ function StatCard({ label, value, detail, className = "" }: { label: string; val
 export function WorkbenchOverview({
   workbenchStats = defaultWorkbenchStats,
   topActions = defaultTopActions,
+  productId = null,
   recentActivity = defaultRecentActivity,
   trendCards = defaultTrendCards,
   trendBars = defaultTrendBars,
@@ -77,12 +80,29 @@ export function WorkbenchOverview({
 }: {
   workbenchStats?: WorkbenchStat[]
   topActions?: TopAction[]
+  productId?: number | null
   recentActivity?: RecentActivityItem[]
   trendCards?: TrendCard[]
   trendBars?: TrendBar[]
   structureBuckets?: StructureBucket[]
   executionEffect?: ExecutionEffect
 }) {
+  const [localActivity, setLocalActivity] = useState<RecentActivityItem[]>([])
+
+  useEffect(() => {
+    setLocalActivity(readFrontendActivity(productId))
+  }, [productId])
+
+  const mergedActivity = useMemo(() => {
+    const seen = new Set<string>()
+    return [...localActivity, ...recentActivity].filter((item) => {
+      const key = `${item.label}-${item.title}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    }).slice(0, 4)
+  }, [localActivity, recentActivity])
+
   return (
     <div className="space-y-8">
       <section className="grid gap-6 lg:grid-cols-3">
@@ -133,6 +153,14 @@ export function WorkbenchOverview({
                 <span key={chip} className="rounded-full bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900">{chip}</span>
               ))}
             </div>
+            {executionEffect.batchCode ? (
+              <div className="mt-5">
+                <Link href="/actions" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm ring-1 ring-zinc-200 transition hover:bg-zinc-100 hover:text-zinc-900">
+                  查看最新批次
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            ) : null}
             <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               <div className="rounded-2xl bg-zinc-50 p-5">
                 <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">改善线索</div>
@@ -156,7 +184,7 @@ export function WorkbenchOverview({
             <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Recent Activity</div>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">工作台最近动态</h2>
             <div className="mt-4 space-y-3">
-              {recentActivity.map((item) => (
+              {mergedActivity.map((item) => (
                 <div key={`${item.label}-${item.title}`} className="rounded-2xl bg-zinc-50 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -302,9 +330,13 @@ export function AnalysisTable({ analysisRows = defaultAnalysisRows }: { analysis
 }
 
 export function ExecutionBatchBoard({ executionBatches = defaultExecutionBatches }: { executionBatches?: ExecutionBatch[] }) {
+  const [expandedCode, setExpandedCode] = useState<string | null>(executionBatches[0]?.code ?? null)
+
   return (
     <section className="space-y-5">
-      {executionBatches.map((batch) => (
+      {executionBatches.map((batch) => {
+        const isExpanded = expandedCode === batch.code
+        return (
         <article key={batch.code} className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-full bg-zinc-100 px-3 py-1 text-sm text-zinc-500">{batch.code}</span>
@@ -350,20 +382,43 @@ export function ExecutionBatchBoard({ executionBatches = defaultExecutionBatches
           </div>
           {batch.itemsPreview?.length ? (
             <div className="mt-4 rounded-2xl bg-zinc-50 p-5">
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">批次内重点词</div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {batch.itemsPreview.map((item) => (
-                  <div key={`${batch.code}-${item.term}`} className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200/80">
-                    <div className="text-sm font-medium text-zinc-950">{item.term}</div>
-                    <div className="mt-2 text-sm leading-relaxed text-zinc-500">{item.action}</div>
-                    <div className="mt-3 text-sm tabular-nums text-zinc-500">{item.spend}</div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">批次内重点词</div>
+                  <div className="mt-2 text-sm leading-relaxed text-zinc-500">
+                    {isExpanded ? `正在查看 ${batch.itemsPreview.length} 个重点词。` : `点击展开查看 ${batch.itemsPreview.length} 个重点词。`}
                   </div>
-                ))}
+                </div>
+                <button
+                  onClick={() => setExpandedCode((current) => (current === batch.code ? null : batch.code))}
+                  className="rounded-full bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm ring-1 ring-zinc-200 transition hover:bg-zinc-100 hover:text-zinc-900"
+                >
+                  {isExpanded ? "收起详情" : "展开详情"}
+                </button>
               </div>
+              {isExpanded ? (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {batch.itemsPreview.map((item) => (
+                    <div key={`${batch.code}-${item.term}`} className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200/80">
+                      <div className="text-sm font-medium text-zinc-950">{item.term}</div>
+                      <div className="mt-2 text-sm leading-relaxed text-zinc-500">{item.action}</div>
+                      <div className="mt-3 text-sm tabular-nums text-zinc-500">{item.spend}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {batch.itemsPreview.slice(0, 3).map((item) => (
+                    <span key={`${batch.code}-${item.term}`} className="rounded-full bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm ring-1 ring-zinc-200">
+                      {item.term}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ) : null}
         </article>
-      ))}
+      )})}
     </section>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { recordFrontendActivity } from "@/components/live-activity";
 import { SettingsMutationPanel } from "@/components/settings-mutation-panel";
 import type { SettingsPayload } from "@/lib/mock-data";
 
@@ -41,13 +42,23 @@ export function SettingsLivePanel({ payload }: Props) {
       },
     }))
     setActivityLog((current) => ["已清空当前产品的运行数据。", ...current].slice(0, 4))
+    recordFrontendActivity(payload.productId, {
+      label: "最近数据管理",
+      title: "运行数据已清空",
+      detail: "当前产品的搜索词、分析结果、审核记录与执行批次都已清空。",
+      href: "/settings",
+    })
   }
 
   function handleBackupRestored(response: RestoreBackupResponse, restoreAsNew: boolean) {
-    setActivityLog((current) => [
-      `${restoreAsNew ? "已恢复为新产品副本" : "已恢复到当前产品"}：${response.productName ?? "恢复产品"}`,
-      ...current,
-    ].slice(0, 4))
+    const line = `${restoreAsNew ? "已恢复为新产品副本" : "已恢复到当前产品"}：${response.productName ?? "恢复产品"}`
+    setActivityLog((current) => [line, ...current].slice(0, 4))
+    recordFrontendActivity(payload.productId, {
+      label: "最近数据管理",
+      title: restoreAsNew ? "完整备份已恢复为新副本" : "完整备份已恢复到当前产品",
+      detail: line,
+      href: "/settings",
+    })
   }
 
   return (

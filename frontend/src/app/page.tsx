@@ -18,6 +18,7 @@ export default async function Page() {
         <WorkbenchOverview
           workbenchStats={payload.workbenchStats}
           topActions={payload.topActions}
+          productId={payload.productId}
           recentActivity={payload.recentActivity}
           trendCards={payload.trendCards}
           trendBars={payload.trendBars}

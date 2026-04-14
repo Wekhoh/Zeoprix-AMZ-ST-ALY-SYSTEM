@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { recordFrontendActivity } from "@/components/live-activity";
 import { UploadMutationPanel } from "@/components/upload-mutation-panel";
 import type { UploadPayload } from "@/lib/mock-data";
 
@@ -97,6 +98,22 @@ export function UploadLivePanel({ payload }: Props) {
       ...((response.failedFiles ?? []).length ? [`有 ${(response.failedFiles ?? []).length} 个文件未导入成功。`] : []),
       ...current,
     ].slice(0, 4))
+    if (response.importedFiles?.length) {
+      recordFrontendActivity(payload.productId, {
+        label: "最近上传",
+        title: `${response.importedFiles[0].campaignName ?? response.importedFiles[0].fileName ?? "导入文件"} 已导入`,
+        detail: `新增 ${response.importedRows ?? 0} 条记录${response.failedFiles?.length ? `，${response.failedFiles.length} 个文件失败` : ""}。`,
+        href: "/upload",
+      })
+    }
+    if (response.analysisState?.resultsSaved) {
+      recordFrontendActivity(payload.productId, {
+        label: "最近分析",
+        title: `最新快照已形成 ${response.analysisState.resultsSaved} 条建议动作`,
+        detail: response.analysisState.message ?? "分析已自动运行。",
+        href: "/analysis",
+      })
+    }
   }
 
   function handleAnalysisComplete(response: AnalysisMutationResponse) {
@@ -112,6 +129,14 @@ export function UploadLivePanel({ payload }: Props) {
       `${response.message ?? "分析完成"}，分析 ${response.termsAnalyzed ?? 0} 条词。`,
       ...current,
     ].slice(0, 4))
+    if (response.resultsSaved) {
+      recordFrontendActivity(payload.productId, {
+        label: "最近分析",
+        title: `手动重跑后形成 ${response.resultsSaved} 条建议动作`,
+        detail: `${response.message ?? "分析完成"}，分析 ${response.termsAnalyzed ?? 0} 条词。`,
+        href: "/analysis",
+      })
+    }
   }
 
   return (

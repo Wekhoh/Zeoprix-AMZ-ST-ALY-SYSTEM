@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { recordFrontendActivity } from "@/components/live-activity";
 import { ReviewMutationPanel } from "@/components/review-mutation-panel";
 import type { ReviewPayload } from "@/lib/mock-data";
 
@@ -48,7 +49,14 @@ export function ReviewLivePanel({ payload, backendBaseUrl }: Props) {
       pendingItems: current.pendingItems.filter((item) => buildReviewKey(item) !== itemKey),
     }))
     if (target) {
-      setActivityLog((current) => [`已将 ${target.term} 标记为${decisionLabel}。`, ...current].slice(0, 4))
+      const line = `已将 ${target.term} 标记为${decisionLabel}。`
+      setActivityLog((current) => [line, ...current].slice(0, 4))
+      recordFrontendActivity(payload.productId, {
+        label: "最近审核",
+        title: `${target.term} 已人工拍板`,
+        detail: line,
+        href: "/review",
+      })
     }
   }
 

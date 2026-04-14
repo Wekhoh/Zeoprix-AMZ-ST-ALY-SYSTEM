@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { recordFrontendActivity } from "@/components/live-activity";
 import { ActionsMutationPanel } from "@/components/actions-mutation-panel";
 import { ExecutionBatchBoard } from "@/components/workbench-sections";
 import type { ActionsPayload, ExecutionBatch } from "@/lib/mock-data";
@@ -84,12 +85,14 @@ export function ActionsLivePanel({ payload, backendBaseUrl }: Props) {
       ...current,
       latestBatchCode: batch.code,
     }))
-    setActivityLog((current) =>
-      buildActionLog(
-        `${batchType === "negative" ? "已生成否词批次" : "已生成手动批次"} ${batch.code}，覆盖 ${batch.itemCount} 项。`,
-        current,
-      ),
-    )
+    const line = `${batchType === "negative" ? "已生成否词批次" : "已生成手动批次"} ${batch.code}，覆盖 ${batch.itemCount} 项。`
+    setActivityLog((current) => buildActionLog(line, current))
+    recordFrontendActivity(payload.productId, {
+      label: "最近执行",
+      title: `${batch.code} 已创建`,
+      detail: line,
+      href: "/actions",
+    })
   }
 
   function handleBatchUpdated(response: BatchMutationResponse) {
@@ -99,7 +102,14 @@ export function ActionsLivePanel({ payload, backendBaseUrl }: Props) {
       ...current,
       latestBatchCode: batch.code,
     }))
-    setActivityLog((current) => buildActionLog(`批次 ${batch.code} 已更新为 ${batch.status}。`, current))
+    const line = `批次 ${batch.code} 已更新为 ${batch.status}。`
+    setActivityLog((current) => buildActionLog(line, current))
+    recordFrontendActivity(payload.productId, {
+      label: "最近执行",
+      title: `${batch.code} 状态已更新`,
+      detail: line,
+      href: "/actions",
+    })
   }
 
   return (
