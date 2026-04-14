@@ -76,3 +76,5 @@
 - 2026-04-13: 继续往替代旧系统推进：执行批次开始暴露 itemsPreview 并在前端卡片展示；下一层可继续做主页联动和更细的 optimistic update。
 
 - 2026-04-13: 首页 workbench 继续产品化：后端新增 recentActivity，首页加入最近动态卡；Actions 页暴露 itemsPreview，批次卡可直接看到重点词/action/spend。
+
+- 2026-04-13: 继续把剩余联动往首页收：recentActivity 现在附带 href，首页卡片可直接跳到 Upload/Analysis/Actions/Review；执行批次继续显示 itemsPreview，便于不离页检查批次内容。

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { useState } from "react";
 
@@ -157,9 +158,19 @@ export function WorkbenchOverview({
             <div className="mt-4 space-y-3">
               {recentActivity.map((item) => (
                 <div key={`${item.label}-${item.title}`} className="rounded-2xl bg-zinc-50 p-4">
-                  <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-500">{item.label}</div>
-                  <div className="mt-2 text-sm font-medium text-zinc-950">{item.title}</div>
-                  <div className="mt-2 text-sm leading-relaxed text-zinc-500">{item.detail}</div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-500">{item.label}</div>
+                      <div className="mt-2 text-sm font-medium text-zinc-950">{item.title}</div>
+                      <div className="mt-2 text-sm leading-relaxed text-zinc-500">{item.detail}</div>
+                    </div>
+                    {item.href ? (
+                      <Link href={item.href} className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-sm font-medium text-zinc-600 shadow-sm ring-1 ring-zinc-200 transition hover:bg-zinc-100 hover:text-zinc-900">
+                        查看
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      </Link>
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>

@@ -41,6 +41,7 @@ export type RecentActivityItem = {
   label: string
   title: string
   detail: string
+  href?: string
 }
 export type AnalysisRow = {
   term: string
@@ -273,21 +274,25 @@ export const recentActivity = [
     label: '最近上传',
     title: 'Auto Campaign.csv 已导入并建活动',
     detail: '新增 316 条搜索词，随后自动运行分析。',
+    href: '/upload',
   },
   {
     label: '最近分析',
     title: '最新快照已形成 98 条建议动作',
     detail: '高花费止损词和补量机会已进入工作台。',
+    href: '/analysis',
   },
   {
     label: '最近执行',
     title: 'NEG-20260411-120000-ABC123 已复盘',
     detail: 'travel pillow 改善，massager 仍需关注。',
+    href: '/actions',
   },
   {
     label: '最近审核',
     title: '人工审核已拍板 3 个分歧词',
     detail: '相关性结论已回写，后续动作更稳定。',
+    href: '/review',
   },
 ]
 

@@ -84,6 +84,7 @@ def test_frontend_page_payload_endpoints_return_live_data(monkeypatch, tmp_path)
     assert analysis.status_code == 200
 
     assert workbench.json()['recentActivity'][0]['label'] == '最近分析'
+    assert workbench.json()['recentActivity'][0]['href'] == '/analysis'
     assert upload.json()['source'] == 'live'
     assert upload.json()['upload']['searchTerms'] == 1
     assert review.json()['review']['stats']['reviewed'] >= 1

@@ -629,6 +629,7 @@ def _build_recent_activity(
                 "label": "最近分析",
                 "title": f"最新快照已形成 {item_count} 条建议动作",
                 "detail": f"生成于 {_format_timestamp(latest_snapshot.get('created_at'))}。",
+                "href": "/analysis",
             }
         )
 
@@ -639,6 +640,7 @@ def _build_recent_activity(
                 "label": "最近执行",
                 "title": f"{batch.get('code') or '最近批次'} 当前状态：{batch.get('status') or 'draft'}",
                 "detail": batch.get("summary") or "执行批次已经同步回工作台。",
+                "href": "/actions",
             }
         )
 
@@ -649,6 +651,7 @@ def _build_recent_activity(
                 "label": "最近审核",
                 "title": f"当前仍有 {pending_reviews} 个词待人工拍板",
                 "detail": "先处理低置信度与分歧词，后续动作会更稳定。",
+                "href": "/review",
             }
         )
 
@@ -662,6 +665,7 @@ def _build_recent_activity(
                 "label": "最近导入",
                 "title": f"{latest_campaign['name']} 已进入当前产品",
                 "detail": f"创建于 {_format_timestamp(latest_campaign['created_at'])}。",
+                "href": "/upload",
             }
         )
 
