@@ -71,10 +71,12 @@ export function ActionsLivePanel({ payload, backendBaseUrl }: Props) {
   const latestBatch = executionBatches[0]
 
   useEffect(() => {
+    const previewTerms = latestBatch?.itemsPreview?.slice(0, 3).map((item) => item.term).join("、")
     writePageContext(payload.productId, "actions", {
-      summary: `待执行：否词 ${actions.negativeCount}、手动补量 ${actions.manualCount}、分歧词 ${actions.conflictCount}；最近批次 ${latestBatch?.code ?? actions.latestBatchCode ?? "暂无"}。`,
+      summary: `待执行：否词 ${actions.negativeCount}、手动补量 ${actions.manualCount}、分歧词 ${actions.conflictCount}；最近批次 ${latestBatch?.code ?? actions.latestBatchCode ?? "暂无"}${previewTerms ? `，重点词 ${previewTerms}` : ""}。`,
       latest_batch_code: latestBatch?.code ?? actions.latestBatchCode ?? null,
       latest_batch_status: latestBatch?.status ?? null,
+      latest_batch_terms: previewTerms ?? null,
       negative_count: actions.negativeCount,
       manual_count: actions.manualCount,
       conflict_count: actions.conflictCount,

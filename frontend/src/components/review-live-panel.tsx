@@ -32,11 +32,12 @@ export function ReviewLivePanel({ payload, backendBaseUrl }: Props) {
   const [activityLog, setActivityLog] = useState<string[]>([])
 
   useEffect(() => {
+    const queueTerms = reviewState.pendingItems.slice(0, 3).map((item) => item.term).join("、")
     writePageContext(payload.productId, "review", {
-      summary: `待审核 ${reviewState.stats.pending ?? 0} 条，已审核 ${reviewState.stats.reviewed ?? 0} 条。`,
+      summary: `待审核 ${reviewState.stats.pending ?? 0} 条，已审核 ${reviewState.stats.reviewed ?? 0} 条${queueTerms ? `；队列重点词 ${queueTerms}` : ""}。`,
       pending_count: reviewState.stats.pending ?? 0,
       reviewed_count: reviewState.stats.reviewed ?? 0,
-      queue_terms: reviewState.pendingItems.slice(0, 3).map((item) => item.term).join("、"),
+      queue_terms: queueTerms,
     })
   }, [payload.productId, reviewState])
 

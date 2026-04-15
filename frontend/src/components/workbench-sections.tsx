@@ -106,12 +106,13 @@ export function WorkbenchOverview({
 
   useEffect(() => {
     writePageContext(productId, "workbench", {
-      summary: `当前阶段 ${workbenchStats[0]?.value ?? "待分析"}；最近分析 ${workbenchStats[1]?.value ?? "暂无"}；今天优先动作 ${topActions[0]?.title ?? "暂无"}。`,
+      summary: `当前阶段 ${workbenchStats[0]?.value ?? "待分析"}；最近分析 ${workbenchStats[1]?.value ?? "暂无"}；今天优先动作 ${topActions[0]?.title ?? "暂无"}${mergedActivity[0]?.title ? `；最近动态 ${mergedActivity[0].title}` : ""}。`,
       stage: workbenchStats[0]?.value ?? null,
       latest_analysis: workbenchStats[1]?.value ?? null,
       top_action: topActions[0]?.title ?? null,
+      latest_activity: mergedActivity[0]?.title ?? null,
     })
-  }, [productId, topActions, workbenchStats])
+  }, [mergedActivity, productId, topActions, workbenchStats])
 
   return (
     <div className="space-y-8">
@@ -432,4 +433,5 @@ export function ExecutionBatchBoard({ executionBatches = defaultExecutionBatches
     </section>
   );
 }
+
 

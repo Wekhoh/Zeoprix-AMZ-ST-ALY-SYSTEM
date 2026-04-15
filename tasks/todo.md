@@ -82,3 +82,5 @@
 - 2026-04-13: 继续往跨页联动推进：新增 local activity feed，把 Upload/Actions/Review/Settings 的最近动作写回首页 recentActivity；执行批次继续加展开层与内容预览。
 
 - 2026-04-14: Copilot 继续收口：请求中开始携带各页真实 page_context，当前筛选/视角/待审核数/批次数会同步给 AI；下一步可继续做真正的 optimistic update 和更多细粒度结果联动。
+
+- 2026-04-14: 继续把页面当前状态与跨页活动流打通给 Copilot/Homepage：各 live panel 会写入 page_context，首页合并 local activity feed，Copilot 已开始读取当前页面状态摘要。

@@ -32,13 +32,15 @@ export function SettingsLivePanel({ payload }: Props) {
   const backup = settingsState.backupSummary
 
   useEffect(() => {
+    const latestActivity = activityLog[0] ?? null
     writePageContext(payload.productId, "settings", {
-      summary: `规则 ${settingsState.ruleVersionCount ?? 0} 个版本，策略 ${settingsState.strategyProfileCount ?? 0} 组，当前备份包含 ${backup.searchTerms ?? 0} 条搜索词。`,
+      summary: `规则 ${settingsState.ruleVersionCount ?? 0} 个版本，策略 ${settingsState.strategyProfileCount ?? 0} 组，当前备份包含 ${backup.searchTerms ?? 0} 条搜索词${latestActivity ? `；最近操作：${latestActivity}` : ""}。`,
       rule_versions: settingsState.ruleVersionCount ?? 0,
       strategy_profiles: settingsState.strategyProfileCount ?? 0,
       backup_terms: backup.searchTerms ?? 0,
+      latest_activity: latestActivity,
     })
-  }, [backup.searchTerms, payload.productId, settingsState.ruleVersionCount, settingsState.strategyProfileCount])
+  }, [activityLog, backup.searchTerms, payload.productId, settingsState.ruleVersionCount, settingsState.strategyProfileCount])
 
   function handleRuntimeCleared() {
     setSettingsState((current) => ({

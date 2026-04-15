@@ -57,13 +57,17 @@ export function UploadLivePanel({ payload }: Props) {
   const [fileFailures, setFileFailures] = useState<Array<{ fileName?: string; reason?: string }>>([])
 
   useEffect(() => {
+    const latestCampaign = uploadState.recentCampaigns[0]?.name ?? null
+    const failedNames = fileFailures.slice(0, 2).map((item) => item.fileName).filter(Boolean).join("、")
     writePageContext(payload.productId, "upload", {
-      summary: `最近报表 ${uploadState.latestReportDate ?? "暂无"}，搜索词 ${uploadState.searchTerms ?? 0}，快照 ${uploadState.snapshotCount ?? 0}。`,
+      summary: `最近报表 ${uploadState.latestReportDate ?? "暂无"}，搜索词 ${uploadState.searchTerms ?? 0}，快照 ${uploadState.snapshotCount ?? 0}${latestCampaign ? `；最近活动 ${latestCampaign}` : ""}${failedNames ? `；失败文件 ${failedNames}` : ""}。`,
       campaigns: uploadState.campaigns ?? 0,
       snapshot_count: uploadState.snapshotCount ?? 0,
       failure_count: fileFailures.length,
+      latest_campaign: latestCampaign,
+      failed_names: failedNames,
     })
-  }, [fileFailures.length, payload.productId, uploadState])
+  }, [fileFailures, payload.productId, uploadState])
 
   const historyItems = useMemo(() => {
     const snapshotItems = uploadState.recentSnapshots.map((item) => ({
