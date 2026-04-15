@@ -55,3 +55,29 @@ def test_frontend_settings_restore_backup_endpoint(monkeypatch, tmp_path):
     body = response.json()
     assert body['status'] == 'success'
     assert body['restoredProductId'] != product_id
+
+
+def test_frontend_settings_config_endpoint_updates_product_config(monkeypatch, tmp_path):
+    db, product_id = _bootstrap(monkeypatch, tmp_path)
+    db.close()
+
+    with TestClient(create_app()) as client:
+        response = client.post('/frontend/settings/product-config', json={
+            'product_id': product_id,
+            'core_keywords': ['travel pillow', 'neck pillow'],
+            'related_keywords': ['airplane pillow'],
+            'competitor_asins': ['b0comp12345'],
+            'own_variants': ['b0own12345'],
+        })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['status'] == 'success'
+    assert body['configEditor']['coreKeywords'] == ['travel pillow', 'neck pillow']
+    assert body['configEditor']['competitorAsins'] == ['B0COMP12345']
+
+    db = Database(str(tmp_path / 'legacy-app.db'))
+    product = db.get_product(product_id)
+    db.close()
+    assert product['config']['core_keywords'] == ['travel pillow', 'neck pillow']
+    assert product['config']['own_variants'] == ['B0OWN12345']

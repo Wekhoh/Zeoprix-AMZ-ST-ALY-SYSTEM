@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { recordFrontendActivity } from "@/components/live-activity";
 import { writePageContext } from "@/components/page-context";
+import { SettingsConfigPanel } from "@/components/settings-config-panel";
 import { SettingsMutationPanel } from "@/components/settings-mutation-panel";
 import type { SettingsPayload } from "@/lib/mock-data";
 
@@ -17,15 +18,31 @@ type RestoreBackupResponse = {
   productName?: string
 }
 
+type ConfigMutationResponse = {
+  status?: string
+  message?: string
+  configEditor?: {
+    coreKeywords: string[]
+    relatedKeywords: string[]
+    competitorAsins: string[]
+    ownVariants: string[]
+  }
+}
+
+type SettingsState = NonNullable<SettingsPayload["settings"]>
+
+function buildInitialSettingsState(payload: SettingsPayload): SettingsState {
+  return payload.settings ?? {
+    ruleVersionCount: 0,
+    strategyProfileCount: 0,
+    keywordLibraryCounts: { irrelevant: 0, weak: 0, generic: 0, car: 0, variants: 0 },
+    backupSummary: { searchTerms: 0, analysisResults: 0, manualReviews: 0, snapshots: 0, executionBatches: 0 },
+    configEditor: { coreKeywords: [], relatedKeywords: [], competitorAsins: [], ownVariants: [] },
+  }
+}
+
 export function SettingsLivePanel({ payload }: Props) {
-  const [settingsState, setSettingsState] = useState(
-    payload.settings ?? {
-      ruleVersionCount: 0,
-      strategyProfileCount: 0,
-      keywordLibraryCounts: { irrelevant: 0, weak: 0, generic: 0, car: 0, variants: 0 },
-      backupSummary: { searchTerms: 0, analysisResults: 0, manualReviews: 0, snapshots: 0, executionBatches: 0 },
-    },
-  )
+  const [settingsState, setSettingsState] = useState<SettingsState>(() => buildInitialSettingsState(payload))
   const [activityLog, setActivityLog] = useState<string[]>([])
 
   const libs = settingsState.keywordLibraryCounts
@@ -39,8 +56,9 @@ export function SettingsLivePanel({ payload }: Props) {
       strategy_profiles: settingsState.strategyProfileCount ?? 0,
       backup_terms: backup.searchTerms ?? 0,
       latest_activity: latestActivity,
+      core_keywords: settingsState.configEditor.coreKeywords.join("、"),
     })
-  }, [activityLog, backup.searchTerms, payload.productId, settingsState.ruleVersionCount, settingsState.strategyProfileCount])
+  }, [activityLog, backup.searchTerms, payload.productId, settingsState])
 
   function handleRuntimeCleared() {
     setSettingsState((current) => ({
@@ -73,9 +91,33 @@ export function SettingsLivePanel({ payload }: Props) {
     })
   }
 
+  function handleConfigSaved(response: ConfigMutationResponse) {
+    const configEditor = response.configEditor
+    if (!configEditor) return
+    setSettingsState((current) => ({
+      ...current,
+      configEditor,
+      keywordLibraryCounts: {
+        ...current.keywordLibraryCounts,
+        variants: configEditor.ownVariants.length,
+      },
+    }))
+    const line = `已保存配置：核心词 ${configEditor.coreKeywords.length} 个，竞品 ASIN ${configEditor.competitorAsins.length} 个。`
+    setActivityLog((current) => [line, ...current].slice(0, 4))
+    recordFrontendActivity(payload.productId, {
+      label: "最近配置",
+      title: "规则与词库配置已更新",
+      detail: line,
+      href: "/settings",
+    })
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-      <SettingsMutationPanel payload={payload} onRuntimeCleared={handleRuntimeCleared} onBackupRestored={handleBackupRestored} />
+      <div className="space-y-6">
+        <SettingsMutationPanel payload={payload} onRuntimeCleared={handleRuntimeCleared} onBackupRestored={handleBackupRestored} />
+        <SettingsConfigPanel payload={{ ...payload, settings: settingsState }} onConfigSaved={handleConfigSaved} />
+      </div>
       <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
         <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Configuration</div>
         <h3 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">规则与产品配置</h3>

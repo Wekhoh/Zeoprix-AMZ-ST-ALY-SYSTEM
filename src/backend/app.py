@@ -38,6 +38,7 @@ from src.backend.workbench_payload import (
     build_upload_page_payload,
     build_workbench_payload,
     clear_runtime_for_frontend,
+    update_settings_config_for_frontend,
     create_execution_batch_for_frontend,
     export_full_backup_for_frontend,
     restore_full_backup_for_frontend,
@@ -131,6 +132,14 @@ class FrontendCopilotChatRequest(BaseModel):
     user_message: str
     history: list[FrontendCopilotMessage] = []
     page_context: dict[str, Any] | None = None
+
+
+class FrontendSettingsConfigUpdateRequest(BaseModel):
+    product_id: int
+    core_keywords: list[str] = []
+    related_keywords: list[str] = []
+    competitor_asins: list[str] = []
+    own_variants: list[str] = []
 
 
 class FrontendRestoreBackupRequest(BaseModel):
@@ -423,6 +432,16 @@ def create_app() -> FastAPI:
     @app.get('/frontend/settings/full-backup', tags=['frontend'])
     async def export_frontend_full_backup(product_id: int) -> dict:
         return export_full_backup_for_frontend(product_id=product_id)
+
+    @app.post('/frontend/settings/product-config', tags=['frontend'])
+    async def update_frontend_settings_config(payload: FrontendSettingsConfigUpdateRequest) -> dict:
+        return update_settings_config_for_frontend(
+            product_id=payload.product_id,
+            core_keywords=payload.core_keywords,
+            related_keywords=payload.related_keywords,
+            competitor_asins=payload.competitor_asins,
+            own_variants=payload.own_variants,
+        )
 
     @app.post('/frontend/settings/restore-backup', tags=['frontend'])
     async def restore_frontend_full_backup(payload: FrontendRestoreBackupRequest) -> dict:

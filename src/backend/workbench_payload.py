@@ -806,6 +806,40 @@ def build_review_page_payload(product_id: int | None = None) -> dict[str, Any]:
         }
 
 
+def update_settings_config_for_frontend(
+    *,
+    product_id: int,
+    core_keywords: list[str],
+    related_keywords: list[str],
+    competitor_asins: list[str],
+    own_variants: list[str],
+) -> dict[str, Any]:
+    db_path = _get_app_database_path()
+    normalized = {
+        "core_keywords": [item.strip() for item in core_keywords if str(item).strip()],
+        "related_keywords": [item.strip() for item in related_keywords if str(item).strip()],
+        "competitor_asins": [item.strip().upper() for item in competitor_asins if str(item).strip()],
+        "own_variants": [item.strip().upper() for item in own_variants if str(item).strip()],
+    }
+    with Database(str(db_path)) as db:
+        product = db.get_product(product_id)
+        if not product:
+            raise ValueError("产品不存在")
+        current_config = product.get("config") or {}
+        current_config.update(normalized)
+        db.update_product_config(product_id, current_config)
+        return {
+            "status": "success",
+            "message": "产品配置已更新。",
+            "configEditor": {
+                "coreKeywords": normalized["core_keywords"],
+                "relatedKeywords": normalized["related_keywords"],
+                "competitorAsins": normalized["competitor_asins"],
+                "ownVariants": normalized["own_variants"],
+            },
+        }
+
+
 def build_settings_page_payload(product_id: int | None = None) -> dict[str, Any]:
     workbench = build_workbench_payload(product_id)
     if workbench.get("source") != "live":
@@ -837,6 +871,12 @@ def build_settings_page_payload(product_id: int | None = None) -> dict[str, Any]
                     "variants": len(product_config.get("own_variants", [])),
                 },
                 "backupSummary": backup_summary,
+                "configEditor": {
+                    "coreKeywords": product_config.get("core_keywords", []),
+                    "relatedKeywords": product_config.get("related_keywords", []),
+                    "competitorAsins": product_config.get("competitor_asins", []),
+                    "ownVariants": product_config.get("own_variants", []),
+                },
             },
         }
 

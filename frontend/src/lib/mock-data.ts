@@ -167,6 +167,12 @@ export type SettingsPayload = WorkbenchPayload & {
       snapshots: number
       executionBatches: number
     }
+    configEditor: {
+      coreKeywords: string[]
+      relatedKeywords: string[]
+      competitorAsins: string[]
+      ownVariants: string[]
+    }
   }
 }
 
@@ -252,6 +258,13 @@ export const opsTemplates = {
     '【执行交接】先去操作清单执行否词批次 NEG-20260411-120000-ABC123，再处理 11 个手动补量词。执行后 3 天回看最近执行效果与 verdict。',
   weekly_review:
     '【周度复盘】本周首页趋势显示花费上升但结构开始收敛，最近执行效果为“出现改善信号”。改善最多的词为 travel pillow，仍需关注 massager。',
+}
+
+export const settingsConfigEditor = {
+  coreKeywords: ['travel pillow', 'neck pillow'],
+  relatedKeywords: ['airplane pillow', 'memory foam pillow'],
+  competitorAsins: ['B0COMP12345', 'B0COMP67890'],
+  ownVariants: ['B0OWN12345'],
 }
 
 export const aiCopilotCards = [
