@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+import { getPageContextKey, readPageContext } from "@/components/page-context";
 import { BACKEND_BASE_URL } from "@/lib/backend";
 import type { AICopilotCard } from "@/lib/mock-data";
 
@@ -104,6 +105,7 @@ function readInitialState(storageKey: string, aiCard: AICopilotCard): StoredCopi
 export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
   const router = useRouter()
   const storageKey = useMemo(() => buildStorageKey(productId, pageKey), [pageKey, productId])
+  const pageContextKey = useMemo(() => getPageContextKey(productId, pageKey), [pageKey, productId])
   const initialState = useMemo(() => readInitialState(storageKey, aiCard), [aiCard, storageKey])
 
   const [messages, setMessages] = useState<ChatMessage[]>(initialState.messages)
@@ -113,6 +115,7 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
   const [actionLinks, setActionLinks] = useState<ActionLink[]>(initialState.actionLinks)
   const [contextLabel, setContextLabel] = useState<string | null>(initialState.contextLabel)
   const [warning, setWarning] = useState<string | null>(initialState.warning)
+  const [pageContext, setPageContext] = useState<Record<string, unknown>>(() => readPageContext(productId, pageKey))
   const [pending, startTransition] = useTransition()
 
   useEffect(() => {
@@ -125,6 +128,27 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
       // ignore storage failures
     }
   }, [actionLinks, contextLabel, messages, prompts, recommendedActions, storageKey, warning])
+
+  useEffect(() => {
+    const syncPageContext = () => {
+      setPageContext(readPageContext(productId, pageKey))
+    }
+    syncPageContext()
+
+    const handle = (event: Event) => {
+      const custom = event as CustomEvent<{ key?: string }>
+      if (!custom.detail?.key || custom.detail.key === pageContextKey) {
+        syncPageContext()
+      }
+    }
+
+    window.addEventListener("zeoprix:page-context-updated", handle as EventListener)
+    window.addEventListener("storage", syncPageContext)
+    return () => {
+      window.removeEventListener("zeoprix:page-context-updated", handle as EventListener)
+      window.removeEventListener("storage", syncPageContext)
+    }
+  }, [pageContextKey, pageKey, productId])
 
   function clearConversation() {
     const resetMessages = [{ role: "assistant" as const, content: aiCard.summary }]
@@ -153,6 +177,7 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
           product_id: productId ?? null,
           page_key: pageKey,
           page_title: pageTitle,
+          page_context: pageContext,
           user_message: trimmed,
           history: nextMessages.slice(-6),
         }),
@@ -188,6 +213,12 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
       {contextLabel ? (
         <div className="mt-5 inline-flex items-center rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-700">
           {contextLabel}
+        </div>
+      ) : null}
+
+      {Object.keys(pageContext).length ? (
+        <div className="mt-3 rounded-2xl bg-zinc-50 px-4 py-3 text-sm leading-relaxed text-zinc-500">
+          {String(pageContext.summary ?? "")}
         </div>
       ) : null}
 
