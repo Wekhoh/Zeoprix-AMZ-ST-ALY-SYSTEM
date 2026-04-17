@@ -38,6 +38,7 @@ from src.backend.workbench_payload import (
     build_upload_page_payload,
     build_workbench_payload,
     clear_runtime_for_frontend,
+    preview_settings_rule_version_for_frontend,
     restore_settings_rule_version_for_frontend,
     update_settings_config_for_frontend,
     create_execution_batch_for_frontend,
@@ -454,6 +455,13 @@ def create_app() -> FastAPI:
         return restore_settings_rule_version_for_frontend(
             product_id=payload.product_id,
             version=payload.version,
+        )
+
+    @app.get('/frontend/settings/rule-versions/{version}', tags=['frontend'])
+    async def preview_frontend_rule_version(version: int, product_id: int) -> dict:
+        return preview_settings_rule_version_for_frontend(
+            product_id=product_id,
+            version=version,
         )
 
     @app.post('/frontend/settings/restore-backup', tags=['frontend'])

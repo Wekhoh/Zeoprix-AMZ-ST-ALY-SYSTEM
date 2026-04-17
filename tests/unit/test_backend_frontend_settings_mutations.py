@@ -102,3 +102,19 @@ def test_frontend_settings_restore_rule_version_endpoint(monkeypatch, tmp_path):
     body = response.json()
     assert body['status'] == 'success'
     assert body['ruleVersionCount'] >= 1
+
+
+def test_frontend_settings_preview_rule_version_endpoint(monkeypatch, tmp_path):
+    db, product_id = _bootstrap(monkeypatch, tmp_path)
+    from src.ui.pages.settings_data import save_config_version
+    save_config_version(db, product_id, {'core_keywords': ['travel pillow']}, {'core_keywords': ['neck pillow'], 'competitor_asins': ['B0COMP12345']})
+    db.close()
+
+    with TestClient(create_app()) as client:
+        response = client.get(f'/frontend/settings/rule-versions/1?product_id={product_id}')
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['status'] == 'success'
+    assert body['configEditor']['coreKeywords'] == ['neck pillow']
+    assert 'neck pillow' in body['diff']['coreKeywords']['added']

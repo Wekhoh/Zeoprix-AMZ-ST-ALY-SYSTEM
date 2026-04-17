@@ -39,6 +39,23 @@ type RuleVersionRestoreResponse = {
   }>
 }
 
+type RuleVersionPreviewResponse = {
+  status?: string
+  version: number
+  configEditor: {
+    coreKeywords: string[]
+    relatedKeywords: string[]
+    competitorAsins: string[]
+    ownVariants: string[]
+  }
+  diff: {
+    coreKeywords: { added: string[]; removed: string[] }
+    relatedKeywords: { added: string[]; removed: string[] }
+    competitorAsins: { added: string[]; removed: string[] }
+    ownVariants: { added: string[]; removed: string[] }
+  }
+}
+
 function splitLines(value: string) {
   return value
     .split(/[\n,]/)
@@ -55,6 +72,7 @@ export function SettingsConfigPanel({ payload, onConfigSaved, onRuleVersionResto
   const [competitorAsins, setCompetitorAsins] = useState(editor.competitorAsins.join("\n"))
   const [ownVariants, setOwnVariants] = useState(editor.ownVariants.join("\n"))
   const [message, setMessage] = useState<string | null>(null)
+  const [preview, setPreview] = useState<RuleVersionPreviewResponse | null>(null)
   const [pending, startTransition] = useTransition()
 
   function saveConfig() {
@@ -103,7 +121,22 @@ export function SettingsConfigPanel({ payload, onConfigSaved, onRuleVersionResto
         return
       }
       setMessage(body.message ?? `已恢复规则版本 v${version}`)
+      setPreview(null)
       onRuleVersionRestored?.(body, version)
+    })
+  }
+
+  function previewRuleVersion(version: number) {
+    if (!productId) return
+    setMessage(null)
+    startTransition(async () => {
+      const response = await fetch(`${BACKEND_BASE_URL}/frontend/settings/rule-versions/${version}?product_id=${productId}`)
+      const body = (await response.json().catch(() => ({ message: "读取规则版本失败" }))) as RuleVersionPreviewResponse & { detail?: string; message?: string }
+      if (!response.ok) {
+        setMessage(body.detail ?? body.message ?? "读取规则版本失败")
+        return
+      }
+      setPreview(body)
     })
   }
 
@@ -147,13 +180,44 @@ export function SettingsConfigPanel({ payload, onConfigSaved, onRuleVersionResto
                     <div className="font-medium text-zinc-950">v{item.version} · {item.createdAt}</div>
                     <div className="mt-1 text-sm leading-relaxed text-zinc-500">{item.description}</div>
                   </div>
-                  <button onClick={() => restoreRuleVersion(item.version)} disabled={pending || !productId} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50">
-                    恢复此版本
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => previewRuleVersion(item.version)} disabled={pending || !productId} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50">
+                      查看差异
+                    </button>
+                    <button onClick={() => restoreRuleVersion(item.version)} disabled={pending || !productId} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50">
+                      恢复此版本
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
+          {preview ? (
+            <div className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-zinc-200/80">
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">版本差异预览</div>
+              <div className="mt-2 text-sm font-medium text-zinc-950">v{preview.version}</div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {(
+                  [
+                    ["核心词", preview.diff.coreKeywords],
+                    ["相关词", preview.diff.relatedKeywords],
+                    ["竞品 ASIN", preview.diff.competitorAsins],
+                    ["自家变体", preview.diff.ownVariants],
+                  ] as const
+                ).map(([label, diff]) => (
+                  <div key={label} className="rounded-2xl bg-zinc-50 p-4">
+                    <div className="text-sm font-medium text-zinc-950">{label}</div>
+                    <div className="mt-2 text-sm leading-relaxed text-zinc-500">
+                      {diff.added.length ? `新增：${diff.added.join("、")}` : "新增：无"}
+                    </div>
+                    <div className="mt-1 text-sm leading-relaxed text-zinc-500">
+                      {diff.removed.length ? `移除：${diff.removed.join("、")}` : "移除：无"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </section>

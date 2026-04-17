@@ -881,6 +881,54 @@ def restore_settings_rule_version_for_frontend(*, product_id: int, version: int)
         }
 
 
+def preview_settings_rule_version_for_frontend(*, product_id: int, version: int) -> dict[str, Any]:
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        product = db.get_product(product_id)
+        if not product:
+            raise ValueError("产品不存在")
+
+        snapshot = db.get_rule_version_snapshot(product_id, version)
+        if not snapshot:
+            raise ValueError("指定规则版本不存在")
+
+        current_config = product.get("config") or {}
+        snapshot_core = [str(item).strip() for item in snapshot.get("core_keywords", []) if str(item).strip()]
+        snapshot_related = [str(item).strip() for item in snapshot.get("related_keywords", []) if str(item).strip()]
+        snapshot_competitors = [str(item).strip().upper() for item in snapshot.get("competitor_asins", []) if str(item).strip()]
+        snapshot_variants = [str(item).strip().upper() for item in snapshot.get("own_variants", []) if str(item).strip()]
+
+        current_core = [str(item).strip() for item in current_config.get("core_keywords", []) if str(item).strip()]
+        current_related = [str(item).strip() for item in current_config.get("related_keywords", []) if str(item).strip()]
+        current_competitors = [str(item).strip().upper() for item in current_config.get("competitor_asins", []) if str(item).strip()]
+        current_variants = [str(item).strip().upper() for item in current_config.get("own_variants", []) if str(item).strip()]
+
+        def _delta(target: list[str], current: list[str]) -> dict[str, list[str]]:
+            target_set = set(target)
+            current_set = set(current)
+            return {
+                "added": sorted(target_set - current_set),
+                "removed": sorted(current_set - target_set),
+            }
+
+        return {
+            "status": "success",
+            "version": version,
+            "configEditor": {
+                "coreKeywords": snapshot_core,
+                "relatedKeywords": snapshot_related,
+                "competitorAsins": snapshot_competitors,
+                "ownVariants": snapshot_variants,
+            },
+            "diff": {
+                "coreKeywords": _delta(snapshot_core, current_core),
+                "relatedKeywords": _delta(snapshot_related, current_related),
+                "competitorAsins": _delta(snapshot_competitors, current_competitors),
+                "ownVariants": _delta(snapshot_variants, current_variants),
+            },
+        }
+
+
 def build_settings_page_payload(product_id: int | None = None) -> dict[str, Any]:
     workbench = build_workbench_payload(product_id)
     if workbench.get("source") != "live":
