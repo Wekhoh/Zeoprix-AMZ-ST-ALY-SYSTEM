@@ -38,6 +38,7 @@ from src.backend.workbench_payload import (
     build_upload_page_payload,
     build_workbench_payload,
     clear_runtime_for_frontend,
+    restore_settings_rule_version_for_frontend,
     update_settings_config_for_frontend,
     create_execution_batch_for_frontend,
     export_full_backup_for_frontend,
@@ -140,6 +141,11 @@ class FrontendSettingsConfigUpdateRequest(BaseModel):
     related_keywords: list[str] = []
     competitor_asins: list[str] = []
     own_variants: list[str] = []
+
+
+class FrontendRuleVersionRestoreRequest(BaseModel):
+    product_id: int
+    version: int
 
 
 class FrontendRestoreBackupRequest(BaseModel):
@@ -443,6 +449,13 @@ def create_app() -> FastAPI:
             own_variants=payload.own_variants,
         )
 
+    @app.post('/frontend/settings/rule-versions/restore', tags=['frontend'])
+    async def restore_frontend_rule_version(payload: FrontendRuleVersionRestoreRequest) -> dict:
+        return restore_settings_rule_version_for_frontend(
+            product_id=payload.product_id,
+            version=payload.version,
+        )
+
     @app.post('/frontend/settings/restore-backup', tags=['frontend'])
     async def restore_frontend_full_backup(payload: FrontendRestoreBackupRequest) -> dict:
         return restore_full_backup_for_frontend(
@@ -552,6 +565,7 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
 
 
 

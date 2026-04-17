@@ -852,6 +852,35 @@ def update_settings_config_for_frontend(
         }
 
 
+def restore_settings_rule_version_for_frontend(*, product_id: int, version: int) -> dict[str, Any]:
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        product = db.get_product(product_id)
+        if not product:
+            raise ValueError("产品不存在")
+        restored_snapshot = db.get_rule_version_snapshot(product_id, version)
+        if not restored_snapshot:
+            raise ValueError("指定规则版本不存在")
+        previous_config = product.get("config") or {}
+        next_config = {**previous_config, "rules": restored_snapshot}
+        save_config_version(db, product_id, previous_config, next_config)
+        db.update_product_config(product_id, next_config)
+        rule_versions = db.get_rule_versions(product_id)
+        return {
+            "status": "success",
+            "message": f"已恢复规则版本 v{version}。",
+            "ruleVersionCount": len(rule_versions),
+            "recentRuleVersions": [
+                {
+                    "version": int(item.get("version") or 0),
+                    "createdAt": _format_timestamp(item.get("created_at")),
+                    "description": str(item.get("description") or "配置更新")[:160],
+                }
+                for item in rule_versions[:5]
+            ],
+        }
+
+
 def build_settings_page_payload(product_id: int | None = None) -> dict[str, Any]:
     workbench = build_workbench_payload(product_id)
     if workbench.get("source") != "live":

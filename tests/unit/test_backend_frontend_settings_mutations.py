@@ -75,9 +75,30 @@ def test_frontend_settings_config_endpoint_updates_product_config(monkeypatch, t
     assert body['status'] == 'success'
     assert body['configEditor']['coreKeywords'] == ['travel pillow', 'neck pillow']
     assert body['configEditor']['competitorAsins'] == ['B0COMP12345']
+    assert body['ruleVersionCount'] >= 1
+    assert body['recentRuleVersions']
 
     db = Database(str(tmp_path / 'legacy-app.db'))
     product = db.get_product(product_id)
     db.close()
     assert product['config']['core_keywords'] == ['travel pillow', 'neck pillow']
     assert product['config']['own_variants'] == ['B0OWN12345']
+
+
+def test_frontend_settings_restore_rule_version_endpoint(monkeypatch, tmp_path):
+    db, product_id = _bootstrap(monkeypatch, tmp_path)
+    db.update_product_config(product_id, {'core_keywords': ['new keyword']})
+    from src.ui.pages.settings_data import save_config_version
+    save_config_version(db, product_id, {'core_keywords': ['travel pillow']}, {'core_keywords': ['new keyword']})
+    db.close()
+
+    with TestClient(create_app()) as client:
+        response = client.post('/frontend/settings/rule-versions/restore', json={
+            'product_id': product_id,
+            'version': 1,
+        })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['status'] == 'success'
+    assert body['ruleVersionCount'] >= 1

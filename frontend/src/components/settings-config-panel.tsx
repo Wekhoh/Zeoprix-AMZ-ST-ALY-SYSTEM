@@ -8,17 +8,35 @@ import type { SettingsPayload } from "@/lib/mock-data";
 type Props = {
   payload: SettingsPayload
   onConfigSaved?: (response: ConfigMutationResponse) => void
+  onRuleVersionRestored?: (response: RuleVersionRestoreResponse, version: number) => void
 }
 
 type ConfigMutationResponse = {
   status?: string
   message?: string
+  ruleVersionCount?: number
+  recentRuleVersions?: Array<{
+    version: number
+    createdAt: string
+    description: string
+  }>
   configEditor?: {
     coreKeywords: string[]
     relatedKeywords: string[]
     competitorAsins: string[]
     ownVariants: string[]
   }
+}
+
+type RuleVersionRestoreResponse = {
+  status?: string
+  message?: string
+  ruleVersionCount?: number
+  recentRuleVersions?: Array<{
+    version: number
+    createdAt: string
+    description: string
+  }>
 }
 
 function splitLines(value: string) {
@@ -28,9 +46,10 @@ function splitLines(value: string) {
     .filter(Boolean)
 }
 
-export function SettingsConfigPanel({ payload, onConfigSaved }: Props) {
+export function SettingsConfigPanel({ payload, onConfigSaved, onRuleVersionRestored }: Props) {
   const productId = payload.productId
   const editor = payload.settings?.configEditor ?? { coreKeywords: [], relatedKeywords: [], competitorAsins: [], ownVariants: [] }
+  const recentRuleVersions = payload.settings?.recentRuleVersions ?? []
   const [coreKeywords, setCoreKeywords] = useState(editor.coreKeywords.join("\n"))
   const [relatedKeywords, setRelatedKeywords] = useState(editor.relatedKeywords.join("\n"))
   const [competitorAsins, setCompetitorAsins] = useState(editor.competitorAsins.join("\n"))
@@ -69,6 +88,25 @@ export function SettingsConfigPanel({ payload, onConfigSaved }: Props) {
     })
   }
 
+  function restoreRuleVersion(version: number) {
+    if (!productId) return
+    setMessage(null)
+    startTransition(async () => {
+      const response = await fetch(`${BACKEND_BASE_URL}/frontend/settings/rule-versions/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_id: productId, version }),
+      })
+      const body = (await response.json().catch(() => ({ message: "恢复规则版本失败" }))) as RuleVersionRestoreResponse & { detail?: string }
+      if (!response.ok) {
+        setMessage(body.detail ?? body.message ?? "恢复规则版本失败")
+        return
+      }
+      setMessage(body.message ?? `已恢复规则版本 v${version}`)
+      onRuleVersionRestored?.(body, version)
+    })
+  }
+
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
       <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">Config Editor</div>
@@ -98,6 +136,26 @@ export function SettingsConfigPanel({ payload, onConfigSaved }: Props) {
         </button>
         {message ? <span className="text-sm leading-relaxed text-zinc-500">{message}</span> : null}
       </div>
+      {recentRuleVersions.length ? (
+        <div className="mt-6 rounded-2xl bg-zinc-50 p-4">
+          <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">规则版本恢复</div>
+          <div className="mt-3 space-y-2">
+            {recentRuleVersions.slice(0, 3).map((item) => (
+              <div key={`restore-rule-version-${item.version}`} className="rounded-2xl bg-white px-4 py-3 ring-1 ring-zinc-200/80">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-zinc-950">v{item.version} · {item.createdAt}</div>
+                    <div className="mt-1 text-sm leading-relaxed text-zinc-500">{item.description}</div>
+                  </div>
+                  <button onClick={() => restoreRuleVersion(item.version)} disabled={pending || !productId} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50">
+                    恢复此版本
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }
