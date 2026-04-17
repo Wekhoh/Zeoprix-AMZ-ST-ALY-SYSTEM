@@ -173,6 +173,11 @@ export type SettingsPayload = WorkbenchPayload & {
       competitorAsins: string[]
       ownVariants: string[]
     }
+    recentRuleVersions: Array<{
+      version: number
+      createdAt: string
+      description: string
+    }>
   }
 }
 

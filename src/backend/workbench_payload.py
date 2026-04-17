@@ -19,6 +19,7 @@ from src.ui.pages.settings_data import (
     build_full_backup_export_payload,
     clear_product_runtime_data,
     restore_full_backup,
+    save_config_version,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -825,9 +826,11 @@ def update_settings_config_for_frontend(
         product = db.get_product(product_id)
         if not product:
             raise ValueError("产品不存在")
-        current_config = product.get("config") or {}
-        current_config.update(normalized)
-        db.update_product_config(product_id, current_config)
+        previous_config = product.get("config") or {}
+        next_config = {**previous_config, **normalized}
+        save_config_version(db, product_id, previous_config, next_config)
+        db.update_product_config(product_id, next_config)
+        rule_versions = db.get_rule_versions(product_id)
         return {
             "status": "success",
             "message": "产品配置已更新。",
@@ -837,6 +840,15 @@ def update_settings_config_for_frontend(
                 "competitorAsins": normalized["competitor_asins"],
                 "ownVariants": normalized["own_variants"],
             },
+            "ruleVersionCount": len(rule_versions),
+            "recentRuleVersions": [
+                {
+                    "version": int(item.get("version") or 0),
+                    "createdAt": _format_timestamp(item.get("created_at")),
+                    "description": str(item.get("description") or "配置更新")[:160],
+                }
+                for item in rule_versions[:5]
+            ],
         }
 
 
@@ -877,6 +889,14 @@ def build_settings_page_payload(product_id: int | None = None) -> dict[str, Any]
                     "competitorAsins": product_config.get("competitor_asins", []),
                     "ownVariants": product_config.get("own_variants", []),
                 },
+                "recentRuleVersions": [
+                    {
+                        "version": int(item.get("version") or 0),
+                        "createdAt": _format_timestamp(item.get("created_at")),
+                        "description": str(item.get("description") or "配置更新")[:160],
+                    }
+                    for item in db.get_rule_versions(product_id)[:5]
+                ],
             },
         }
 
