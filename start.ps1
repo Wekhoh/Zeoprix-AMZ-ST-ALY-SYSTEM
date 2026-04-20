@@ -1,7 +1,8 @@
 # AMZ搜索词分析系统 PowerShell启动脚本（新版前后端工作台）
 param(
     [switch]$NoBrowser,
-    [switch]$ForceRestart
+    [switch]$ForceRestart,
+    [switch]$ForceRebuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,6 +19,9 @@ $BackendLog = Join-Path $LogsDir 'backend-modern.log'
 $BackendErrLog = Join-Path $LogsDir 'backend-modern.err.log'
 $FrontendLog = Join-Path $LogsDir 'frontend-modern.log'
 $FrontendErrLog = Join-Path $LogsDir 'frontend-modern.err.log'
+$BuildLog = Join-Path $LogsDir 'frontend-build.log'
+$BuildErrLog = Join-Path $LogsDir 'frontend-build.err.log'
+$BuildStamp = Join-Path $LogsDir 'frontend-build.commit'
 $PythonExe = 'C:/Users/jackl/AppData/Local/Programs/Python/Python314/python.exe'
 
 function Write-Stage([string]$label, [string]$message, [ConsoleColor]$color = 'Yellow') {
@@ -60,12 +64,18 @@ function Stop-RepoProcessOnPort([int]$port) {
 function Wait-ForHttp([string]$url, [int]$timeoutSeconds = 45) {
     $deadline = (Get-Date).AddSeconds($timeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        if (Test-Http $url) {
-            return $true
-        }
+        if (Test-Http $url) { return $true }
         Start-Sleep -Milliseconds 500
     }
     return $false
+}
+
+function Get-RepoHead() {
+    try {
+        return (git -C $RepoRoot rev-parse HEAD).Trim()
+    } catch {
+        return ''
+    }
 }
 
 Set-Location $RepoRoot
@@ -98,15 +108,32 @@ if (-not (Test-Path (Join-Path $FrontendDir 'node_modules'))) {
     Set-Location $RepoRoot
 }
 
-Write-Stage '3/5' '停止旧版前后端占用并重新构建新版前端'
+Write-Stage '3/5' '检查是否需要重建新版前端'
 Stop-RepoProcessOnPort -port $BackendPort
 Stop-RepoProcessOnPort -port $FrontendPort
-if (Test-Path (Join-Path $FrontendDir '.next')) {
-    Remove-Item -Recurse -Force (Join-Path $FrontendDir '.next') -ErrorAction SilentlyContinue
+$buildIdPath = Join-Path $FrontendDir '.next\BUILD_ID'
+$currentHead = Get-RepoHead
+$lastBuiltHead = if (Test-Path $BuildStamp) { (Get-Content $BuildStamp -Raw).Trim() } else { '' }
+$needsBuild = $ForceRebuild -or -not (Test-Path $buildIdPath) -or ($currentHead -and $currentHead -ne $lastBuiltHead)
+if ($needsBuild) {
+    Write-Stage 'BUILD' '开始构建新版前端' 'DarkYellow'
+    if (Test-Path (Join-Path $FrontendDir '.next')) {
+        Remove-Item -Recurse -Force (Join-Path $FrontendDir '.next') -ErrorAction SilentlyContinue
+    }
+    foreach ($log in @($BuildLog, $BuildErrLog)) {
+        if (Test-Path $log) { Remove-Item $log -Force -ErrorAction SilentlyContinue }
+    }
+    $buildProc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'npm run build' -WorkingDirectory $FrontendDir -RedirectStandardOutput $BuildLog -RedirectStandardError $BuildErrLog -PassThru -WindowStyle Minimized
+    $buildProc | Wait-Process
+    if (Test-Path $BuildLog) { Get-Content $BuildLog -Tail 40 | Out-Host }
+    if (Test-Path $BuildErrLog) { Get-Content $BuildErrLog -Tail 40 | Out-Host }
+    if ($buildProc.ExitCode -ne 0) {
+        throw "前端构建失败，请查看日志：$BuildLog / $BuildErrLog"
+    }
+    if ($currentHead) { Set-Content -Path $BuildStamp -Value $currentHead -Encoding utf8 }
+} else {
+    Write-Stage 'OK' '前端构建已是最新，跳过重建' 'Green'
 }
-Set-Location $FrontendDir
-npm run build | Out-Host
-Set-Location $RepoRoot
 
 Write-Stage '4/5' '启动 FastAPI 后端'
 foreach ($log in @($BackendLog, $BackendErrLog, $FrontendLog, $FrontendErrLog)) {

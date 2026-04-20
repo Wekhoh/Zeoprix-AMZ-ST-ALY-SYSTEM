@@ -334,6 +334,16 @@ def _get_execution_batches_payload(db: Database, product_id: int) -> list[dict[s
                 }
                 for item in items[:5]
             ],
+            "itemsDetail": [
+                {
+                    "term": str(item.get("term") or "未命名词"),
+                    "action": str(item.get("suggested_action") or item.get("action_type") or "待执行"),
+                    "actionType": str(item.get("action_type") or "pending"),
+                    "spend": f"${float(item.get('spend') or 0.0):.2f}",
+                    "sales": f"${float(item.get('sales') or 0.0):.2f}",
+                }
+                for item in items
+            ],
         })
     return payload
 

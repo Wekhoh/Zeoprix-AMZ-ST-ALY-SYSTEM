@@ -342,11 +342,19 @@ export function AnalysisTable({ analysisRows = defaultAnalysisRows }: { analysis
 
 export function ExecutionBatchBoard({ executionBatches = defaultExecutionBatches }: { executionBatches?: ExecutionBatch[] }) {
   const [expandedCode, setExpandedCode] = useState<string | null>(executionBatches[0]?.code ?? null)
+  const [detailQuery, setDetailQuery] = useState<Record<string, string>>({})
 
   return (
     <section className="space-y-5">
       {executionBatches.map((batch) => {
         const isExpanded = expandedCode === batch.code
+        const query = (detailQuery[batch.code] ?? "").trim().toLowerCase()
+        const detailRows = (batch.itemsDetail ?? []).filter((item) => {
+          if (!query) return true
+          return [item.term, item.action, item.actionType].some((value) =>
+            value.toLowerCase().includes(query),
+          )
+        })
         return (
         <article key={batch.code} className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
           <div className="flex flex-wrap items-center gap-3">
@@ -397,7 +405,7 @@ export function ExecutionBatchBoard({ executionBatches = defaultExecutionBatches
                 <div>
                   <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">批次内重点词</div>
                   <div className="mt-2 text-sm leading-relaxed text-zinc-500">
-                    {isExpanded ? `正在查看 ${batch.itemsPreview.length} 个重点词。` : `点击展开查看 ${batch.itemsPreview.length} 个重点词。`}
+                    {isExpanded ? `正在查看 ${detailRows.length || batch.itemsPreview.length} 个重点词。` : `点击展开查看 ${batch.itemsPreview.length} 个重点词。`}
                   </div>
                 </div>
                 <button
@@ -408,14 +416,47 @@ export function ExecutionBatchBoard({ executionBatches = defaultExecutionBatches
                 </button>
               </div>
               {isExpanded ? (
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {batch.itemsPreview.map((item) => (
-                    <div key={`${batch.code}-${item.term}`} className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200/80">
-                      <div className="text-sm font-medium text-zinc-950">{item.term}</div>
-                      <div className="mt-2 text-sm leading-relaxed text-zinc-500">{item.action}</div>
-                      <div className="mt-3 text-sm tabular-nums text-zinc-500">{item.spend}</div>
-                    </div>
-                  ))}
+                <div className="mt-3 space-y-3">
+                  <input
+                    value={detailQuery[batch.code] ?? ""}
+                    onChange={(event) =>
+                      setDetailQuery((current) => ({ ...current, [batch.code]: event.target.value }))
+                    }
+                    placeholder="搜索批次内的词或动作…"
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                  />
+                  <div className="overflow-hidden rounded-2xl ring-1 ring-zinc-200/80">
+                    <table className="w-full border-collapse text-left text-sm text-zinc-900">
+                      <thead className="bg-white text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-500">
+                        <tr>
+                          <th className="px-4 py-3">关键词</th>
+                          <th className="px-4 py-3">动作</th>
+                          <th className="px-4 py-3">动作类型</th>
+                          <th className="px-4 py-3">花费</th>
+                          <th className="px-4 py-3">销售</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detailRows.length ? (
+                          detailRows.map((item) => (
+                            <tr key={`${batch.code}-${item.term}-${item.actionType}`} className="border-t border-zinc-200 bg-zinc-50/70">
+                              <td className="px-4 py-3 font-medium text-zinc-950">{item.term}</td>
+                              <td className="px-4 py-3 text-zinc-500">{item.action}</td>
+                              <td className="px-4 py-3 text-zinc-500">{item.actionType}</td>
+                              <td className="px-4 py-3 tabular-nums text-zinc-500">{item.spend}</td>
+                              <td className="px-4 py-3 tabular-nums text-zinc-500">{item.sales}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr className="border-t border-zinc-200 bg-zinc-50/70">
+                            <td className="px-4 py-4 text-sm leading-relaxed text-zinc-500" colSpan={5}>
+                              当前搜索条件下没有匹配项。
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ) : (
                 <div className="mt-3 flex flex-wrap gap-2">

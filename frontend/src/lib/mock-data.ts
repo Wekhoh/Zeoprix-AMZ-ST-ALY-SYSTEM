@@ -58,6 +58,14 @@ export type ExecutionBatchItemPreview = {
   spend: string
 }
 
+export type ExecutionBatchItemDetail = {
+  term: string
+  action: string
+  actionType: string
+  spend: string
+  sales: string
+}
+
 export type ExecutionBatch = {
   id?: number
   code: string
@@ -71,6 +79,7 @@ export type ExecutionBatch = {
   improving: string[]
   risky: string[]
   itemsPreview?: ExecutionBatchItemPreview[]
+  itemsDetail?: ExecutionBatchItemDetail[]
 }
 export type WorkbenchPayload = {
   source?: string
@@ -361,6 +370,12 @@ export const executionBatches = [
       { term: 'soft neck support', action: '否定词组', spend: '$17.50' },
       { term: 'massager', action: '否定词组', spend: '$16.20' },
     ],
+    itemsDetail: [
+      { term: 'travel pillow', action: '否定精准', actionType: 'negative_exact', spend: '$24.00', sales: '$0.00' },
+      { term: 'soft neck support', action: '否定词组', actionType: 'negative_phrase', spend: '$17.50', sales: '$0.00' },
+      { term: 'massager', action: '否定词组', actionType: 'negative_phrase', spend: '$16.20', sales: '$0.00' },
+      { term: 'neck pillow for airplane', action: '否定精准', actionType: 'negative_exact', spend: '$14.10', sales: '$0.00' },
+    ],
   },
   {
     code: 'MAN-20260410-184500-FD220A',
@@ -376,6 +391,11 @@ export const executionBatches = [
     itemsPreview: [
       { term: 'best neck pillow', action: '手动精准', spend: '$8.00' },
       { term: 'airplane pillow case', action: '手动精准', spend: '$6.50' },
+    ],
+    itemsDetail: [
+      { term: 'best neck pillow', action: '手动精准', actionType: 'manual_exact', spend: '$8.00', sales: '$42.00' },
+      { term: 'airplane pillow case', action: '手动精准', actionType: 'manual_exact', spend: '$6.50', sales: '$28.00' },
+      { term: 'memory foam pillow', action: '手动词组', actionType: 'manual_phrase', spend: '$5.20', sales: '$18.00' },
     ],
   },
 ]

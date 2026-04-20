@@ -27,6 +27,7 @@ type BatchMutationResponse = {
       suggested_action?: string
       action_type?: string
       spend?: number
+      sales?: number
     }>
   }
   verdict?: string
@@ -55,6 +56,13 @@ function normalizeBatch(response: BatchMutationResponse): ExecutionBatch {
       term: item.term ?? "未命名词",
       action: item.suggested_action ?? item.action_type ?? "待执行",
       spend: `$${Number(item.spend ?? 0).toFixed(2)}`,
+    })),
+    itemsDetail: (response.summary?.items ?? []).map((item) => ({
+      term: item.term ?? "未命名词",
+      action: item.suggested_action ?? item.action_type ?? "待执行",
+      actionType: item.action_type ?? "pending",
+      spend: `$${Number(item.spend ?? 0).toFixed(2)}`,
+      sales: `$${Number(item.sales ?? 0).toFixed(2)}`,
     })),
   }
 }

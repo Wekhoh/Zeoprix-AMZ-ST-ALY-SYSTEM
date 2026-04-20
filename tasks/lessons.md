@@ -89,3 +89,10 @@
 - Preventive rule: 只要前端做设计系统级重构，必须同步扫描所有主页面，至少把标题、正文、卡片、辅助文字的基础对比度统一掉；不能只验证首页好看就宣称前端重构完成。
 - Trigger to apply: 用户反馈“某个页面看不清”“字体和背景同色”“首页可以但其它页不行”之类的跨页面设计问题时。
 - How to verify the rule worked: 至少抽查首页 + 一个二级页的真实浏览器截图，并确认所有主页面都不再残留 `text-white` / `text-slate-400` 等旧深色主题文案样式。
+
+## 2026-04-20（桌面启动链不能假定快捷方式和默认 shell 正确）
+- Context: 主人指出双击桌面的 `AMZ搜索词分析系统.lnk` 后仍然打不开或打开旧版，说明“仓库里前端已经换新”并不等于真实桌面入口已经切到新系统。
+- Mistake pattern: 只在仓库里改前后端，不核查用户真实桌面快捷方式 `.lnk` 的目标路径与启动脚本；同时默认 `start.bat` 用系统 `powershell` 启动 UTF-8 PowerShell 脚本，导致在 Windows PowerShell 下解析失败。
+- Preventive rule: 只要主人提到“桌面快捷方式/双击启动/没反应/还是旧版”，必须同时核查三件事：① `.lnk` 实际 TargetPath/WorkingDirectory；② `start.bat` 是否显式调用 `pwsh.exe` 而不是依赖旧 `powershell`；③ 启动脚本是否默认打开新版 FastAPI+Next 入口而不是旧 Streamlit。
+- Trigger to apply: 用户反馈桌面双击没反应、快捷方式打开旧版、或本地入口与仓库实际状态不一致时。
+- How to verify the rule worked: 保留 `.lnk` 目标检查结果、`start.bat/start.ps1` 变更证据，以及 `./start.ps1 -NoBrowser` 或 `start.bat -NoBrowser` 后新版前端/后端地址返回 200 的验证输出。
