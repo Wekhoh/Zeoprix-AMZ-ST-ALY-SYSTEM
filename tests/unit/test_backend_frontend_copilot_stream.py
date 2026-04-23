@@ -135,3 +135,127 @@ def test_copilot_chat_stream_formats_sse_bytes(tmp_path, monkeypatch):
     assert "delta" in frame_types
     assert frame_types[-2] == "envelope"
     assert frame_types[-1] == "done"
+
+
+def test_chat_stream_endpoint_returns_sse_frames(monkeypatch):
+    from src.backend import copilot_chat as cc
+    from src.backend import app as app_module
+
+    async def fake_turn_stream(**kwargs):
+        yield b'data: {"type":"context","contextLabel":"ok"}\n\n'
+        yield b'data: {"type":"delta","text":"hi"}\n\n'
+        yield (
+            b'data: {"type":"envelope","followUpPrompts":[],'
+            b'"recommendedNextActions":[],"actionLinks":[],"warning":null}\n\n'
+        )
+        yield b'data: {"type":"done"}\n\n'
+
+    monkeypatch.setattr(cc, "process_frontend_copilot_turn_stream", fake_turn_stream)
+    monkeypatch.setattr(
+        app_module, "process_frontend_copilot_turn_stream", fake_turn_stream
+    )
+
+    from fastapi.testclient import TestClient
+    from src.backend.app import create_app
+
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/frontend/copilot/chat/stream",
+        json={
+            "product_id": None,
+            "page_key": "workbench",
+            "page_title": "工作台",
+            "user_message": "hi",
+            "history": [],
+            "page_context": None,
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    frames = [
+        json.loads(line[len("data: ") :])
+        for line in response.text.split("\n\n")
+        if line.strip().startswith("data: ")
+    ]
+    assert [f["type"] for f in frames] == ["context", "delta", "envelope", "done"]
+
+
+def test_chat_stream_endpoint_envelope_before_done(monkeypatch):
+    from src.backend import copilot_chat as cc
+    from src.backend import app as app_module
+
+    async def fake_turn_stream(**kwargs):
+        yield b'data: {"type":"delta","text":"abc"}\n\n'
+        yield (
+            b'data: {"type":"envelope","followUpPrompts":["p1"],'
+            b'"recommendedNextActions":["a1"],"actionLinks":[],'
+            b'"warning":null}\n\n'
+        )
+        yield b'data: {"type":"done"}\n\n'
+
+    monkeypatch.setattr(cc, "process_frontend_copilot_turn_stream", fake_turn_stream)
+    monkeypatch.setattr(
+        app_module, "process_frontend_copilot_turn_stream", fake_turn_stream
+    )
+
+    from fastapi.testclient import TestClient
+    from src.backend.app import create_app
+
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/frontend/copilot/chat/stream",
+        json={
+            "product_id": None,
+            "page_key": "workbench",
+            "page_title": "工作台",
+            "user_message": "x",
+            "history": [],
+            "page_context": None,
+        },
+    )
+    lines = [l for l in response.text.split("\n\n") if l.strip().startswith("data: ")]
+    types = [json.loads(l[len("data: ") :])["type"] for l in lines]
+    assert types[-2] == "envelope"
+    assert types[-1] == "done"
+    envelope = json.loads(lines[-2][len("data: ") :])
+    assert envelope["followUpPrompts"] == ["p1"]
+    assert envelope["recommendedNextActions"] == ["a1"]
+
+
+def test_chat_stream_endpoint_error_frame(monkeypatch):
+    from src.backend import copilot_chat as cc
+    from src.backend import app as app_module
+
+    async def fake_turn_stream(**kwargs):
+        yield b'data: {"type":"error","message":"boom"}\n\n'
+        yield b'data: {"type":"done"}\n\n'
+
+    monkeypatch.setattr(cc, "process_frontend_copilot_turn_stream", fake_turn_stream)
+    monkeypatch.setattr(
+        app_module, "process_frontend_copilot_turn_stream", fake_turn_stream
+    )
+
+    from fastapi.testclient import TestClient
+    from src.backend.app import create_app
+
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/frontend/copilot/chat/stream",
+        json={
+            "product_id": None,
+            "page_key": "workbench",
+            "page_title": "工作台",
+            "user_message": "x",
+            "history": [],
+            "page_context": None,
+        },
+    )
+    assert response.status_code == 200
+    lines = [l for l in response.text.split("\n\n") if l.strip().startswith("data: ")]
+    first = json.loads(lines[0][len("data: ") :])
+    assert first["type"] == "error"
+    assert "boom" in first["message"]
+    assert json.loads(lines[-1][len("data: ") :])["type"] == "done"

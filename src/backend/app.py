@@ -9,8 +9,18 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -29,7 +39,10 @@ from src.backend.database import (
     get_backend_database_url,
     init_backend_schema,
 )
-from src.backend.copilot_chat import process_frontend_copilot_turn
+from src.backend.copilot_chat import (
+    process_frontend_copilot_turn,
+    process_frontend_copilot_turn_stream,
+)
 from src.backend.workbench_payload import (
     build_actions_page_payload,
     build_analysis_page_payload,
@@ -51,11 +64,11 @@ from src.backend.workbench_payload import (
 )
 
 
-APP_TITLE = 'AMZ 搜索词分析系统 Backend'
-APP_VERSION = '0.1.0'
-VALID_WORKSPACE_ROLES = {'admin', 'editor', 'viewer'}
+APP_TITLE = "AMZ 搜索词分析系统 Backend"
+APP_VERSION = "0.1.0"
+VALID_WORKSPACE_ROLES = {"admin", "editor", "viewer"}
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/auth/login')
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 class LoginRequest(BaseModel):
@@ -168,18 +181,26 @@ async def lifespan(app: FastAPI):
 
 
 def _get_runtime_session_factory(request: Request):
-    session_factory = getattr(request.app.state, 'session_factory', None)
+    session_factory = getattr(request.app.state, "session_factory", None)
     if session_factory is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Backend database is not initialized.')
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Backend database is not initialized.",
+        )
     return session_factory
 
 
 def _require_admin(current_user: UserResponse) -> None:
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Admin role is required for this action.')
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role is required for this action.",
+        )
 
 
-def _get_current_workspace_context(session_factory, user_id: str) -> tuple[str, str, str]:
+def _get_current_workspace_context(
+    session_factory, user_id: str
+) -> tuple[str, str, str]:
     from src.backend.models import Workspace, WorkspaceMembership
 
     with session_factory() as session:
@@ -189,15 +210,23 @@ def _get_current_workspace_context(session_factory, user_id: str) -> tuple[str, 
             .order_by(WorkspaceMembership.created_at.asc())
         )
         if membership is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Current user does not belong to a workspace.')
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Current user does not belong to a workspace.",
+            )
 
         workspace = session.get(Workspace, membership.workspace_id)
         if workspace is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Current workspace was not found.')
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Current workspace was not found.",
+            )
         return workspace.id, workspace.name, membership.role
 
 
-def _serialize_workspace_members(session_factory, workspace_id: str) -> list[WorkspaceMemberResponse]:
+def _serialize_workspace_members(
+    session_factory, workspace_id: str
+) -> list[WorkspaceMemberResponse]:
     from src.backend.models import User, WorkspaceMembership
 
     with session_factory() as session:
@@ -207,22 +236,37 @@ def _serialize_workspace_members(session_factory, workspace_id: str) -> list[Wor
             .where(WorkspaceMembership.workspace_id == workspace_id)
             .order_by(WorkspaceMembership.role.asc(), User.email.asc())
         ).all()
-    return [WorkspaceMemberResponse(id=row.id, email=row.email, name=row.name, role=row.role) for row in rows]
+    return [
+        WorkspaceMemberResponse(
+            id=row.id, email=row.email, name=row.name, role=row.role
+        )
+        for row in rows
+    ]
 
 
-def _upsert_workspace_member(session_factory, workspace_id: str, payload: WorkspaceMemberUpsertRequest) -> WorkspaceMemberResponse:
+def _upsert_workspace_member(
+    session_factory, workspace_id: str, payload: WorkspaceMemberUpsertRequest
+) -> WorkspaceMemberResponse:
     from src.backend.models import User, WorkspaceMembership
 
     normalized_email = payload.email.strip().lower()
-    normalized_name = (payload.name or normalized_email.split('@', 1)[0]).strip()
+    normalized_name = (payload.name or normalized_email.split("@", 1)[0]).strip()
     normalized_role = payload.role.strip().lower()
     normalized_password = payload.password.strip()
     if not normalized_email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Member email is required.')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Member email is required."
+        )
     if not normalized_password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Member password is required.')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Member password is required.",
+        )
     if normalized_role not in VALID_WORKSPACE_ROLES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Unsupported workspace role.')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported workspace role.",
+        )
 
     with session_factory() as session:
         user = session.scalar(select(User).where(User.email == normalized_email))
@@ -245,30 +289,41 @@ def _upsert_workspace_member(session_factory, workspace_id: str, payload: Worksp
             )
         )
         if membership is None:
-            membership = WorkspaceMembership(workspace_id=workspace_id, user_id=user.id, role=normalized_role)
+            membership = WorkspaceMembership(
+                workspace_id=workspace_id, user_id=user.id, role=normalized_role
+            )
             session.add(membership)
         else:
-            if membership.role == 'admin' and normalized_role != 'admin':
-                admin_count = session.scalar(
-                    select(func.count()).select_from(WorkspaceMembership).where(
-                        WorkspaceMembership.workspace_id == workspace_id,
-                        WorkspaceMembership.role == 'admin',
+            if membership.role == "admin" and normalized_role != "admin":
+                admin_count = (
+                    session.scalar(
+                        select(func.count())
+                        .select_from(WorkspaceMembership)
+                        .where(
+                            WorkspaceMembership.workspace_id == workspace_id,
+                            WorkspaceMembership.role == "admin",
+                        )
                     )
-                ) or 0
+                    or 0
+                )
                 if admin_count <= 1:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail='At least one workspace admin must remain assigned.',
+                        detail="At least one workspace admin must remain assigned.",
                     )
             membership.role = normalized_role
 
         session.commit()
         session.refresh(user)
         session.refresh(membership)
-        return WorkspaceMemberResponse(id=user.id, email=user.email, name=user.name, role=membership.role)
+        return WorkspaceMemberResponse(
+            id=user.id, email=user.email, name=user.name, role=membership.role
+        )
 
 
-def _remove_workspace_member(session_factory, workspace_id: str, user_id: str) -> WorkspaceMemberResponse:
+def _remove_workspace_member(
+    session_factory, workspace_id: str, user_id: str
+) -> WorkspaceMemberResponse:
     from src.backend.models import User, WorkspaceMembership
 
     with session_factory() as session:
@@ -281,20 +336,25 @@ def _remove_workspace_member(session_factory, workspace_id: str, user_id: str) -
         if membership is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail='Workspace member was not found.',
+                detail="Workspace member was not found.",
             )
 
-        if membership.role == 'admin':
-            admin_count = session.scalar(
-                select(func.count()).select_from(WorkspaceMembership).where(
-                    WorkspaceMembership.workspace_id == workspace_id,
-                    WorkspaceMembership.role == 'admin',
+        if membership.role == "admin":
+            admin_count = (
+                session.scalar(
+                    select(func.count())
+                    .select_from(WorkspaceMembership)
+                    .where(
+                        WorkspaceMembership.workspace_id == workspace_id,
+                        WorkspaceMembership.role == "admin",
+                    )
                 )
-            ) or 0
+                or 0
+            )
             if admin_count <= 1:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail='At least one workspace admin must remain assigned.',
+                    detail="At least one workspace admin must remain assigned.",
                 )
 
         user = session.get(User, membership.user_id)
@@ -312,16 +372,20 @@ def _remove_workspace_member(session_factory, workspace_id: str, user_id: str) -
         )
 
 
-async def get_current_user(request: Request, token: str = Depends(oauth2_scheme)) -> UserResponse:
+async def get_current_user(
+    request: Request, token: str = Depends(oauth2_scheme)
+) -> UserResponse:
     try:
         user = get_current_user_from_token(token, _get_runtime_session_factory(request))
     except AuthConfigError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
     except AuthenticationError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(exc),
-            headers={'WWW-Authenticate': 'Bearer'},
+            headers={"WWW-Authenticate": "Bearer"},
         ) from exc
     return UserResponse(**user)
 
@@ -353,6 +417,8 @@ def create_app() -> FastAPI:
             "http://127.0.0.1:3013",
             "http://127.0.0.1:3014",
             "http://127.0.0.1:3015",
+            "http://127.0.0.1:3031",
+            "http://localhost:3031",
             "http://localhost:3000",
             "http://localhost:3001",
             "http://localhost:3002",
@@ -375,52 +441,52 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.get('/', tags=['system'])
+    @app.get("/", tags=["system"])
     async def read_root() -> dict[str, str]:
         return {
-            'service': APP_TITLE,
-            'status': 'ok',
-            'version': APP_VERSION,
+            "service": APP_TITLE,
+            "status": "ok",
+            "version": APP_VERSION,
         }
 
-    @app.get('/health', tags=['system'])
+    @app.get("/health", tags=["system"])
     async def healthcheck() -> dict[str, str]:
         return {
-            'service': APP_TITLE,
-            'status': 'ok',
-            'version': APP_VERSION,
+            "service": APP_TITLE,
+            "status": "ok",
+            "version": APP_VERSION,
         }
 
-    @app.get('/frontend/workbench', tags=['frontend'])
+    @app.get("/frontend/workbench", tags=["frontend"])
     async def read_frontend_workbench(product_id: int | None = None) -> dict:
         """为独立前端壳返回首页/共享壳聚合数据。"""
         return build_workbench_payload(product_id=product_id)
 
-    @app.get('/frontend/upload', tags=['frontend'])
+    @app.get("/frontend/upload", tags=["frontend"])
     async def read_frontend_upload(product_id: int | None = None) -> dict:
         return build_upload_page_payload(product_id=product_id)
 
-    @app.get('/frontend/analysis', tags=['frontend'])
+    @app.get("/frontend/analysis", tags=["frontend"])
     async def read_frontend_analysis(product_id: int | None = None) -> dict:
         return build_analysis_page_payload(product_id=product_id)
 
-    @app.get('/frontend/actions', tags=['frontend'])
+    @app.get("/frontend/actions", tags=["frontend"])
     async def read_frontend_actions(product_id: int | None = None) -> dict:
         return build_actions_page_payload(product_id=product_id)
 
-    @app.get('/frontend/review', tags=['frontend'])
+    @app.get("/frontend/review", tags=["frontend"])
     async def read_frontend_review(product_id: int | None = None) -> dict:
         return build_review_page_payload(product_id=product_id)
 
-    @app.get('/frontend/settings', tags=['frontend'])
+    @app.get("/frontend/settings", tags=["frontend"])
     async def read_frontend_settings(product_id: int | None = None) -> dict:
         return build_settings_page_payload(product_id=product_id)
 
-    @app.post('/frontend/upload/run-analysis', tags=['frontend'])
+    @app.post("/frontend/upload/run-analysis", tags=["frontend"])
     async def run_frontend_analysis(payload: FrontendProductRequest) -> dict:
         return run_analysis_for_frontend(product_id=payload.product_id)
 
-    @app.post('/frontend/upload/files', tags=['frontend'])
+    @app.post("/frontend/upload/files", tags=["frontend"])
     async def upload_frontend_files(
         product_id: int = Form(...),
         auto_analyze: bool = Form(True),
@@ -432,16 +498,18 @@ def create_app() -> FastAPI:
             auto_analyze=auto_analyze,
         )
 
-    @app.post('/frontend/settings/clear-runtime', tags=['frontend'])
+    @app.post("/frontend/settings/clear-runtime", tags=["frontend"])
     async def clear_frontend_runtime(payload: FrontendProductRequest) -> dict:
         return clear_runtime_for_frontend(product_id=payload.product_id)
 
-    @app.get('/frontend/settings/full-backup', tags=['frontend'])
+    @app.get("/frontend/settings/full-backup", tags=["frontend"])
     async def export_frontend_full_backup(product_id: int) -> dict:
         return export_full_backup_for_frontend(product_id=product_id)
 
-    @app.post('/frontend/settings/product-config', tags=['frontend'])
-    async def update_frontend_settings_config(payload: FrontendSettingsConfigUpdateRequest) -> dict:
+    @app.post("/frontend/settings/product-config", tags=["frontend"])
+    async def update_frontend_settings_config(
+        payload: FrontendSettingsConfigUpdateRequest,
+    ) -> dict:
         return update_settings_config_for_frontend(
             product_id=payload.product_id,
             core_keywords=payload.core_keywords,
@@ -450,38 +518,46 @@ def create_app() -> FastAPI:
             own_variants=payload.own_variants,
         )
 
-    @app.post('/frontend/settings/rule-versions/restore', tags=['frontend'])
-    async def restore_frontend_rule_version(payload: FrontendRuleVersionRestoreRequest) -> dict:
+    @app.post("/frontend/settings/rule-versions/restore", tags=["frontend"])
+    async def restore_frontend_rule_version(
+        payload: FrontendRuleVersionRestoreRequest,
+    ) -> dict:
         return restore_settings_rule_version_for_frontend(
             product_id=payload.product_id,
             version=payload.version,
         )
 
-    @app.get('/frontend/settings/rule-versions/{version}', tags=['frontend'])
+    @app.get("/frontend/settings/rule-versions/{version}", tags=["frontend"])
     async def preview_frontend_rule_version(version: int, product_id: int) -> dict:
         return preview_settings_rule_version_for_frontend(
             product_id=product_id,
             version=version,
         )
 
-    @app.post('/frontend/settings/restore-backup', tags=['frontend'])
-    async def restore_frontend_full_backup(payload: FrontendRestoreBackupRequest) -> dict:
+    @app.post("/frontend/settings/restore-backup", tags=["frontend"])
+    async def restore_frontend_full_backup(
+        payload: FrontendRestoreBackupRequest,
+    ) -> dict:
         return restore_full_backup_for_frontend(
             product_id=payload.product_id,
             restore_as_new_product=payload.restore_as_new_product,
             backup_data=payload.backup_data,
         )
 
-    @app.post('/frontend/actions/execution-batches', tags=['frontend'])
-    async def create_frontend_execution_batch(payload: FrontendExecutionBatchCreateRequest) -> dict:
+    @app.post("/frontend/actions/execution-batches", tags=["frontend"])
+    async def create_frontend_execution_batch(
+        payload: FrontendExecutionBatchCreateRequest,
+    ) -> dict:
         return create_execution_batch_for_frontend(
             product_id=payload.product_id,
             batch_type=payload.batch_type,
             draft_note=payload.draft_note,
         )
 
-    @app.patch('/frontend/actions/execution-batches/{batch_id}', tags=['frontend'])
-    async def update_frontend_execution_batch(batch_id: int, payload: FrontendExecutionBatchUpdateRequest) -> dict:
+    @app.patch("/frontend/actions/execution-batches/{batch_id}", tags=["frontend"])
+    async def update_frontend_execution_batch(
+        batch_id: int, payload: FrontendExecutionBatchUpdateRequest
+    ) -> dict:
         return update_execution_batch_for_frontend(
             batch_id=batch_id,
             status=payload.status,
@@ -489,8 +565,10 @@ def create_app() -> FastAPI:
             review_note=payload.review_note,
         )
 
-    @app.post('/frontend/review/manual-reviews', tags=['frontend'])
-    async def create_frontend_review_decision(payload: FrontendReviewDecisionRequest) -> dict:
+    @app.post("/frontend/review/manual-reviews", tags=["frontend"])
+    async def create_frontend_review_decision(
+        payload: FrontendReviewDecisionRequest,
+    ) -> dict:
         return submit_review_decision_for_frontend(
             product_id=payload.product_id,
             term=payload.term,
@@ -500,7 +578,7 @@ def create_app() -> FastAPI:
             notes=payload.notes,
         )
 
-    @app.post('/frontend/copilot/chat', tags=['frontend'])
+    @app.post("/frontend/copilot/chat", tags=["frontend"])
     async def chat_frontend_copilot(payload: FrontendCopilotChatRequest) -> dict:
         return process_frontend_copilot_turn(
             product_id=payload.product_id,
@@ -511,43 +589,92 @@ def create_app() -> FastAPI:
             page_context=payload.page_context,
         )
 
-    @app.post('/auth/login', response_model=LoginResponse, tags=['auth'])
+    @app.post("/frontend/copilot/chat/stream", tags=["frontend"])
+    async def chat_frontend_copilot_stream(
+        payload: FrontendCopilotChatRequest,
+    ) -> StreamingResponse:
+        return StreamingResponse(
+            process_frontend_copilot_turn_stream(
+                product_id=payload.product_id,
+                page_key=payload.page_key,
+                page_title=payload.page_title,
+                user_message=payload.user_message,
+                history=[m.model_dump() for m in payload.history],
+                page_context=payload.page_context,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @app.post("/auth/login", response_model=LoginResponse, tags=["auth"])
     async def login(payload: LoginRequest, request: Request) -> LoginResponse:
         try:
-            user = authenticate_user(_get_runtime_session_factory(request), payload.email, payload.password)
+            user = authenticate_user(
+                _get_runtime_session_factory(request), payload.email, payload.password
+            )
             token = issue_access_token_for_user(user)
         except AuthConfigError as exc:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+            ) from exc
         except AuthenticationError as exc:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+            ) from exc
 
         return LoginResponse(
             access_token=token,
-            token_type='bearer',
+            token_type="bearer",
             user=UserResponse(**user),
         )
 
-    @app.get('/auth/me', response_model=UserResponse, tags=['auth'])
-    async def read_auth_me(current_user: UserResponse = Depends(get_current_user)) -> UserResponse:
+    @app.get("/auth/me", response_model=UserResponse, tags=["auth"])
+    async def read_auth_me(
+        current_user: UserResponse = Depends(get_current_user),
+    ) -> UserResponse:
         return current_user
 
-    @app.get('/workspaces/default', response_model=WorkspaceResponse, tags=['workspaces'])
-    async def read_default_workspace(request: Request, current_user: UserResponse = Depends(get_current_user)) -> WorkspaceResponse:
+    @app.get(
+        "/workspaces/default", response_model=WorkspaceResponse, tags=["workspaces"]
+    )
+    async def read_default_workspace(
+        request: Request, current_user: UserResponse = Depends(get_current_user)
+    ) -> WorkspaceResponse:
         session_factory = _get_runtime_session_factory(request)
-        workspace_id, workspace_name, membership_role = _get_current_workspace_context(session_factory, current_user.id)
+        workspace_id, workspace_name, membership_role = _get_current_workspace_context(
+            session_factory, current_user.id
+        )
         member_count = len(_serialize_workspace_members(session_factory, workspace_id))
-        return WorkspaceResponse(id=workspace_id, name=workspace_name, role=membership_role, member_count=member_count)
+        return WorkspaceResponse(
+            id=workspace_id,
+            name=workspace_name,
+            role=membership_role,
+            member_count=member_count,
+        )
 
-    @app.get('/workspaces/default/members', response_model=list[WorkspaceMemberResponse], tags=['workspaces'])
+    @app.get(
+        "/workspaces/default/members",
+        response_model=list[WorkspaceMemberResponse],
+        tags=["workspaces"],
+    )
     async def list_default_workspace_members(
         request: Request,
         current_user: UserResponse = Depends(get_current_user),
     ) -> list[WorkspaceMemberResponse]:
         session_factory = _get_runtime_session_factory(request)
-        workspace_id, _, _ = _get_current_workspace_context(session_factory, current_user.id)
+        workspace_id, _, _ = _get_current_workspace_context(
+            session_factory, current_user.id
+        )
         return _serialize_workspace_members(session_factory, workspace_id)
 
-    @app.post('/workspaces/default/members', response_model=WorkspaceMemberResponse, tags=['workspaces'])
+    @app.post(
+        "/workspaces/default/members",
+        response_model=WorkspaceMemberResponse,
+        tags=["workspaces"],
+    )
     async def upsert_default_workspace_member(
         payload: WorkspaceMemberUpsertRequest,
         request: Request,
@@ -555,10 +682,16 @@ def create_app() -> FastAPI:
     ) -> WorkspaceMemberResponse:
         _require_admin(current_user)
         session_factory = _get_runtime_session_factory(request)
-        workspace_id, _, _ = _get_current_workspace_context(session_factory, current_user.id)
+        workspace_id, _, _ = _get_current_workspace_context(
+            session_factory, current_user.id
+        )
         return _upsert_workspace_member(session_factory, workspace_id, payload)
 
-    @app.delete('/workspaces/default/members/{member_user_id}', response_model=WorkspaceMemberResponse, tags=['workspaces'])
+    @app.delete(
+        "/workspaces/default/members/{member_user_id}",
+        response_model=WorkspaceMemberResponse,
+        tags=["workspaces"],
+    )
     async def delete_default_workspace_member(
         member_user_id: str,
         request: Request,
@@ -566,14 +699,12 @@ def create_app() -> FastAPI:
     ) -> WorkspaceMemberResponse:
         _require_admin(current_user)
         session_factory = _get_runtime_session_factory(request)
-        workspace_id, _, _ = _get_current_workspace_context(session_factory, current_user.id)
+        workspace_id, _, _ = _get_current_workspace_context(
+            session_factory, current_user.id
+        )
         return _remove_workspace_member(session_factory, workspace_id, member_user_id)
 
     return app
 
 
 app = create_app()
-
-
-
-
