@@ -35,14 +35,6 @@ type Props = {
 
 type ChatMessage = { role: "assistant" | "user"; content: string };
 type ActionLink = { label: string; href: string };
-type CopilotResponse = {
-	message?: string;
-	followUpPrompts?: string[];
-	recommendedNextActions?: string[];
-	actionLinks?: ActionLink[];
-	contextLabel?: string | null;
-	warning?: string | null;
-};
 type StoredCopilotState = {
 	messages: ChatMessage[];
 	prompts: string[];
@@ -300,7 +292,7 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
 							setWarning(`流式请求失败：${msg}，已回退到稳定模式`);
 							await fallbackNonStream();
 						},
-						signal: abortRef.current?.signal,
+						signal: abortRef.current!.signal,
 					},
 				);
 			} finally {
