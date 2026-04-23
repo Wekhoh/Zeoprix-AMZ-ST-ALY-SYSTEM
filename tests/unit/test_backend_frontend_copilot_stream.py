@@ -78,3 +78,60 @@ def test_chat_assistant_process_message_stream_frame_order():
     assert "recommendedNextActions" in env
     assert env["warning"] is None
     assert "intent" in env
+
+
+def test_copilot_chat_stream_formats_sse_bytes(tmp_path, monkeypatch):
+    from src.backend import copilot_chat as cc
+
+    async def fake_stream(*args, **kwargs):
+        yield ("context", "测试页面")
+        yield ("delta", "Hello")
+        yield ("delta", " world")
+        yield (
+            "envelope",
+            {
+                "message": "Hello world",
+                "followUpPrompts": ["p1"],
+                "recommendedNextActions": ["a1"],
+                "warning": None,
+                "intent": "general",
+            },
+        )
+
+    mock_assistant = MagicMock()
+    mock_assistant.process_message_stream = fake_stream
+
+    monkeypatch.setattr(cc, "get_chat_assistant", lambda **kwargs: mock_assistant)
+    monkeypatch.setattr(cc, "_get_app_database_path", lambda: tmp_path / "test.db")
+    (tmp_path / "test.db").write_bytes(b"")
+    monkeypatch.setattr(
+        cc,
+        "build_ai_context_pack",
+        lambda *a, **k: MagicMock(context_label="测试页面", warning=None),
+    )
+
+    async def run():
+        buf = b""
+        async for piece in cc.process_frontend_copilot_turn_stream(
+            product_id=None,
+            page_key="workbench",
+            page_title="工作台",
+            user_message="test",
+        ):
+            buf += piece
+        return buf
+
+    out_bytes = asyncio.run(run())
+    body = out_bytes.decode("utf-8")
+    events = [e for e in body.split("\n\n") if e.strip()]
+    frame_types = []
+    for evt in events:
+        line = evt.strip()
+        assert line.startswith("data: ")
+        payload = json.loads(line[len("data: ") :])
+        frame_types.append(payload["type"])
+
+    assert frame_types[0] == "context"
+    assert "delta" in frame_types
+    assert frame_types[-2] == "envelope"
+    assert frame_types[-1] == "done"
