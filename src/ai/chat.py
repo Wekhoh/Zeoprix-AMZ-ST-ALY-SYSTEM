@@ -163,6 +163,65 @@ class ChatAssistant:
             data={"intent": intent},
         )
 
+    async def process_message_stream(
+        self,
+        message: str,
+        *,
+        context_label: str | None = None,
+        include_data: bool = True,
+    ):
+        """
+        Stream Copilot turn as typed frames.
+
+        Yields tuples (frame_type, payload) where frame_type ∈
+        {"context", "delta", "envelope", "error"}.
+
+        Flow mirrors process_message (intent detection + data injection +
+        Gemini call) but emits text incrementally via generate_stream and
+        assembles the guided-options envelope after the stream completes.
+        """
+        yield ("context", context_label)
+
+        intent = self._detect_intent(message)
+        data_context = ""
+        if include_data and self.db and self.product_id:
+            data_context = self._get_relevant_data(intent, message)
+
+        enhanced_message = message
+        if data_context:
+            enhanced_message = (
+                f"用户问题：{message}\n\n相关数据：\n{data_context}\n\n"
+                "请基于以上数据回答用户问题。"
+            )
+
+        full_text = ""
+        try:
+            async for chunk in self.client.generate_stream(
+                enhanced_message,
+                system_instruction=self.SYSTEM_PROMPT,
+            ):
+                full_text += chunk
+                yield ("delta", chunk)
+        except Exception as exc:
+            logger.error(f"process_message_stream failed: {exc}")
+            yield ("error", {"message": f"AI 助手当前不可用：{exc}"})
+            return
+
+        options = self._generate_options(intent, full_text)
+        follow_ups = [opt.description or opt.label for opt in options][:3]
+        recommended = [opt.label for opt in options][:3]
+
+        yield (
+            "envelope",
+            {
+                "message": full_text,
+                "followUpPrompts": follow_ups,
+                "recommendedNextActions": recommended,
+                "warning": None,
+                "intent": intent,
+            },
+        )
+
     def _detect_intent(self, message: str) -> str:
         """
         检测用户意图
@@ -236,7 +295,9 @@ class ChatAssistant:
         """获取需否定的关键词数据（使用实时分析）"""
         # 使用实时分析结果（与搜索词分析页面保持一致）
         analysis_results = analyze_search_terms(self.db, self.product_id)
-        negative_results = [r for r in analysis_results if ActionType.is_negative(r.action_type)]
+        negative_results = [
+            r for r in analysis_results if ActionType.is_negative(r.action_type)
+        ]
 
         if not negative_results:
             return "当前没有需要否定的关键词。"
@@ -255,7 +316,9 @@ class ChatAssistant:
         """获取高转化关键词数据（使用实时分析）"""
         # 使用实时分析结果（与搜索词分析页面保持一致）
         analysis_results = analyze_search_terms(self.db, self.product_id)
-        manual_results = [r for r in analysis_results if ActionType.is_manual(r.action_type)]
+        manual_results = [
+            r for r in analysis_results if ActionType.is_manual(r.action_type)
+        ]
 
         if not manual_results:
             return "当前没有识别到高转化关键词。"

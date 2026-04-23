@@ -39,3 +39,40 @@ def test_gemini_client_generate_stream_yields_text_chunks():
     ):
         out = asyncio.run(_collect(client.generate_stream("prompt")))
         assert out == ["Hello", " ", "world"]
+
+
+def test_chat_assistant_process_message_stream_frame_order():
+    from src.ai.chat import ChatAssistant
+
+    mock_client = MagicMock(spec=GeminiClient)
+
+    async def fake_stream(*args, **kwargs):
+        for text in ["Hello", " world"]:
+            yield text
+
+    mock_client.generate_stream = fake_stream
+    mock_client.create_chat = MagicMock()
+
+    assistant = ChatAssistant(client=mock_client, db=None, product_id=None)
+
+    async def run():
+        frames = []
+        async for frame_type, payload in assistant.process_message_stream(
+            "什么是 ACOS?", context_label="当前页面"
+        ):
+            frames.append((frame_type, payload))
+        return frames
+
+    frames = asyncio.run(run())
+
+    types_only = [f[0] for f in frames]
+    assert types_only[0] == "context"
+    assert frames[0][1] == "当前页面"
+    delta_frames = [f for f in frames if f[0] == "delta"]
+    assert [f[1] for f in delta_frames] == ["Hello", " world"]
+    envelope_frames = [f for f in frames if f[0] == "envelope"]
+    assert len(envelope_frames) == 1
+    env = envelope_frames[0][1]
+    assert env["message"] == "Hello world"
+    assert "followUpPrompts" in env
+    assert "recommendedNextActions" in env
