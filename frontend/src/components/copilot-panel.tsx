@@ -25,6 +25,7 @@ import {
 	streamCopilotChat,
 	type CopilotEnvelopeFrame,
 } from "@/lib/copilot-stream";
+import { CopilotRichText } from "@/components/copilot-rich-text";
 
 type Props = {
 	productId?: number | null;
@@ -391,7 +392,7 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
 									<Sparkles className="h-3 w-3 text-fg-muted" aria-hidden />
 								</span>
 								<div className="flex-1 min-w-0 text-[13.5px] leading-[1.6] text-fg whitespace-pre-wrap">
-									{message.content}
+									<CopilotRichText text={message.content} />
 								</div>
 							</div>
 						) : (
