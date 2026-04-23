@@ -166,6 +166,44 @@ class GeminiClient:
             logger.error(f"JSON解析失败: {e}\n原始响应: {response}")
             return None
 
+    async def generate_stream(
+        self,
+        prompt: str,
+        *,
+        system_instruction: str | None = None,
+        temperature: float = 0.7,
+        max_output_tokens: int = 2048,
+    ):
+        """
+        Stream text chunks from Gemini.
+
+        Wraps google-genai client.models.generate_content_stream. Yields
+        incremental text chunks; sleeps(0) between chunks so FastAPI can
+        flush and honor cancellation.
+        """
+        import asyncio
+
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+        )
+        try:
+            stream = self.client.models.generate_content_stream(
+                model=self.model,
+                contents=prompt,
+                config=config,
+            )
+        except Exception as exc:
+            logger.error(f"Gemini generate_content_stream failed: {exc}")
+            raise
+
+        for chunk in stream:
+            text = getattr(chunk, "text", None)
+            if text:
+                yield text
+                await asyncio.sleep(0)
+
     def create_chat(self, system_instruction: str = None) -> "ChatSession":
         """
         创建聊天会话
