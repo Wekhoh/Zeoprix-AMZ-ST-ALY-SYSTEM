@@ -3,7 +3,9 @@ Gemini API 客户端模块
 封装 Google Gemini API 调用
 """
 
+import asyncio
 import time
+from collections.abc import AsyncIterator
 
 from google import genai
 from google.genai import types
@@ -173,16 +175,17 @@ class GeminiClient:
         system_instruction: str | None = None,
         temperature: float = 0.7,
         max_output_tokens: int = 2048,
-    ):
+    ) -> AsyncIterator[str]:
         """
         Stream text chunks from Gemini.
 
         Wraps google-genai client.models.generate_content_stream. Yields
-        incremental text chunks; sleeps(0) between chunks so FastAPI can
-        flush and honor cancellation.
-        """
-        import asyncio
+        incremental non-empty text strings; sleeps(0) between chunks so
+        FastAPI can flush and honor cancellation.
 
+        Note: chunks whose ``.text`` is None or empty (e.g. safety-only /
+        finish-reason-only frames) are filtered and NOT yielded.
+        """
         config = types.GenerateContentConfig(
             system_instruction=system_instruction,
             temperature=temperature,
