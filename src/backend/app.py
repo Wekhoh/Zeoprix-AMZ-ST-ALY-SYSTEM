@@ -43,6 +43,10 @@ from src.backend.copilot_chat import (
     process_frontend_copilot_turn,
     process_frontend_copilot_turn_stream,
 )
+from src.backend.insights import (
+    generate_and_store_insight,
+    get_today_insight,
+)
 from src.backend.workbench_payload import (
     build_actions_page_payload,
     build_analysis_page_payload,
@@ -608,6 +612,28 @@ def create_app() -> FastAPI:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @app.get("/frontend/insights/today", tags=["frontend"])
+    async def frontend_insights_today(product_id: int | None = None) -> dict:
+        """Return today's cached AI insight for a product (or null)."""
+        from src.backend.workbench_payload import _get_app_database_path
+        from src.data.db import Database
+
+        db_path = _get_app_database_path()
+        with Database(str(db_path)) as db:
+            today = get_today_insight(db, product_id)
+        return {"today": today}
+
+    @app.post("/frontend/insights/generate", tags=["frontend"])
+    async def frontend_insights_generate(product_id: int | None = None) -> dict:
+        """Run analyzer.generate_insights and persist a fresh daily row."""
+        from src.backend.workbench_payload import _get_app_database_path
+        from src.data.db import Database
+
+        db_path = _get_app_database_path()
+        with Database(str(db_path)) as db:
+            result = generate_and_store_insight(db, product_id)
+        return result
 
     @app.post("/auth/login", response_model=LoginResponse, tags=["auth"])
     async def login(payload: LoginRequest, request: Request) -> LoginResponse:
