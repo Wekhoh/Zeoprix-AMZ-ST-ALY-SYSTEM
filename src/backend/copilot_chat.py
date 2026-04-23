@@ -214,8 +214,7 @@ async def process_frontend_copilot_turn_stream(
                                     "recommendedNextActions", []
                                 ),
                                 "actionLinks": action_links,
-                                "warning": payload.get("warning")
-                                or context_pack.warning,
+                                "warning": payload.get("warning"),
                             }
                         )
                     elif frame_type == "error":
