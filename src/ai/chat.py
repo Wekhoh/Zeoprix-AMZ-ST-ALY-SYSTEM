@@ -3,8 +3,10 @@ AI 对话助手模块
 提供多轮对话和引导式交互功能
 """
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 from src.ai.client import GeminiClient
 from src.config.logger import get_logger
@@ -169,7 +171,7 @@ class ChatAssistant:
         *,
         context_label: str | None = None,
         include_data: bool = True,
-    ):
+    ) -> AsyncIterator[tuple[str, Any]]:
         """
         Stream Copilot turn as typed frames.
 

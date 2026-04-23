@@ -76,3 +76,5 @@ def test_chat_assistant_process_message_stream_frame_order():
     assert env["message"] == "Hello world"
     assert "followUpPrompts" in env
     assert "recommendedNextActions" in env
+    assert env["warning"] is None
+    assert "intent" in env
