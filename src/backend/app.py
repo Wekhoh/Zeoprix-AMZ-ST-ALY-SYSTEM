@@ -6,6 +6,7 @@ V1 先提供可部署、可探活的后端骨架，并补最小登录能力。
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -20,7 +21,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -71,6 +72,22 @@ from src.backend.workbench_payload import (
 APP_TITLE = "AMZ 搜索词分析系统 Backend"
 APP_VERSION = "0.1.0"
 VALID_WORKSPACE_ROLES = {"admin", "editor", "viewer"}
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _error_payload(
+    code: str, message: str, path: str, *, extra: dict | None = None
+) -> dict:
+    """Sprint 5 B.6 · 统一错误响应 body 结构。
+
+    所有未捕获异常都走该函数，保证前端能按同一 JSON 形状解析。
+    """
+    body: dict = {"error": {"code": code, "message": message, "path": path}}
+    if extra:
+        body["error"].update(extra)
+    return body
+
 
 # ── Sprint 5 C.1/C.2 · In-memory metrics store ──────────────────────────
 # 简单聚合 per-path 请求统计：count / total_ms / max_ms / errors (5xx)。
@@ -466,6 +483,52 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # ── Sprint 5 B.6 · 统一异常处理 ────────────────────────────────────
+    # FastAPI 默认把未捕获异常变成 500 + Python traceback 字符串，
+    # 前端只能吃 plain-text 5xx。这里把 service 层 3 种常见异常映射为
+    # 结构化 JSON（见 `_error_payload`）。HTTPException 保持默认行为，
+    # 已有测试依赖其 `detail` 形状不变。
+    @app.exception_handler(ValueError)
+    async def _value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=_error_payload(
+                code="bad_request",
+                message=str(exc) or "Bad request",
+                path=request.url.path,
+            ),
+        )
+
+    @app.exception_handler(LookupError)
+    async def _lookup_error_handler(request: Request, exc: LookupError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content=_error_payload(
+                code="not_found",
+                message=str(exc) or "Resource not found",
+                path=request.url.path,
+            ),
+        )
+
+    @app.exception_handler(Exception)
+    async def _unhandled_error_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        # 记录完整 traceback 到服务端日志，响应体仅返回清理过的消息
+        # —— 避免把内部实现细节（SQL / 文件路径）泄露给前端。
+        _LOGGER.exception(
+            "unhandled exception on %s %s", request.method, request.url.path
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=_error_payload(
+                code="internal_error",
+                message="服务器内部错误，请稍后重试。",
+                path=request.url.path,
+                extra={"type": type(exc).__name__},
+            ),
+        )
 
     @app.get("/", tags=["system"])
     async def read_root() -> dict[str, str]:
