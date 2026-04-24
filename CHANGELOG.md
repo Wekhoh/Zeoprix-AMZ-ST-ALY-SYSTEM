@@ -22,6 +22,8 @@
   - **C.6** CI perf budget job：每次 push 跑 `scripts/profile_backend_startup.py`，超 3000ms 失败
   - **B.7 续** 结构化 JSON 日志：`AMZ_LOG_JSON=1` 启用，默认保留人类可读格式；`extra={}` 透传 + exc 追加 + 非 JSON-safe 值 repr 回退，适配 Loki/ELK 日志聚合
   - **B.8 partial** 9 个 typed Pydantic 响应模型进 OpenAPI：HealthResponse / MetricsResponse / MetricsPathStat / ErrorResponse / ErrorBody / DailyInsightRow / InsightTodayResponse / ActionLink / CopilotChatResponse。未来可直接 `openapi-typescript` 生成前端类型
+  - **E.8** `.pre-commit-config.yaml`：ruff lint+format + 7 条文件卫生 hook（trailing-whitespace / EOF / yaml+json+toml check / merge-conflict / 1MB 大文件上限）。`pre-commit install` 一次即常驻
+  - **cleanup** requirements.txt 删死依赖 `streamlit>=1.40.0`（B.5 删除后零引用）；ruff 修 11 个历史 lint（unused import / E741 `l` / E402 顶层 import）
 
 ### Removed
 - **[SPRINT-5 B.5]** Streamlit legacy 整包删除 (2026-04-24):

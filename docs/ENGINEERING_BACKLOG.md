@@ -89,7 +89,7 @@
 | E5 | `CONTRIBUTING.md` + 开发者 setup 指南 | ✅ a795df7 | 1 文件 | 30m |
 | E6 | `CHANGELOG.md` 从 Sprint 1 倒推整理 | ✅ b22a60e | 1 文件 | 1h |
 | E7 | Dependabot config（后端 + 前端每周扫 security） | ✅ | `.github/dependabot.yml` | 15m |
-| E8 | Pre-commit hooks（black / ruff / prettier / tsc） | 🟡 需定偏好 | `.pre-commit-config.yaml` | 1h |
+| E8 | Pre-commit hooks（ruff lint+format + file-hygiene） | ✅ c956c00 | `.pre-commit-config.yaml` + requirements.txt 清理 streamlit + ruff 修 11 个历史 lint | 1h |
 
 **建议路径：** E1（已完）→ E2 → E5 → E6 → E3 → E4 → E7 → E8。
 
