@@ -130,9 +130,7 @@ export function DailyInsightsCard({ productId }: Props) {
 					<div className="text-[13px] text-fg-muted">加载今日洞察…</div>
 				) : today ? (
 					<div className="space-y-4">
-						<p className="text-[14px] leading-[1.7] text-fg">
-							{today.summary}
-						</p>
+						<p className="text-[14px] leading-[1.7] text-fg">{today.summary}</p>
 
 						{today.key_findings.length > 0 ? (
 							<div>
