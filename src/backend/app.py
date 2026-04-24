@@ -49,6 +49,11 @@ from src.backend.insights import (
     generate_and_store_insight,
     get_today_insight,
 )
+from src.backend.schemas import (
+    ErrorResponse,
+    HealthResponse,
+    MetricsResponse,
+)
 from src.backend.workbench_payload import (
     build_actions_page_payload,
     build_analysis_page_payload,
@@ -556,7 +561,7 @@ def create_app() -> FastAPI:
             type=type(exc).__name__,
         )
 
-    @app.get("/", tags=["system"])
+    @app.get("/", tags=["system"], response_model=HealthResponse)
     async def read_root() -> dict[str, str]:
         return {
             "service": APP_TITLE,
@@ -564,7 +569,7 @@ def create_app() -> FastAPI:
             "version": APP_VERSION,
         }
 
-    @app.get("/health", tags=["system"])
+    @app.get("/health", tags=["system"], response_model=HealthResponse)
     async def healthcheck() -> dict[str, str]:
         return {
             "service": APP_TITLE,
@@ -602,7 +607,7 @@ def create_app() -> FastAPI:
         return response
 
     # ── Sprint 5 C.2 · /metrics endpoint ───────────────────────────────
-    @app.get("/metrics", tags=["system"])
+    @app.get("/metrics", tags=["system"], response_model=MetricsResponse)
     async def metrics() -> dict:
         """Return in-memory request metrics accumulated since process start."""
         paths = {}
@@ -619,7 +624,17 @@ def create_app() -> FastAPI:
             "paths": paths,
         }
 
-    @app.get("/frontend/workbench", tags=["frontend"])
+    @app.get(
+        "/frontend/workbench",
+        tags=["frontend"],
+        responses={
+            400: {
+                "model": ErrorResponse,
+                "description": "ValueError from service layer",
+            },
+            500: {"model": ErrorResponse, "description": "Unhandled server exception"},
+        },
+    )
     async def read_frontend_workbench(product_id: int | None = None) -> dict:
         """为独立前端壳返回首页/共享壳聚合数据。"""
         return build_workbench_payload(product_id=product_id)

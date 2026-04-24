@@ -163,3 +163,39 @@ def test_request_id_surfaces_in_unhandled_error_payload():
     assert response.headers.get("x-request-id") == "test-rid-42"
     body = response.json()
     assert body["error"]["request_id"] == "test-rid-42"
+
+
+# ── Sprint 5 B.8 partial · Pydantic response models in OpenAPI ──────────
+
+
+def test_openapi_exposes_typed_response_schemas():
+    """OpenAPI /openapi.json 应包含 5 个 typed schemas（HealthResponse /
+    MetricsResponse / MetricsPathStat / ErrorResponse / ErrorBody）。"""
+    client = TestClient(create_app())
+
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    schemas = response.json()["components"]["schemas"]
+
+    expected = {
+        "HealthResponse",
+        "MetricsResponse",
+        "MetricsPathStat",
+        "ErrorResponse",
+        "ErrorBody",
+    }
+    missing = expected - set(schemas.keys())
+    assert not missing, f"missing typed schemas in OpenAPI: {missing}"
+
+    error_body_props = set(schemas["ErrorBody"]["properties"].keys())
+    assert {"code", "message", "path"} <= error_body_props
+
+
+def test_health_response_shape_matches_pydantic_contract():
+    """运行时 /health 的响应形状必须与 HealthResponse 契约一致。"""
+    client = TestClient(create_app())
+
+    body = client.get("/health").json()
+
+    assert set(body.keys()) == {"service", "status", "version"}
+    assert body["status"] == "ok"
