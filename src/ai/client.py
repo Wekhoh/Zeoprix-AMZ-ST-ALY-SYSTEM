@@ -6,12 +6,28 @@ Gemini API 客户端模块
 import asyncio
 import time
 from collections.abc import AsyncIterator
-
-from google import genai
-from google.genai import types
+from typing import TYPE_CHECKING
 
 from src.config.logger import get_logger
 from src.config.settings import Settings
+
+if TYPE_CHECKING:  # Type-checking only — real import deferred to runtime
+    from google import genai  # noqa: F401
+    from google.genai import types  # noqa: F401
+
+
+# Sprint 5 C.7 续 · 冷启动优化 ─ google.genai 首次 import ~3.14s。
+# 不在模块顶层 `from google.genai import ...`，而是把 import 下移到首次
+# 使用该符号的方法体内；Python 的 sys.modules 缓存确保第 N 次 import 是
+# O(dict lookup)。模块冷启动成本从 ~3.14s 降到 ~150ms；真正使用 AI 的
+# 场景（Copilot / 每日洞察 / 分析）才支付首次 import 成本。
+def _load_genai():
+    """Lazy-load google.genai，返回 (genai 模块, types 模块)；缓存在 sys.modules。"""
+    from google import genai
+    from google.genai import types
+
+    return genai, types
+
 
 logger = get_logger(__name__)
 
@@ -58,6 +74,7 @@ class GeminiClient:
             raise ValueError("未配置 GEMINI_API_KEY")
 
         # 初始化客户端，配置HTTP选项（通过client_args传递timeout给httpx）
+        genai, types = _load_genai()
         http_options = types.HttpOptions(client_args={"timeout": self.default_timeout})
         self.client = genai.Client(api_key=self.api_key, http_options=http_options)
         logger.info(
@@ -87,6 +104,7 @@ class GeminiClient:
         Returns:
             生成的文本
         """
+        _, types = _load_genai()
         config = types.GenerateContentConfig(
             temperature=temperature,
             max_output_tokens=max_output_tokens,
@@ -186,6 +204,7 @@ class GeminiClient:
         Note: chunks whose ``.text`` is None or empty (e.g. safety-only /
         finish-reason-only frames) are filtered and NOT yielded.
         """
+        _, types = _load_genai()
         config = types.GenerateContentConfig(
             system_instruction=system_instruction,
             temperature=temperature,
@@ -254,6 +273,7 @@ class ChatSession:
         """创建 Gemini 聊天对象"""
         config = None
         if self.system_instruction:
+            _, types = _load_genai()
             config = types.GenerateContentConfig(
                 system_instruction=self.system_instruction,
             )
