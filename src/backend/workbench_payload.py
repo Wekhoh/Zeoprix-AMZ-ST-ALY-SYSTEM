@@ -14,8 +14,8 @@ from src.analysis.truth_replay import (
 )
 from src.data.db import Database
 from src.data.parser import FileParser
-from src.rules.engine import analyze_search_terms
-from src.ui.pages.settings_data import (
+from src.rules.engine import analyze_search_terms_cached
+from src.services.settings_service import (
     build_full_backup_export_payload,
     clear_product_runtime_data,
     restore_full_backup,
@@ -52,11 +52,21 @@ def _resolve_product(db: Database, product_id: int | None) -> dict | None:
 
 
 def _campaign_count(db: Database, product_id: int) -> int:
-    return int(db.execute("SELECT COUNT(*) AS count FROM campaigns WHERE product_id = ?", (product_id,)).fetchone()["count"])
+    return int(
+        db.execute(
+            "SELECT COUNT(*) AS count FROM campaigns WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()["count"]
+    )
 
 
 def _manual_review_count(db: Database, product_id: int) -> int:
-    return int(db.execute("SELECT COUNT(*) AS count FROM manual_reviews WHERE product_id = ?", (product_id,)).fetchone()["count"])
+    return int(
+        db.execute(
+            "SELECT COUNT(*) AS count FROM manual_reviews WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()["count"]
+    )
 
 
 def _analysis_result_count(db: Database, product_id: int) -> int:
@@ -87,7 +97,14 @@ def _get_dashboard_stats(db: Database, product_id: int) -> dict[str, Any]:
     """
     row = db.execute(query, (product_id,)).fetchone()
     if not row:
-        return {"term_count": 0, "total_spend": 0.0, "total_orders": 0, "total_sales": 0.0, "acos": 0.0, "latest_report_date": None}
+        return {
+            "term_count": 0,
+            "total_spend": 0.0,
+            "total_orders": 0,
+            "total_sales": 0.0,
+            "acos": 0.0,
+            "latest_report_date": None,
+        }
     spend = float(row["total_spend"] or 0.0)
     sales = float(row["total_sales"] or 0.0)
     return {
@@ -105,8 +122,14 @@ def _get_pending_stats(db: Database, product_id: int) -> dict[str, int]:
     if truth_stats is not None:
         return truth_stats
 
-    results = analyze_search_terms(db, product_id)
-    stats = {"negative_count": 0, "manual_count": 0, "ai_pending_count": 0, "review_pending_count": 0, "conflict_count": 0}
+    results = analyze_search_terms_cached(db, product_id)
+    stats = {
+        "negative_count": 0,
+        "manual_count": 0,
+        "ai_pending_count": 0,
+        "review_pending_count": 0,
+        "conflict_count": 0,
+    }
     for result in results:
         action = result.action_type or ""
         if action.startswith("negative"):
@@ -132,39 +155,107 @@ def _latest_snapshot_rows(db: Database, product_id: int) -> list[dict]:
     return snapshot.get("rows") or [] if snapshot else []
 
 
-def _build_top_actions(pending_stats: dict[str, int], snapshot_rows: list[dict]) -> list[dict[str, str]]:
+def _build_top_actions(
+    pending_stats: dict[str, int], snapshot_rows: list[dict]
+) -> list[dict[str, str]]:
     actions: list[dict[str, str]] = []
     review_pending = int(pending_stats.get("review_pending_count") or 0)
     negative_pending = int(pending_stats.get("negative_count") or 0)
     manual_pending = int(pending_stats.get("manual_count") or 0)
     conflict_pending = int(pending_stats.get("conflict_count") or 0)
 
-    negative_rows = sorted([r for r in snapshot_rows if str(r.get("action_type", "")).startswith("negative")], key=lambda r: float(r.get("spend") or 0.0), reverse=True)
-    manual_rows = sorted([r for r in snapshot_rows if str(r.get("action_type", "")).startswith("manual")], key=lambda r: float(r.get("sales") or 0.0), reverse=True)
-    conflict_rows = sorted([r for r in snapshot_rows if str(r.get("action_type", "")) == "conflict"], key=lambda r: float(r.get("spend") or 0.0), reverse=True)
+    negative_rows = sorted(
+        [
+            r
+            for r in snapshot_rows
+            if str(r.get("action_type", "")).startswith("negative")
+        ],
+        key=lambda r: float(r.get("spend") or 0.0),
+        reverse=True,
+    )
+    manual_rows = sorted(
+        [
+            r
+            for r in snapshot_rows
+            if str(r.get("action_type", "")).startswith("manual")
+        ],
+        key=lambda r: float(r.get("sales") or 0.0),
+        reverse=True,
+    )
+    conflict_rows = sorted(
+        [r for r in snapshot_rows if str(r.get("action_type", "")) == "conflict"],
+        key=lambda r: float(r.get("spend") or 0.0),
+        reverse=True,
+    )
 
     if review_pending > 0:
-        actions.append({"tag": "先审核", "title": f"先处理 {review_pending} 个待审核词", "description": "先把低置信度和分歧词拍板，后面的执行才会稳定。"})
+        actions.append(
+            {
+                "tag": "先审核",
+                "title": f"先处理 {review_pending} 个待审核词",
+                "description": "先把低置信度和分歧词拍板，后面的执行才会稳定。",
+            }
+        )
     if negative_pending > 0:
         top = negative_rows[0] if negative_rows else None
         if top:
-            actions.append({"tag": "止损优先", "title": f"优先止损：{top.get('term', '高花费词')}", "description": f"花费 ${float(top.get('spend') or 0):.2f}，来源规则：{top.get('triggered_rule') or '最近分析'}。"})
+            actions.append(
+                {
+                    "tag": "止损优先",
+                    "title": f"优先止损：{top.get('term', '高花费词')}",
+                    "description": f"花费 ${float(top.get('spend') or 0):.2f}，来源规则：{top.get('triggered_rule') or '最近分析'}。",
+                }
+            )
         else:
-            actions.append({"tag": "止损优先", "title": f"优先止损 {negative_pending} 个高花费词", "description": "先处理高花费无转化词。"})
+            actions.append(
+                {
+                    "tag": "止损优先",
+                    "title": f"优先止损 {negative_pending} 个高花费词",
+                    "description": "先处理高花费无转化词。",
+                }
+            )
     if manual_pending > 0:
         top = manual_rows[0] if manual_rows else None
         if top:
-            actions.append({"tag": "补量机会", "title": f"补量词：{top.get('term', '高转化词')}", "description": f"销售额 ${float(top.get('sales') or 0):.2f}，建议动作：{top.get('suggested_action') or '手动补量'}。"})
+            actions.append(
+                {
+                    "tag": "补量机会",
+                    "title": f"补量词：{top.get('term', '高转化词')}",
+                    "description": f"销售额 ${float(top.get('sales') or 0):.2f}，建议动作：{top.get('suggested_action') or '手动补量'}。",
+                }
+            )
         else:
-            actions.append({"tag": "补量机会", "title": f"补量 {manual_pending} 个高转化词", "description": "止损后优先处理高转化手动机会。"})
+            actions.append(
+                {
+                    "tag": "补量机会",
+                    "title": f"补量 {manual_pending} 个高转化词",
+                    "description": "止损后优先处理高转化手动机会。",
+                }
+            )
     if conflict_pending > 0:
         top = conflict_rows[0] if conflict_rows else None
-        actions.append({"tag": "风险处理", "title": f"拍板 {conflict_pending} 个分歧词", "description": f"{top.get('term')} 存在跨结论分歧。" if top else "执行前先稳定分歧词。"})
+        actions.append(
+            {
+                "tag": "风险处理",
+                "title": f"拍板 {conflict_pending} 个分歧词",
+                "description": f"{top.get('term')} 存在跨结论分歧。"
+                if top
+                else "执行前先稳定分歧词。",
+            }
+        )
 
-    return actions[:3] or [{"tag": "继续推进", "title": "先导入或运行分析", "description": "当前还没有足够结果，先建立本轮数据。"}]
+    return actions[:3] or [
+        {
+            "tag": "继续推进",
+            "title": "先导入或运行分析",
+            "description": "当前还没有足够结果，先建立本轮数据。",
+        }
+    ]
 
 
-def _build_trend(points: list[dict[str, Any]]) -> tuple[list[dict[str, str]], list[dict[str, int | str]]]:
+def _build_trend(
+    points: list[dict[str, Any]],
+) -> tuple[list[dict[str, str]], list[dict[str, int | str]]]:
     def _window(day_count: int) -> dict[str, str]:
         subset = points[-day_count:]
         spend = sum(float(p["spend"]) for p in subset)
@@ -178,11 +269,16 @@ def _build_trend(points: list[dict[str, Any]]) -> tuple[list[dict[str, str]], li
         }
 
     cards = [_window(days) for days in (7, 14, 30)]
-    bars = [{"label": p["label"], "value": int(round(float(p["spend"]))) or 1} for p in points[-5:]]
+    bars = [
+        {"label": p["label"], "value": int(round(float(p["spend"]))) or 1}
+        for p in points[-5:]
+    ]
     return cards, bars
 
 
-def _get_trend_payload(db: Database, product_id: int) -> tuple[list[dict[str, str]], list[dict[str, int | str]]]:
+def _get_trend_payload(
+    db: Database, product_id: int
+) -> tuple[list[dict[str, str]], list[dict[str, int | str]]]:
     cursor = db.execute(
         """
         SELECT COALESCE(st.report_date, date(st.created_at)) AS bucket_date,
@@ -208,7 +304,14 @@ def _get_trend_payload(db: Database, product_id: int) -> tuple[list[dict[str, st
             label = dt.date.fromisoformat(date_value).strftime("%m-%d")
         except ValueError:
             label = date_value
-        points.append({"label": label, "spend": float(row["spend"] or 0.0), "orders": int(row["orders"] or 0), "sales": float(row["sales"] or 0.0)})
+        points.append(
+            {
+                "label": label,
+                "spend": float(row["spend"] or 0.0),
+                "orders": int(row["orders"] or 0),
+                "sales": float(row["sales"] or 0.0),
+            }
+        )
     return _build_trend(points)
 
 
@@ -216,8 +319,17 @@ def _classify_bucket(term: str, term_type: str, product_config: dict) -> str:
     normalized_term = str(term or "").strip().lower()
     if not normalized_term:
         return "其它长尾"
-    own_variants = {str(item).strip().upper() for item in (product_config.get("own_variants") or []) + (product_config.get("own_asins") or []) if str(item).strip()}
-    competitor_asins = {str(item).strip().upper() for item in product_config.get("competitor_asins", []) if str(item).strip()}
+    own_variants = {
+        str(item).strip().upper()
+        for item in (product_config.get("own_variants") or [])
+        + (product_config.get("own_asins") or [])
+        if str(item).strip()
+    }
+    competitor_asins = {
+        str(item).strip().upper()
+        for item in product_config.get("competitor_asins", [])
+        if str(item).strip()
+    }
     if term_type == "asin":
         normalized_asin = normalized_term.upper()
         if normalized_asin in own_variants:
@@ -227,9 +339,21 @@ def _classify_bucket(term: str, term_type: str, product_config: dict) -> str:
         return "其它 ASIN"
 
     libraries = product_config.get("keyword_libraries") or {}
-    generic_keywords = {str(item).strip().lower() for item in libraries.get("generic_keywords", []) if str(item).strip()}
-    core_keywords = [str(item).strip().lower() for item in product_config.get("core_keywords", []) if str(item).strip()]
-    related_keywords = [str(item).strip().lower() for item in product_config.get("related_keywords", []) if str(item).strip()]
+    generic_keywords = {
+        str(item).strip().lower()
+        for item in libraries.get("generic_keywords", [])
+        if str(item).strip()
+    }
+    core_keywords = [
+        str(item).strip().lower()
+        for item in product_config.get("core_keywords", [])
+        if str(item).strip()
+    ]
+    related_keywords = [
+        str(item).strip().lower()
+        for item in product_config.get("related_keywords", [])
+        if str(item).strip()
+    ]
     if normalized_term in generic_keywords:
         return "泛词"
     if any(keyword and keyword in normalized_term for keyword in core_keywords):
@@ -239,29 +363,51 @@ def _classify_bucket(term: str, term_type: str, product_config: dict) -> str:
     return "其它长尾"
 
 
-def _get_structure_payload(db: Database, product_id: int, product_config: dict) -> list[dict[str, Any]]:
+def _get_structure_payload(
+    db: Database, product_id: int, product_config: dict
+) -> list[dict[str, Any]]:
     rows = _latest_snapshot_rows(db, product_id)
-    source_rows = rows if rows else [dict(r) for r in db.execute(
-        """
+    source_rows = (
+        rows
+        if rows
+        else [
+            dict(r)
+            for r in db.execute(
+                """
         SELECT DISTINCT st.term, st.term_type
         FROM search_terms st
         JOIN campaigns c ON st.campaign_id = c.id
         WHERE c.product_id = ?
         """,
-        (product_id,),
-    ).fetchall()]
+                (product_id,),
+            ).fetchall()
+        ]
+    )
     counts: dict[str, int] = {}
     for row in source_rows:
-        bucket = _classify_bucket(row.get("term", ""), row.get("term_type", "keyword"), product_config)
+        bucket = _classify_bucket(
+            row.get("term", ""), row.get("term_type", "keyword"), product_config
+        )
         counts[bucket] = counts.get(bucket, 0) + 1
     total = sum(counts.values()) or 1
-    return [{"label": label, "count": count, "ratio": f"{round((count / total) * 100)}%"} for label, count in sorted(counts.items(), key=lambda i: i[1], reverse=True)]
+    return [
+        {"label": label, "count": count, "ratio": f"{round((count / total) * 100)}%"}
+        for label, count in sorted(counts.items(), key=lambda i: i[1], reverse=True)
+    ]
 
 
 def _get_execution_effect_payload(db: Database, product_id: int) -> dict[str, Any]:
     batches = db.list_execution_batches(product_id, limit=1)
     if not batches:
-        return {"status": "暂无批次", "summary": "当前还没有执行批次，先在操作清单里生成一批动作。", "chips": [], "improving": [], "risky": [], "batchCode": None, "batchStatus": None}
+        return {
+            "status": "暂无批次",
+            "summary": "当前还没有执行批次，先在操作清单里生成一批动作。",
+            "chips": [],
+            "improving": [],
+            "risky": [],
+            "batchCode": None,
+            "batchStatus": None,
+        }
     batch = batches[0]
     preview = get_execution_batch_effect_preview(db, batch)
     summary = summarize_execution_batch_effect(preview)
@@ -284,80 +430,116 @@ def _get_analysis_rows_payload(db: Database, product_id: int) -> list[dict[str, 
                 "term": row.get("term"),
                 "type": row.get("term_type", "keyword"),
                 "rule": row.get("triggered_rule") or "最近一次分析",
-                "action": row.get("suggested_action") or row.get("action_type") or "观察",
+                "action": row.get("suggested_action")
+                or row.get("action_type")
+                or "观察",
                 "spend": f"${float(row.get('spend') or 0.0):.2f}",
                 "orders": int(row.get("orders") or 0),
-                "confidence": f"{float(row.get('confidence') or 0):.0%}" if isinstance(row.get("confidence"), (int, float)) else str(row.get("confidence") or "-")
+                "confidence": f"{float(row.get('confidence') or 0):.0%}"
+                if isinstance(row.get("confidence"), (int, float))
+                else str(row.get("confidence") or "-"),
             }
             for row in rows[:8]
         ]
 
-    results = analyze_search_terms(db, product_id)
+    results = analyze_search_terms_cached(db, product_id)
     payload = []
     for result in results[:8]:
-        payload.append({
-            "term": result.term,
-            "type": result.term_type,
-            "rule": result.triggered_rule,
-            "action": result.suggested_action,
-            "spend": f"${float(result.data.get('spend') or result.data.get('total_spend') or 0.0):.2f}",
-            "orders": int(result.data.get('orders') or result.data.get('total_orders') or 0),
-            "confidence": f"{float(result.confidence):.0%}",
-        })
+        payload.append(
+            {
+                "term": result.term,
+                "type": result.term_type,
+                "rule": result.triggered_rule,
+                "action": result.suggested_action,
+                "spend": f"${float(result.data.get('spend') or result.data.get('total_spend') or 0.0):.2f}",
+                "orders": int(
+                    result.data.get("orders") or result.data.get("total_orders") or 0
+                ),
+                "confidence": f"{float(result.confidence):.0%}",
+            }
+        )
     return payload
 
 
-def _get_execution_batches_payload(db: Database, product_id: int) -> list[dict[str, Any]]:
+def _get_execution_batches_payload(
+    db: Database, product_id: int
+) -> list[dict[str, Any]]:
     batches = db.list_execution_batches(product_id, limit=5)
     payload = []
     for batch in batches:
         preview = get_execution_batch_effect_preview(db, batch)
         summary = summarize_execution_batch_effect(preview)
         items = (batch.get("summary") or {}).get("items") or []
-        payload.append({
-            "id": batch.get("id"),
-            "code": batch.get("batch_code"),
-            "type": batch.get("batch_type"),
-            "status": batch.get("status"),
-            "itemCount": batch.get("item_count") or len(items),
-            "spend": f"${float(((batch.get('summary') or {}).get('spend_total') or 0.0)):.2f}",
-            "sales": f"${float(((batch.get('summary') or {}).get('sales_total') or 0.0)):.2f}",
-            "verdict": summary.get("status", "待观察"),
-            "summary": summary.get("summary", batch.get("draft_note") or "暂无复盘结论。"),
-            "improving": summary.get("top_improving_terms", []),
-            "risky": summary.get("top_risky_terms", []),
-            "itemsPreview": [
-                {
-                    "term": str(item.get("term") or "未命名词"),
-                    "action": str(item.get("suggested_action") or item.get("action_type") or "待执行"),
-                    "spend": f"${float(item.get('spend') or 0.0):.2f}",
-                }
-                for item in items[:5]
-            ],
-            "itemsDetail": [
-                {
-                    "term": str(item.get("term") or "未命名词"),
-                    "action": str(item.get("suggested_action") or item.get("action_type") or "待执行"),
-                    "actionType": str(item.get("action_type") or "pending"),
-                    "spend": f"${float(item.get('spend') or 0.0):.2f}",
-                    "sales": f"${float(item.get('sales') or 0.0):.2f}",
-                }
-                for item in items
-            ],
-        })
+        payload.append(
+            {
+                "id": batch.get("id"),
+                "code": batch.get("batch_code"),
+                "type": batch.get("batch_type"),
+                "status": batch.get("status"),
+                "itemCount": batch.get("item_count") or len(items),
+                "spend": f"${float(((batch.get('summary') or {}).get('spend_total') or 0.0)):.2f}",
+                "sales": f"${float(((batch.get('summary') or {}).get('sales_total') or 0.0)):.2f}",
+                "verdict": summary.get("status", "待观察"),
+                "summary": summary.get(
+                    "summary", batch.get("draft_note") or "暂无复盘结论。"
+                ),
+                "improving": summary.get("top_improving_terms", []),
+                "risky": summary.get("top_risky_terms", []),
+                "itemsPreview": [
+                    {
+                        "term": str(item.get("term") or "未命名词"),
+                        "action": str(
+                            item.get("suggested_action")
+                            or item.get("action_type")
+                            or "待执行"
+                        ),
+                        "spend": f"${float(item.get('spend') or 0.0):.2f}",
+                    }
+                    for item in items[:5]
+                ],
+                "itemsDetail": [
+                    {
+                        "term": str(item.get("term") or "未命名词"),
+                        "action": str(
+                            item.get("suggested_action")
+                            or item.get("action_type")
+                            or "待执行"
+                        ),
+                        "actionType": str(item.get("action_type") or "pending"),
+                        "spend": f"${float(item.get('spend') or 0.0):.2f}",
+                        "sales": f"${float(item.get('sales') or 0.0):.2f}",
+                    }
+                    for item in items
+                ],
+            }
+        )
     return payload
 
 
-def _build_execution_batch_summary(db: Database, product_id: int, batch_type: str) -> dict[str, Any]:
+def _build_execution_batch_summary(
+    db: Database, product_id: int, batch_type: str
+) -> dict[str, Any]:
     snapshot = _latest_snapshot(db, product_id)
     snapshot_rows = snapshot.get("rows") or [] if snapshot else []
     normalized_batch_type = str(batch_type).strip().lower() or "general"
     if normalized_batch_type == "negative":
-        filtered = [row for row in snapshot_rows if str(row.get("action_type", "")).startswith("negative")]
+        filtered = [
+            row
+            for row in snapshot_rows
+            if str(row.get("action_type", "")).startswith("negative")
+        ]
     elif normalized_batch_type == "manual":
-        filtered = [row for row in snapshot_rows if str(row.get("action_type", "")).startswith("manual")]
+        filtered = [
+            row
+            for row in snapshot_rows
+            if str(row.get("action_type", "")).startswith("manual")
+        ]
     elif normalized_batch_type == "conflict":
-        filtered = [row for row in snapshot_rows if str(row.get("action_type", "")) == "conflict"]
+        filtered = [
+            row
+            for row in snapshot_rows
+            if str(row.get("action_type", "")) == "conflict"
+        ]
     else:
         filtered = snapshot_rows
 
@@ -469,12 +651,22 @@ def run_analysis_for_frontend(*, product_id: int) -> dict[str, Any]:
         df = aggregator.aggregate_by_term(product_id)
 
         if df.empty:
-            return {"status": "warning", "message": "当前导入数据暂时不足以生成搜索词分析结果。", "termsAnalyzed": 0, "resultsSaved": 0}
+            return {
+                "status": "warning",
+                "message": "当前导入数据暂时不足以生成搜索词分析结果。",
+                "termsAnalyzed": 0,
+                "resultsSaved": 0,
+            }
 
         engine = RuleEngine(db, product_id)
         results = engine.analyze(df)
         if not results:
-            return {"status": "warning", "message": "规则分析已运行，但当前没有生成可保存的建议。", "termsAnalyzed": len(df), "resultsSaved": 0}
+            return {
+                "status": "warning",
+                "message": "规则分析已运行，但当前没有生成可保存的建议。",
+                "termsAnalyzed": len(df),
+                "resultsSaved": 0,
+            }
 
         effective_results = apply_reviewed_truth(db, product_id, results)
         snapshot_rows = build_analysis_run_snapshot_rows(effective_results)
@@ -546,7 +738,9 @@ def upload_files_for_frontend(
                 continue
 
             if df is None or df.empty:
-                failures.append({"fileName": upload_name, "reason": "文件中没有可导入的数据。"})
+                failures.append(
+                    {"fileName": upload_name, "reason": "文件中没有可导入的数据。"}
+                )
                 continue
 
             campaign_name = Path(upload_name).stem
@@ -634,7 +828,10 @@ def _build_recent_activity(
     activity: list[dict[str, str]] = []
 
     if latest_snapshot:
-        item_count = int((latest_snapshot.get("summary") or {}).get("item_count") or len(latest_snapshot.get("rows") or []))
+        item_count = int(
+            (latest_snapshot.get("summary") or {}).get("item_count")
+            or len(latest_snapshot.get("rows") or [])
+        )
         activity.append(
             {
                 "label": "最近分析",
@@ -683,8 +880,14 @@ def _build_recent_activity(
     return activity[:4]
 
 
-def _derive_stage_title(pending_stats: dict[str, int], latest_snapshot: dict | None) -> tuple[str, str]:
-    if pending_stats.get("negative_count") or pending_stats.get("manual_count") or pending_stats.get("conflict_count"):
+def _derive_stage_title(
+    pending_stats: dict[str, int], latest_snapshot: dict | None
+) -> tuple[str, str]:
+    if (
+        pending_stats.get("negative_count")
+        or pending_stats.get("manual_count")
+        or pending_stats.get("conflict_count")
+    ):
         return "待执行优化动作", "先止损，再补量。"
     if pending_stats.get("review_pending_count"):
         return "待人工审核", "先拍板低置信度和分歧词。"
@@ -711,15 +914,21 @@ def build_workbench_payload(product_id: int | None = None) -> dict[str, Any]:
         latest_snapshot = _latest_snapshot(db, product_id)
         workspace_summary = db.get_workspace_summary(product_id)
         stage_title, stage_detail = _derive_stage_title(pending_stats, latest_snapshot)
-        top_actions = _build_top_actions(pending_stats, _latest_snapshot_rows(db, product_id))
+        top_actions = _build_top_actions(
+            pending_stats, _latest_snapshot_rows(db, product_id)
+        )
         trend_cards, trend_bars = _get_trend_payload(db, product_id)
         structure_buckets = _get_structure_payload(db, product_id, product_config)
         execution_effect = _get_execution_effect_payload(db, product_id)
         execution_batches = _get_execution_batches_payload(db, product_id)
-        recent_activity = _build_recent_activity(db, product_id, latest_snapshot, execution_batches, pending_stats)
+        recent_activity = _build_recent_activity(
+            db, product_id, latest_snapshot, execution_batches, pending_stats
+        )
         ops_templates = {
-            "boss_summary": f"{product_name} 当前处于「{stage_title}」。最近执行效果判断为「{execution_effect['status']}」，建议今天优先处理：" + "；".join(item['title'] for item in top_actions[:3]),
-            "handoff_note": f"【执行交接】先处理：" + "；".join(item['title'] for item in top_actions[:3]),
+            "boss_summary": f"{product_name} 当前处于「{stage_title}」。最近执行效果判断为「{execution_effect['status']}」，建议今天优先处理："
+            + "；".join(item["title"] for item in top_actions[:3]),
+            "handoff_note": f"【执行交接】先处理："
+            + "；".join(item["title"] for item in top_actions[:3]),
             "weekly_review": f"【周度复盘】最近执行效果：{execution_effect['status']}；改善线索：{'、'.join(execution_effect.get('improving') or ['暂无'])}；仍需关注：{'、'.join(execution_effect.get('risky') or ['暂无'])}",
         }
 
@@ -728,16 +937,36 @@ def build_workbench_payload(product_id: int | None = None) -> dict[str, Any]:
             "productId": product_id,
             "productContext": {
                 "name": product_name,
-                "role": (workspace_summary.get("current_role") or "viewer").capitalize(),
+                "role": (
+                    workspace_summary.get("current_role") or "viewer"
+                ).capitalize(),
                 "workspace": f"{product_name}工作区",
-                "lastAnalysisAt": _format_timestamp(latest_snapshot.get("created_at") if latest_snapshot else None),
+                "lastAnalysisAt": _format_timestamp(
+                    latest_snapshot.get("created_at") if latest_snapshot else None
+                ),
                 "lastBackupAt": "暂无完整备份",
             },
             "workbenchStats": [
                 {"label": "当前阶段", "value": stage_title, "detail": stage_detail},
-                {"label": "最近一次分析", "value": _format_timestamp(latest_snapshot.get("created_at") if latest_snapshot else None).replace(" ", " · ", 1), "detail": "latest snapshot 已形成。" if latest_snapshot else "还没有分析快照。"},
-                {"label": "历史沉淀", "value": f"{len(db.list_analysis_run_snapshots(product_id, limit=200))} 个分析快照", "detail": f"{_manual_review_count(db, product_id)} 条人工审核、{len(db.list_execution_batches(product_id, limit=200))} 个执行批次。"},
-                {"label": "数据规模", "value": f"{stats['term_count']} 条词 · {_campaign_count(db, product_id)} 个活动", "detail": f"当前已形成 {_analysis_result_count(db, product_id)} 条建议动作。"},
+                {
+                    "label": "最近一次分析",
+                    "value": _format_timestamp(
+                        latest_snapshot.get("created_at") if latest_snapshot else None
+                    ).replace(" ", " · ", 1),
+                    "detail": "latest snapshot 已形成。"
+                    if latest_snapshot
+                    else "还没有分析快照。",
+                },
+                {
+                    "label": "历史沉淀",
+                    "value": f"{len(db.list_analysis_run_snapshots(product_id, limit=200))} 个分析快照",
+                    "detail": f"{_manual_review_count(db, product_id)} 条人工审核、{len(db.list_execution_batches(product_id, limit=200))} 个执行批次。",
+                },
+                {
+                    "label": "数据规模",
+                    "value": f"{stats['term_count']} 条词 · {_campaign_count(db, product_id)} 个活动",
+                    "detail": f"当前已形成 {_analysis_result_count(db, product_id)} 条建议动作。",
+                },
             ],
             "topActions": top_actions,
             "trendCards": trend_cards,
@@ -749,8 +978,14 @@ def build_workbench_payload(product_id: int | None = None) -> dict[str, Any]:
                 {
                     "title": "AI 汇总简报",
                     "context": f"当前产品：{product_name} · 上下文：最近一次分析结果",
-                    "summary": top_actions[0]["description"] if top_actions else "先导入数据或运行分析。",
-                    "prompts": ["解释 ACOS 为什么高", "给我 3 个最优先动作", "生成老板摘要"],
+                    "summary": top_actions[0]["description"]
+                    if top_actions
+                    else "先导入数据或运行分析。",
+                    "prompts": [
+                        "解释 ACOS 为什么高",
+                        "给我 3 个最优先动作",
+                        "生成老板摘要",
+                    ],
                 }
             ],
             "recentActivity": recent_activity,
@@ -770,19 +1005,41 @@ def build_upload_page_payload(product_id: int | None = None) -> dict[str, Any]:
         product_id = int(product["id"])
         stats = _get_dashboard_stats(db, product_id)
         snapshots = db.list_analysis_run_snapshots(product_id, limit=5)
-        campaigns = [dict(row) for row in db.execute("SELECT id, name, created_at FROM campaigns WHERE product_id = ? ORDER BY created_at DESC LIMIT 5", (product_id,)).fetchall()]
+        campaigns = [
+            dict(row)
+            for row in db.execute(
+                "SELECT id, name, created_at FROM campaigns WHERE product_id = ? ORDER BY created_at DESC LIMIT 5",
+                (product_id,),
+            ).fetchall()
+        ]
         return {
             **workbench,
             "upload": {
                 "latestReportDate": stats.get("latest_report_date") or "暂无导入",
                 "searchTerms": stats["term_count"],
                 "campaigns": _campaign_count(db, product_id),
-                "snapshotCount": len(db.list_analysis_run_snapshots(product_id, limit=200)),
+                "snapshotCount": len(
+                    db.list_analysis_run_snapshots(product_id, limit=200)
+                ),
                 "recentSnapshots": [
-                    {"id": s["id"], "createdAt": _format_timestamp(s["created_at"]), "itemCount": int((s.get("summary") or {}).get("item_count") or len(s.get("rows") or []))}
+                    {
+                        "id": s["id"],
+                        "createdAt": _format_timestamp(s["created_at"]),
+                        "itemCount": int(
+                            (s.get("summary") or {}).get("item_count")
+                            or len(s.get("rows") or [])
+                        ),
+                    }
                     for s in snapshots
                 ],
-                "recentCampaigns": [{"id": c["id"], "name": c["name"], "createdAt": _format_timestamp(c["created_at"])} for c in campaigns],
+                "recentCampaigns": [
+                    {
+                        "id": c["id"],
+                        "name": c["name"],
+                        "createdAt": _format_timestamp(c["created_at"]),
+                    }
+                    for c in campaigns
+                ],
             },
         }
 
@@ -828,9 +1085,15 @@ def update_settings_config_for_frontend(
     db_path = _get_app_database_path()
     normalized = {
         "core_keywords": [item.strip() for item in core_keywords if str(item).strip()],
-        "related_keywords": [item.strip() for item in related_keywords if str(item).strip()],
-        "competitor_asins": [item.strip().upper() for item in competitor_asins if str(item).strip()],
-        "own_variants": [item.strip().upper() for item in own_variants if str(item).strip()],
+        "related_keywords": [
+            item.strip() for item in related_keywords if str(item).strip()
+        ],
+        "competitor_asins": [
+            item.strip().upper() for item in competitor_asins if str(item).strip()
+        ],
+        "own_variants": [
+            item.strip().upper() for item in own_variants if str(item).strip()
+        ],
     }
     with Database(str(db_path)) as db:
         product = db.get_product(product_id)
@@ -862,7 +1125,9 @@ def update_settings_config_for_frontend(
         }
 
 
-def restore_settings_rule_version_for_frontend(*, product_id: int, version: int) -> dict[str, Any]:
+def restore_settings_rule_version_for_frontend(
+    *, product_id: int, version: int
+) -> dict[str, Any]:
     db_path = _get_app_database_path()
     with Database(str(db_path)) as db:
         product = db.get_product(product_id)
@@ -891,7 +1156,9 @@ def restore_settings_rule_version_for_frontend(*, product_id: int, version: int)
         }
 
 
-def preview_settings_rule_version_for_frontend(*, product_id: int, version: int) -> dict[str, Any]:
+def preview_settings_rule_version_for_frontend(
+    *, product_id: int, version: int
+) -> dict[str, Any]:
     db_path = _get_app_database_path()
     with Database(str(db_path)) as db:
         product = db.get_product(product_id)
@@ -903,15 +1170,47 @@ def preview_settings_rule_version_for_frontend(*, product_id: int, version: int)
             raise ValueError("指定规则版本不存在")
 
         current_config = product.get("config") or {}
-        snapshot_core = [str(item).strip() for item in snapshot.get("core_keywords", []) if str(item).strip()]
-        snapshot_related = [str(item).strip() for item in snapshot.get("related_keywords", []) if str(item).strip()]
-        snapshot_competitors = [str(item).strip().upper() for item in snapshot.get("competitor_asins", []) if str(item).strip()]
-        snapshot_variants = [str(item).strip().upper() for item in snapshot.get("own_variants", []) if str(item).strip()]
+        snapshot_core = [
+            str(item).strip()
+            for item in snapshot.get("core_keywords", [])
+            if str(item).strip()
+        ]
+        snapshot_related = [
+            str(item).strip()
+            for item in snapshot.get("related_keywords", [])
+            if str(item).strip()
+        ]
+        snapshot_competitors = [
+            str(item).strip().upper()
+            for item in snapshot.get("competitor_asins", [])
+            if str(item).strip()
+        ]
+        snapshot_variants = [
+            str(item).strip().upper()
+            for item in snapshot.get("own_variants", [])
+            if str(item).strip()
+        ]
 
-        current_core = [str(item).strip() for item in current_config.get("core_keywords", []) if str(item).strip()]
-        current_related = [str(item).strip() for item in current_config.get("related_keywords", []) if str(item).strip()]
-        current_competitors = [str(item).strip().upper() for item in current_config.get("competitor_asins", []) if str(item).strip()]
-        current_variants = [str(item).strip().upper() for item in current_config.get("own_variants", []) if str(item).strip()]
+        current_core = [
+            str(item).strip()
+            for item in current_config.get("core_keywords", [])
+            if str(item).strip()
+        ]
+        current_related = [
+            str(item).strip()
+            for item in current_config.get("related_keywords", [])
+            if str(item).strip()
+        ]
+        current_competitors = [
+            str(item).strip().upper()
+            for item in current_config.get("competitor_asins", [])
+            if str(item).strip()
+        ]
+        current_variants = [
+            str(item).strip().upper()
+            for item in current_config.get("own_variants", [])
+            if str(item).strip()
+        ]
 
         def _delta(target: list[str], current: list[str]) -> dict[str, list[str]]:
             target_set = set(target)
@@ -1004,7 +1303,9 @@ def build_actions_page_payload(product_id: int | None = None) -> dict[str, Any]:
                 "negativeCount": int(pending_stats.get("negative_count") or 0),
                 "manualCount": int(pending_stats.get("manual_count") or 0),
                 "conflictCount": int(pending_stats.get("conflict_count") or 0),
-                "latestBatchCode": (workbench.get("executionBatches") or [{}])[0].get("code"),
+                "latestBatchCode": (workbench.get("executionBatches") or [{}])[0].get(
+                    "code"
+                ),
             },
         }
 
@@ -1018,8 +1319,12 @@ def build_analysis_page_payload(product_id: int | None = None) -> dict[str, Any]
     type_counts: dict[str, int] = {}
     action_counts: dict[str, int] = {}
     for row in rows:
-        type_counts[row.get("type") or "unknown"] = type_counts.get(row.get("type") or "unknown", 0) + 1
-        action_counts[row.get("action") or "unknown"] = action_counts.get(row.get("action") or "unknown", 0) + 1
+        type_counts[row.get("type") or "unknown"] = (
+            type_counts.get(row.get("type") or "unknown", 0) + 1
+        )
+        action_counts[row.get("action") or "unknown"] = (
+            action_counts.get(row.get("action") or "unknown", 0) + 1
+        )
     return {
         **workbench,
         "analysis": {
