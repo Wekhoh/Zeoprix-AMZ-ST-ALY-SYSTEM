@@ -50,6 +50,7 @@ from src.backend.insights import (
     get_today_insight,
 )
 from src.backend.schemas import (
+    CopilotChatResponse,
     DailyInsightRow,
     ErrorResponse,
     HealthResponse,
@@ -757,7 +758,11 @@ def create_app() -> FastAPI:
             notes=payload.notes,
         )
 
-    @app.post("/frontend/copilot/chat", tags=["frontend"])
+    @app.post(
+        "/frontend/copilot/chat",
+        tags=["frontend"],
+        response_model=CopilotChatResponse,
+    )
     async def chat_frontend_copilot(payload: FrontendCopilotChatRequest) -> dict:
         return process_frontend_copilot_turn(
             product_id=payload.product_id,

@@ -111,3 +111,33 @@ class InsightTodayResponse(BaseModel):
     """`GET /frontend/insights/today` 响应。`today` 为 null 表示当天未生成。"""
 
     today: DailyInsightRow | None = None
+
+
+# ── Copilot non-streaming chat ───────────────────────────────────────────
+
+
+class ActionLink(BaseModel):
+    """Copilot 回复里的页面跳转建议。"""
+
+    label: str = Field(..., description="Clickable label (zh-CN)")
+    href: str = Field(..., description="Frontend route, e.g. '/review'")
+
+
+class CopilotChatResponse(BaseModel):
+    """`POST /frontend/copilot/chat`（非流式版）响应。
+    流式版 `/stream` 通过 SSE 输出 context/delta/envelope/done 帧，
+    单独文档。"""
+
+    message: str = Field(..., description="Assistant reply text")
+    followUpPrompts: list[str] = Field(default_factory=list)
+    recommendedNextActions: list[str] = Field(default_factory=list)
+    actionLinks: list[ActionLink] = Field(
+        default_factory=list,
+        description="At most 3 routed actions inferred from recommendations",
+    )
+    contextLabel: str | None = Field(
+        None, description="Short label describing AI context pack scope"
+    )
+    warning: str | None = Field(
+        None, description="Non-fatal warning, shown as subtle banner if set"
+    )
