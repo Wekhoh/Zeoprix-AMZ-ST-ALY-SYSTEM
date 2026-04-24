@@ -199,7 +199,9 @@ class TestExportIntegration:
             assert set(df["关键词"]) == {"travel pillow for airplane", "B01IEJHJWK"}
             assert "优先级" in df.columns
 
-    def test_export_analysis_report_includes_negative_and_manual_sheets_for_new_types(self):
+    def test_export_analysis_report_includes_negative_and_manual_sheets_for_new_types(
+        self,
+    ):
         """完整报告应为新动作类型生成否词/手动 Sheet。"""
         from src.export.exporter import ReportExporter
 
@@ -266,7 +268,9 @@ class TestExportIntegration:
         ]
 
         exporter = ReportExporter()
-        payload = exporter.export_negative_keywords_bytes(results, product_name="旅行枕")
+        payload = exporter.export_negative_keywords_bytes(
+            results, product_name="旅行枕"
+        )
 
         assert payload is not None
         file_bytes, file_name = payload
@@ -398,7 +402,7 @@ class TestExportIntegration:
 
     def test_settings_data_exports_build_direct_download_payloads(self):
         """设置页导出也应直接生成下载载荷。"""
-        from src.ui.pages.settings_data import (
+        from src.services.settings_service import (
             build_full_backup_export_payload,
             build_rule_config_export_payload,
         )

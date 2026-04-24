@@ -456,7 +456,7 @@ class TestUIHelperFunctions:
 
     def test_settings_get_default_config(self):
         """测试默认配置"""
-        from src.ui.pages.settings_data import get_default_config
+        from src.services.settings_service import get_default_config
 
         config = get_default_config()
 
