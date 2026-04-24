@@ -8,11 +8,16 @@
 ### Added
 - **[SPRINT-5]** 工程化基石 (2026-04-24):
   - `docs/ENGINEERING_BACKLOG.md` — B/C/D/E 4 子项目可执行 backlog
+  - `docs/ARCHITECTURE.md` — 368 行架构概览（后端分层图 / 前端组件树 / 3 条数据流 / Streamlit legacy 债务）(E.3)
   - `.github/workflows/ci.yml` — 后端 pytest + 前端 build/typecheck 双 job CI
   - `.github/dependabot.yml` — 每周 pip/npm 扫描 + 每月 github-actions
   - `pytest.ini` — `--tb=short` + DeprecationWarning filter
   - 后端 `GET /metrics` endpoint + HTTP timing middleware (C.1+C.2)
   - `X-Response-Time-Ms` response header 注入所有 HTTP 请求
+  - **B.6** 全局 exception handler：ValueError→400 / LookupError→404 / Exception→500 统一 `{error:{code,message,path}}` JSON
+  - **B.7** Request-ID 中间件：UUID4 hex 或沿用上游 `X-Request-Id`；错误响应 body 和 header 都带 `request_id` 便于排查
+  - **C.3** SQLite 慢查询追踪：`execute()` / `executemany()` 每次测时，阈值 `AMZ_DB_SLOW_QUERY_MS`（默认 100ms）触发 WARNING 日志 + `get_slow_query_stats()` 聚合
+  - **D.4 完结** SSE timeout / client-cancel 路径测试（timeout → error+done 帧；CancelledError 传播保留）
 - **[SPRINT-4-A3]** 每日 AI 洞察 (2026-04-24):
   - 新表 `daily_insights`（CREATE IF NOT EXISTS schema + product_id+date 索引）
   - `GET /frontend/insights/today?product_id=N` + `POST /frontend/insights/generate?product_id=N`
