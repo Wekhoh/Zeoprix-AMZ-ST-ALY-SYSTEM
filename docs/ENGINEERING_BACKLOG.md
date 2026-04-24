@@ -26,11 +26,11 @@
 |---|---|---|---|---|
 | B1 | 审计 `src/ui/pages/*` 在 backend 的依赖链 | 🟢 | 仅 grep/分析，无改动 | 30m |
 | B2 | 抽取 `src/ui/pages/settings_data.py` 业务逻辑到 `src/services/settings_service.py` | ✅ 9d852eb | workbench_payload + 新 service 层 | 2h |
-| B3 | 抽取 `src/ui/pages/home.py` 业务到 `src/services/workbench_service.py`（已部分在 workbench_payload） | 🟡 | 2 文件 | 2h |
-| B4 | 验证 `src/app.py` Streamlit 入口在 backend runtime 不被引用 | 🟢 | 仅 grep | 15m |
-| B5 | 删 `src/app.py` + `src/ui/pages/` + `src/ui/components/` + `src/ui/styles.py/utils.py` | 🔴 🔒(依赖 B2/B3) | ~2000 行 Python 删除 | 2h |
+| B3 | 抽取 `src/ui/pages/home.py` 业务到 `src/services/workbench_service.py` | ✅ 已生效 | backend 已通过 `workbench_payload.py` 平行实现完全解耦 home.py | - |
+| B4 | 验证 `src/app.py` Streamlit 入口在 backend runtime 不被引用 | ✅ 已审计 | 唯一残留引用（`settings_service.py`）已在 f2717e9 改为惰性包装消除 | 15m |
+| B5 | 删 `src/app.py` + `src/ui/pages/` + `src/ui/components/` + `src/ui/styles.py/utils.py` | 🔴 🔒(test_app_navigation 25+ refs) | ~2000 行 Python 删除 + 3 个 test 文件改写 | 3h |
 | B6 | FastAPI 全局 exception handler 统一 HTTPException 结构（避免 fastapi-global-exception-handler-gotcha） | ✅ 436ff49 | 1 文件 + 2 tests | 30m |
-| B7 | 结构化日志（JSON formatter + request-id 中间件） | 🟡 | `src/config/logger.py` + middleware | 1.5h |
+| B7 | 结构化日志（JSON formatter + request-id 中间件） | 🟡 部分 8e2fda6 | request-id 完成；JSON formatter 未动 | 1h 余 |
 | B8 | Pydantic 严格化（所有 `dict[str, Any]` 返回体替换为 BaseModel） | 🔴 | 多 handler | 3h |
 | B9 | 删 `src/ui/pages/settings_rules.py`（只 4% 覆盖率，最脏） | 🟢 🔒(B2) | ~592 行删除 | 30m |
 
@@ -49,8 +49,9 @@
 | C3 | SQLite 慢查询追踪（执行时间超阈值记录 + 聚合统计） | ✅ 1c417a8 | `src/data/db.py` + 7 tests | 1h |
 | C4 | 前端 Web Vitals 埋点（`onCLS` / `onINP` / `onLCP` + console 或 beacon） | ✅ 4216a25 | `frontend/src/app/layout.tsx` | 45m |
 | C5 | 前端 Sentry-lite error boundary 每页 | ✅ 78f2273 | 6 页 + `frontend/src/app/error.tsx` | 1.5h |
-| C6 | 性能预算记录（bundle size / first-byte / 冷启时间的 baseline 值 + CI check） | 🟡 🔒(C1/C4) | CI workflow | 1h |
+| C6 | 性能预算记录（backend 冷启时间 baseline + CI check，3000ms 天花板） | ✅ a92b874 | `.github/workflows/ci.yml` 新 `perf-budget` job | 1h |
 | C7 | 后端启动时间 profile（识别最慢 import） | ✅ 2de51aa | 一次性脚本 | 30m |
+| C7 续 | 冷启动优化：google.genai + streamlit 惰性化（7770ms → 1037ms，-87%） | ✅ 6547bf6 · f2717e9 | 2 文件 | 1h |
 
 **建议路径：** C1 + C2 并行（都在 app.py） → C4 → C3 → C5 → C6。
 
