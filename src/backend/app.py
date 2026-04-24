@@ -7,6 +7,7 @@ V1 先提供可部署、可探活的后端骨架，并补最小登录能力。
 from __future__ import annotations
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -489,26 +490,49 @@ def create_app() -> FastAPI:
     # 前端只能吃 plain-text 5xx。这里把 service 层 3 种常见异常映射为
     # 结构化 JSON（见 `_error_payload`）。HTTPException 保持默认行为，
     # 已有测试依赖其 `detail` 形状不变。
+    # B.7 注：异常路径下 middleware 不会继续执行到 header 设置逻辑，
+    # 所以 handler 必须自己把 X-Request-Id 回写到响应 header + body。
+    def _build_error_response(
+        request: Request,
+        status_code: int,
+        *,
+        code: str,
+        message: str,
+        **extra_body,
+    ) -> JSONResponse:
+        request_id = getattr(request.state, "request_id", None)
+        body_extra: dict = {**extra_body}
+        if request_id:
+            body_extra["request_id"] = request_id
+        response = JSONResponse(
+            status_code=status_code,
+            content=_error_payload(
+                code=code,
+                message=message,
+                path=request.url.path,
+                extra=body_extra or None,
+            ),
+        )
+        if request_id:
+            response.headers["X-Request-Id"] = request_id
+        return response
+
     @app.exception_handler(ValueError)
     async def _value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content=_error_payload(
-                code="bad_request",
-                message=str(exc) or "Bad request",
-                path=request.url.path,
-            ),
+        return _build_error_response(
+            request,
+            status.HTTP_400_BAD_REQUEST,
+            code="bad_request",
+            message=str(exc) or "Bad request",
         )
 
     @app.exception_handler(LookupError)
     async def _lookup_error_handler(request: Request, exc: LookupError) -> JSONResponse:
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content=_error_payload(
-                code="not_found",
-                message=str(exc) or "Resource not found",
-                path=request.url.path,
-            ),
+        return _build_error_response(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            code="not_found",
+            message=str(exc) or "Resource not found",
         )
 
     @app.exception_handler(Exception)
@@ -517,17 +541,19 @@ def create_app() -> FastAPI:
     ) -> JSONResponse:
         # 记录完整 traceback 到服务端日志，响应体仅返回清理过的消息
         # —— 避免把内部实现细节（SQL / 文件路径）泄露给前端。
+        request_id = getattr(request.state, "request_id", None)
         _LOGGER.exception(
-            "unhandled exception on %s %s", request.method, request.url.path
+            "unhandled exception on %s %s (request_id=%s)",
+            request.method,
+            request.url.path,
+            request_id,
         )
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=_error_payload(
-                code="internal_error",
-                message="服务器内部错误，请稍后重试。",
-                path=request.url.path,
-                extra={"type": type(exc).__name__},
-            ),
+        return _build_error_response(
+            request,
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="internal_error",
+            message="服务器内部错误，请稍后重试。",
+            type=type(exc).__name__,
         )
 
     @app.get("/", tags=["system"])
@@ -545,6 +571,20 @@ def create_app() -> FastAPI:
             "status": "ok",
             "version": APP_VERSION,
         }
+
+    # ── Sprint 5 B.7 · Request-ID 中间件 ───────────────────────────────
+    # 每个请求生成 UUID4 并写入 `request.state.request_id`，同时通过
+    # `X-Request-Id` 响应头回传。客户端若已带 `X-Request-Id`（支持 CDN /
+    # 上游代理透传），沿用原值。便于日志关联 + 前端 error toast 附带
+    # request_id 供支持排查。
+    @app.middleware("http")
+    async def request_id_middleware(request: Request, call_next):
+        incoming = request.headers.get("x-request-id", "").strip()
+        request_id = incoming if incoming else uuid.uuid4().hex
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = request_id
+        return response
 
     # ── Sprint 5 C.1 · HTTP timing middleware ──────────────────────────
     @app.middleware("http")

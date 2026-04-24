@@ -124,3 +124,42 @@ def test_unhandled_exception_becomes_500_without_leaking_internals():
     # 仍暴露异常类型以便前端分类重试，但不含内部字符串
     assert body["error"]["type"] == "RuntimeError"
     assert body["error"]["path"] == "/_test/raise-runtime-error"
+
+
+# ── Sprint 5 B.7 · Request-ID middleware ─────────────────────────────
+
+
+def test_request_id_middleware_auto_generates_hex_id():
+    """无 X-Request-Id 入参时，后端应生成 UUID4 hex 并回传。"""
+    client = TestClient(create_app())
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    rid = response.headers.get("x-request-id")
+    assert rid is not None and len(rid) == 32  # uuid4().hex 定长 32
+
+
+def test_request_id_middleware_preserves_incoming_header():
+    """客户端/代理已带 X-Request-Id 时应沿用，便于跨服务关联日志。"""
+    client = TestClient(create_app())
+
+    response = client.get("/health", headers={"X-Request-Id": "trace-abc-123"})
+
+    assert response.status_code == 200
+    assert response.headers.get("x-request-id") == "trace-abc-123"
+
+
+def test_request_id_surfaces_in_unhandled_error_payload():
+    """500 响应体应包含 request_id，方便前端 toast 上屏给用户排查用。"""
+    client = TestClient(_app_with_error_routes(), raise_server_exceptions=False)
+
+    response = client.get(
+        "/_test/raise-runtime-error",
+        headers={"X-Request-Id": "test-rid-42"},
+    )
+
+    assert response.status_code == 500
+    assert response.headers.get("x-request-id") == "test-rid-42"
+    body = response.json()
+    assert body["error"]["request_id"] == "test-rid-42"
