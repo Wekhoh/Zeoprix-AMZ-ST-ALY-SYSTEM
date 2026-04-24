@@ -72,6 +72,28 @@ APP_TITLE = "AMZ 搜索词分析系统 Backend"
 APP_VERSION = "0.1.0"
 VALID_WORKSPACE_ROLES = {"admin", "editor", "viewer"}
 
+# ── Sprint 5 C.1/C.2 · In-memory metrics store ──────────────────────────
+# 简单聚合 per-path 请求统计：count / total_ms / max_ms / errors (5xx)。
+# 无持久化，进程重启清零。升级 Prometheus 时替换此 dict。
+import time as _time_module
+
+_STARTUP_TS = _time_module.time()
+_METRICS_STORE: dict[str, dict[str, float]] = {}
+
+
+def _record_metric(path: str, duration_ms: float, status: int) -> None:
+    bucket = _METRICS_STORE.setdefault(
+        path,
+        {"count": 0.0, "total_ms": 0.0, "max_ms": 0.0, "errors": 0.0},
+    )
+    bucket["count"] += 1
+    bucket["total_ms"] += duration_ms
+    if duration_ms > bucket["max_ms"]:
+        bucket["max_ms"] = duration_ms
+    if status >= 500:
+        bucket["errors"] += 1
+
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
@@ -459,6 +481,39 @@ def create_app() -> FastAPI:
             "service": APP_TITLE,
             "status": "ok",
             "version": APP_VERSION,
+        }
+
+    # ── Sprint 5 C.1 · HTTP timing middleware ──────────────────────────
+    @app.middleware("http")
+    async def timing_middleware(request: Request, call_next):
+        start = _time_module.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = (_time_module.perf_counter() - start) * 1000
+            _record_metric(request.url.path, duration_ms, 500)
+            raise
+        duration_ms = (_time_module.perf_counter() - start) * 1000
+        response.headers["X-Response-Time-Ms"] = f"{duration_ms:.1f}"
+        _record_metric(request.url.path, duration_ms, response.status_code)
+        return response
+
+    # ── Sprint 5 C.2 · /metrics endpoint ───────────────────────────────
+    @app.get("/metrics", tags=["system"])
+    async def metrics() -> dict:
+        """Return in-memory request metrics accumulated since process start."""
+        paths = {}
+        for path, bucket in _METRICS_STORE.items():
+            count = bucket["count"] or 1
+            paths[path] = {
+                "count": int(bucket["count"]),
+                "avg_ms": round(bucket["total_ms"] / count, 1),
+                "max_ms": round(bucket["max_ms"], 1),
+                "errors": int(bucket["errors"]),
+            }
+        return {
+            "uptime_seconds": round(_time_module.time() - _STARTUP_TS, 1),
+            "paths": paths,
         }
 
     @app.get("/frontend/workbench", tags=["frontend"])
