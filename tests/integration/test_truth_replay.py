@@ -26,7 +26,9 @@ def _make_search_term_rows(
                 "term": term,
                 "term_type": term_type,
                 "impressions": 1000,
-                "clicks": clicks if clicks is not None else (12 if term_type == "asin" else 18),
+                "clicks": clicks
+                if clicks is not None
+                else (12 if term_type == "asin" else 18),
                 "ctr": 0.02,
                 "spend": spend if spend is not None else 28.0,
                 "cpc": 1.55,
@@ -52,7 +54,9 @@ def _write_aggregate_truth_workbook(path, sheets: dict[str, list[dict]]) -> None
 
 
 class TestTruthReplay:
-    def test_inspect_campaign_truth_workbook_reports_alias_hits_and_required_fields(self, tmp_path):
+    def test_inspect_campaign_truth_workbook_reports_alias_hits_and_required_fields(
+        self, tmp_path
+    ):
         from src.analysis.truth_replay import inspect_campaign_truth_workbook
 
         workbook = tmp_path / "campaign_inspect.xlsx"
@@ -644,7 +648,9 @@ class TestTruthFirstViews:
             blk_campaign_id,
         )
         db.save_search_terms(
-            _make_search_term_rows("B0COMP1234", term_type="asin", clicks=14, spend=32.0),
+            _make_search_term_rows(
+                "B0COMP1234", term_type="asin", clicks=14, spend=32.0
+            ),
             blk_campaign_id,
         )
 
@@ -745,7 +751,9 @@ class TestTruthFirstViews:
             {key: value for key, value in rule_stats.items() if value > 0}
         )
         assert [row["value"] for row in chart_rows] == [1, 1, 1]
-        assert {row["label"] for row in chart_rows} == {key for key, value in rule_stats.items() if value > 0}
+        assert {row["label"] for row in chart_rows} == {
+            key for key, value in rule_stats.items() if value > 0
+        }
 
     def test_truth_first_campaign_rows_only_include_campaign_truth(
         self, db, product_id, tmp_path
@@ -1071,7 +1079,6 @@ class TestTruthFirstViews:
         assert conflicts.iloc[0]["term"] == "travel pillow"
         assert conflicts.iloc[0]["severity"] == "严重"
 
-
     def test_analysis_run_snapshots_capture_term_level_diff_after_ui_calibration(
         self, db, product_id, campaign_id
     ):
@@ -1134,7 +1141,9 @@ class TestTruthFirstViews:
             current_rows=snapshots[0]["rows"],
         )
         before_row = next(
-            row for row in snapshots[1]["rows"] if row["term"] == "calibration snapshot term"
+            row
+            for row in snapshots[1]["rows"]
+            if row["term"] == "calibration snapshot term"
         )
         changed_row = next(
             row for row in diff_rows if row["term"] == "calibration snapshot term"
@@ -1177,7 +1186,9 @@ class TestTruthFirstViews:
             blk_campaign_id,
         )
         db.save_search_terms(
-            _make_search_term_rows("B0COMP1234", term_type="asin", clicks=14, spend=32.0),
+            _make_search_term_rows(
+                "B0COMP1234", term_type="asin", clicks=14, spend=32.0
+            ),
             blk_campaign_id,
         )
 
@@ -1270,4 +1281,3 @@ class TestTruthFirstViews:
             ("B0COMP1234", "negative_exact"),
         }
         assert manual_results == []
-

@@ -234,14 +234,22 @@ class TestImportTestDataConfigSeed:
 
         results = {item.term: item for item in engine.analyze(df)}
 
-        assert results["microbead neck pillow"].action_type == ActionType.NEGATIVE_PHRASE
+        assert (
+            results["microbead neck pillow"].action_type == ActionType.NEGATIVE_PHRASE
+        )
         assert results["neck support"].action_type == ActionType.NEGATIVE_EXACT
-        assert results["neck pillow airplane"].action_type == ActionType.MANUAL_EXACT_NO_NEG
+        assert (
+            results["neck pillow airplane"].action_type
+            == ActionType.MANUAL_EXACT_NO_NEG
+        )
         assert (
             results["neck pillow with washable cover"].action_type
             == ActionType.MANUAL_EXACT_NO_NEG
         )
-        assert results["pillows for airplane"].action_type == ActionType.MANUAL_EXACT_NO_NEG
+        assert (
+            results["pillows for airplane"].action_type
+            == ActionType.MANUAL_EXACT_NO_NEG
+        )
         assert (
             results["travel pillows for airplanes"].action_type
             == ActionType.MANUAL_EXACT_NO_NEG
