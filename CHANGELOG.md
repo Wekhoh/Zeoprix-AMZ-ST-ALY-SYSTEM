@@ -6,6 +6,33 @@
 ## [Unreleased]
 
 ### Added
+- **[SPRINT-5]** 工程化基石 (2026-04-24):
+  - `docs/ENGINEERING_BACKLOG.md` — B/C/D/E 4 子项目可执行 backlog
+  - `.github/workflows/ci.yml` — 后端 pytest + 前端 build/typecheck 双 job CI
+  - `.github/dependabot.yml` — 每周 pip/npm 扫描 + 每月 github-actions
+  - `pytest.ini` — `--tb=short` + DeprecationWarning filter
+  - 后端 `GET /metrics` endpoint + HTTP timing middleware (C.1+C.2)
+  - `X-Response-Time-Ms` response header 注入所有 HTTP 请求
+- **[SPRINT-4-A3]** 每日 AI 洞察 (2026-04-24):
+  - 新表 `daily_insights`（CREATE IF NOT EXISTS schema + product_id+date 索引）
+  - `GET /frontend/insights/today?product_id=N` + `POST /frontend/insights/generate?product_id=N`
+  - 工作台新增"今日 AI 洞察"卡：summary + key_findings + recommendations + "生成今日摘要"橙色按钮
+  - 4 pytest 覆盖（空库 / 生成 / 读回 / product_id 隔离）
+- **[SPRINT-4-A2]** Copilot ASIN / 关键词 hyperlink (2026-04-23):
+  - `CopilotRichText` 组件：手写 regex tokenizer（B0 + 8 alnum → /review?focus=；反引号 → /analysis?focus=）
+  - 无依赖新增，bundle 增量 < 2KB
+- **[SPRINT-4-A1]** Copilot SSE 流式响应 (2026-04-23):
+  - `GeminiClient.generate_stream()` 包 google-genai `generate_content_stream`
+  - `ChatAssistant.process_message_stream()` 产 typed frames: context → delta → envelope → done
+  - `POST /frontend/copilot/chat/stream` FastAPI `StreamingResponse` endpoint
+  - `frontend/src/lib/copilot-stream.ts` SSE 客户端（fetch reader + TextDecoder + AbortController）
+  - Copilot 面板流式输出 + 45s timeout cap + 切页自动中止 + 环境变量 fallback `NEXT_PUBLIC_COPILOT_STREAM_ENABLED`
+  - 首字延迟 ≈4s → ≤0.8s
+  - 6 pytest 覆盖 4 层（client / chat / SSE formatter / endpoint）
+- **[SPRINT-4-UX]** 右侧 Copilot 可折叠 (2026-04-24):
+  - 参照 sidebar 模式：360px ↔ 44px，左边缘浮动小圆按钮切换，localStorage 持久化
+
+### Changed
 - **[REL-001]** 运营工作台交付文档 (2026-04-11):
   - 新增 `docs/RELEASE_NOTES_2026-04-11.md`，总结首页工作台、AI 融合、执行闭环与备份恢复能力
   - 新增 `docs/OPS_WORKBENCH_USER_GUIDE.md`，面向真实亚马逊运营梳理日常使用路径与复盘节奏
