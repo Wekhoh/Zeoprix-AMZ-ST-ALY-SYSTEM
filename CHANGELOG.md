@@ -21,6 +21,7 @@
   - **C.7 续** 后端冷启动优化：`google.genai` 惰性 import（3140ms → 92ms）+ `settings_service` 惰性包装避免 streamlit 被 backend 拖入（消除 ~1.1s）。grand_total: **7770ms → 1037ms (-87%)**
   - **C.6** CI perf budget job：每次 push 跑 `scripts/profile_backend_startup.py`，超 3000ms 失败
   - **B.7 续** 结构化 JSON 日志：`AMZ_LOG_JSON=1` 启用，默认保留人类可读格式；`extra={}` 透传 + exc 追加 + 非 JSON-safe 值 repr 回退，适配 Loki/ELK 日志聚合
+  - **B.8 partial** 9 个 typed Pydantic 响应模型进 OpenAPI：HealthResponse / MetricsResponse / MetricsPathStat / ErrorResponse / ErrorBody / DailyInsightRow / InsightTodayResponse / ActionLink / CopilotChatResponse。未来可直接 `openapi-typescript` 生成前端类型
 
 ### Removed
 - **[SPRINT-5 B.5]** Streamlit legacy 整包删除 (2026-04-24):
