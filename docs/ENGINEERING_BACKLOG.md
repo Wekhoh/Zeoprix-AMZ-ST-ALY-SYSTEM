@@ -28,11 +28,11 @@
 | B2 | 抽取 `src/ui/pages/settings_data.py` 业务逻辑到 `src/services/settings_service.py` | ✅ 9d852eb | workbench_payload + 新 service 层 | 2h |
 | B3 | 抽取 `src/ui/pages/home.py` 业务到 `src/services/workbench_service.py` | ✅ 已生效 | backend 已通过 `workbench_payload.py` 平行实现完全解耦 home.py | - |
 | B4 | 验证 `src/app.py` Streamlit 入口在 backend runtime 不被引用 | ✅ 已审计 | 唯一残留引用（`settings_service.py`）已在 f2717e9 改为惰性包装消除 | 15m |
-| B5 | 删 `src/app.py` + `src/ui/pages/` + `src/ui/components/` + `src/ui/styles.py/utils.py` | 🔴 🔒(test_app_navigation 25+ refs) | ~2000 行 Python 删除 + 3 个 test 文件改写 | 3h |
+| B5 | 删 `src/app.py` + `src/ui/pages/` + `src/ui/components/` + `src/ui/styles.py/utils.py` | ✅ bf372dd/b2e81a1/cc629b7/c943cfd/18a88f5（5 步完成） | ~9000 行遗留删除 + 4 test 文件整理 | 3h |
 | B6 | FastAPI 全局 exception handler 统一 HTTPException 结构（避免 fastapi-global-exception-handler-gotcha） | ✅ 436ff49 | 1 文件 + 2 tests | 30m |
-| B7 | 结构化日志（JSON formatter + request-id 中间件） | 🟡 部分 8e2fda6 | request-id 完成；JSON formatter 未动 | 1h 余 |
+| B7 | 结构化日志（JSON formatter + request-id 中间件） | ✅ 8e2fda6 + 8e562df | 中间件 + opt-in JSON formatter (AMZ_LOG_JSON) + 6 tests | 1.5h |
 | B8 | Pydantic 严格化（所有 `dict[str, Any]` 返回体替换为 BaseModel） | 🔴 | 多 handler | 3h |
-| B9 | 删 `src/ui/pages/settings_rules.py`（只 4% 覆盖率，最脏） | 🟢 🔒(B2) | ~592 行删除 | 30m |
+| B9 | 删 `src/ui/pages/settings_rules.py`（只 4% 覆盖率，最脏） | ✅ 随 B5 一起删（18a88f5） | 随 src/ui/ 整包删除 | 30m |
 
 **建议路径：** B1 → B2 → B3 → B4 → B5（清理链）；并行 B6 → B7 → B8。
 

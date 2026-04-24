@@ -21,6 +21,17 @@
   - **C.7 续** 后端冷启动优化：`google.genai` 惰性 import（3140ms → 92ms）+ `settings_service` 惰性包装避免 streamlit 被 backend 拖入（消除 ~1.1s）。grand_total: **7770ms → 1037ms (-87%)**
   - **C.6** CI perf budget job：每次 push 跑 `scripts/profile_backend_startup.py`，超 3000ms 失败
   - **B.7 续** 结构化 JSON 日志：`AMZ_LOG_JSON=1` 启用，默认保留人类可读格式；`extra={}` 透传 + exc 追加 + 非 JSON-safe 值 repr 回退，适配 Loki/ELK 日志聚合
+
+### Removed
+- **[SPRINT-5 B.5]** Streamlit legacy 整包删除 (2026-04-24):
+  - `src/app.py`（1550 行 Streamlit 入口）+ `src/ui/__init__.py` + `src/ui/components/ai_chatbox.py`
+  - `src/ui/pages/` 12 文件（actions / analysis / analysis_asin / analysis_campaign / asin_analysis / home / review / settings / settings_data / settings_rules / upload / `__init__`）
+  - `src/ui/styles.py`, `src/ui/utils.py`
+  - `tests/integration/test_app_navigation.py`（4191 行 · 129 tests）+ `tests/integration/test_streamlit_widths.py`
+  - 另 4 个 test 文件中依赖 `src.ui.*` 私有 helper 的 test method
+  - 6 个纯数据函数（clear / backup / restore / export / default_config / save_version）已提前移至 `src/services/settings_service.py`（B.5a）
+  - pytest **275 passed**（Streamlit test 删 ~156 个后稳态），backend FastAPI 34 routes 全部在线
+  - **总净删除 ~9000 行 Python**，backend 与 Streamlit 时代正式解耦
 - **[SPRINT-4-A3]** 每日 AI 洞察 (2026-04-24):
   - 新表 `daily_insights`（CREATE IF NOT EXISTS schema + product_id+date 索引）
   - `GET /frontend/insights/today?product_id=N` + `POST /frontend/insights/generate?product_id=N`
