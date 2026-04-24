@@ -5,8 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.stdout.reconfigure(encoding="utf-8")
-from src.config.settings import Settings
-from src.data.db import Database
+from src.config.settings import Settings  # noqa: E402  — needs sys.path insert above
+from src.data.db import Database  # noqa: E402  — needs sys.path insert above
 
 settings = Settings()
 db = Database(settings.database_path)

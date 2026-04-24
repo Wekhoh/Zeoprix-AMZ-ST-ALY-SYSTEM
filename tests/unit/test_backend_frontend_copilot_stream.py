@@ -215,8 +215,12 @@ def test_chat_stream_endpoint_envelope_before_done(monkeypatch):
             "page_context": None,
         },
     )
-    lines = [l for l in response.text.split("\n\n") if l.strip().startswith("data: ")]
-    types = [json.loads(l[len("data: ") :])["type"] for l in lines]
+    lines = [
+        line
+        for line in response.text.split("\n\n")
+        if line.strip().startswith("data: ")
+    ]
+    types = [json.loads(line[len("data: ") :])["type"] for line in lines]
     assert types[-2] == "envelope"
     assert types[-1] == "done"
     envelope = json.loads(lines[-2][len("data: ") :])
@@ -254,7 +258,11 @@ def test_chat_stream_endpoint_error_frame(monkeypatch):
         },
     )
     assert response.status_code == 200
-    lines = [l for l in response.text.split("\n\n") if l.strip().startswith("data: ")]
+    lines = [
+        line
+        for line in response.text.split("\n\n")
+        if line.strip().startswith("data: ")
+    ]
     first = json.loads(lines[0][len("data: ") :])
     assert first["type"] == "error"
     assert "boom" in first["message"]

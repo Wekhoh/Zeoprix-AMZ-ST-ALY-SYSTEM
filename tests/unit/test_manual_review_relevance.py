@@ -19,7 +19,6 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.data.db import Database
-from src.ai.analyzer import RelevanceSuggestion
 
 
 @pytest.fixture
@@ -252,6 +251,8 @@ class TestUpsertManualReview:
             in row["evidence_payload"]
         )
         assert '"ai_can_retry": true' in row["evidence_payload"]
+
+
 class TestProductConfigSeed:
     """测试 create_product 的默认配置注入。"""
 

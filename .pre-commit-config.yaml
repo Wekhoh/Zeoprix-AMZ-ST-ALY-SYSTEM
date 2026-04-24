@@ -1,0 +1,42 @@
+# Pre-commit hooks — Sprint 5 · E.8 (2026-04-24)
+#
+# 启用方法：
+#   pip install pre-commit        # 若尚未安装
+#   pre-commit install            # 一次性把 hooks 装进 .git/hooks/
+#
+# 运行机制：git commit 时自动触发；也可手动 `pre-commit run --all-files`。
+#
+# 选型理由：
+# - 项目已在 requirements.txt 内置 ruff >= 0.4.0 作为官方 linter + formatter
+# - 不引入 black（ruff format 与 black 行为一致、更快）
+# - 不引入 mypy（太严格，现有代码噪声大；B.8 Pydantic 推完再考虑）
+# - 不引入 prettier（前端另有 eslint 链，属 frontend/ 内部 CI 范畴）
+# - 基础质量 hooks 使用官方 pre-commit-hooks 库
+
+repos:
+  # ── Python (ruff 承担 lint + format 双职能) ────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # ── 通用文件卫生 ─────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'          # markdown 里两空格末尾是合法换行
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-json
+        exclude: 'frontend/package-lock\.json$'   # npm 维护，不碰
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]       # 1 MB 上限，防止误传入 .xlsx/.db
+
+# 按需裁剪：若某条 hook 对项目噪声过大，可加 `exclude: 'pattern'` 豁免
+# 或把整条 `- id:` 删除。重新安装：`pre-commit install --install-hooks`。

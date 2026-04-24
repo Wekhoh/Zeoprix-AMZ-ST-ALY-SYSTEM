@@ -7,6 +7,7 @@ V1 先提供可部署、可探活的后端骨架，并补最小登录能力。
 from __future__ import annotations
 
 import logging
+import time as _time_module
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any
@@ -101,8 +102,7 @@ def _error_payload(
 # ── Sprint 5 C.1/C.2 · In-memory metrics store ──────────────────────────
 # 简单聚合 per-path 请求统计：count / total_ms / max_ms / errors (5xx)。
 # 无持久化，进程重启清零。升级 Prometheus 时替换此 dict。
-import time as _time_module
-
+# （import time as _time_module 已提至文件顶层，满足 ruff E402）
 _STARTUP_TS = _time_module.time()
 _METRICS_STORE: dict[str, dict[str, float]] = {}
 

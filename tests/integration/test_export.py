@@ -321,6 +321,7 @@ class TestExportIntegration:
         assert file_name.endswith(".csv")
         parsed = pd.read_csv(BytesIO(file_bytes))
         assert list(parsed["Keyword"]) == ["pillows"]
+
     def test_settings_data_exports_build_direct_download_payloads(self):
         """设置页导出也应直接生成下载载荷。"""
         from src.services.settings_service import (

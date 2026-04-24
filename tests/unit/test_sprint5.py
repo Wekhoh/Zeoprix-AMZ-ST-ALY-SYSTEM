@@ -5,7 +5,6 @@ Sprint 5 单元测试
 
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from src.export.exporter import ReportExporter
 from src.rules.engine import AnalysisResult
@@ -293,6 +292,8 @@ class TestReportExporter:
         )
         priority = exporter._calculate_priority(result)
         assert priority == "低"
+
+
 class TestGetExporter:
     """测试get_exporter工厂函数"""
 

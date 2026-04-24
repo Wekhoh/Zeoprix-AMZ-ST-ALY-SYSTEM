@@ -927,7 +927,7 @@ def build_workbench_payload(product_id: int | None = None) -> dict[str, Any]:
         ops_templates = {
             "boss_summary": f"{product_name} 当前处于「{stage_title}」。最近执行效果判断为「{execution_effect['status']}」，建议今天优先处理："
             + "；".join(item["title"] for item in top_actions[:3]),
-            "handoff_note": f"【执行交接】先处理："
+            "handoff_note": "【执行交接】先处理："
             + "；".join(item["title"] for item in top_actions[:3]),
             "weekly_review": f"【周度复盘】最近执行效果：{execution_effect['status']}；改善线索：{'、'.join(execution_effect.get('improving') or ['暂无'])}；仍需关注：{'、'.join(execution_effect.get('risky') or ['暂无'])}",
         }

@@ -4,12 +4,8 @@
 # 安装命令: pip install -r requirements.txt
 
 # ===================
-# Web UI 框架
-# ===================
-streamlit>=1.40.0
-
-# ===================
-# 数据处理
+# 数据处理（Streamlit 时代已在 Sprint 5 B.5 整包删除；pandas / openpyxl 仍用
+# 于 src/export/exporter.py 的 xlsx/csv 导出 + src/data/parser.py 读取原始报表）
 # ===================
 pandas>=2.2.0
 openpyxl>=3.1.0  # Excel读写支持
