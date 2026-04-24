@@ -259,3 +259,88 @@ def test_chat_stream_endpoint_error_frame(monkeypatch):
     assert first["type"] == "error"
     assert "boom" in first["message"]
     assert json.loads(lines[-1][len("data: ") :])["type"] == "done"
+
+
+# ── Sprint 5 · D.4 — process_frontend_copilot_turn_stream error paths ────
+
+
+def test_copilot_stream_forwards_assistant_error_frame(tmp_path, monkeypatch):
+    """ChatAssistant yields ('error', {message}) → SSE error frame emitted + done."""
+    from src.backend import copilot_chat as cc
+
+    async def fake_stream(*args, **kwargs):
+        yield ("context", "ctx")
+        yield ("delta", "partial")
+        yield ("error", {"message": "gemini down"})
+        # Envelope NOT expected after error
+
+    mock_assistant = MagicMock()
+    mock_assistant.process_message_stream = fake_stream
+
+    monkeypatch.setattr(cc, "get_chat_assistant", lambda **kwargs: mock_assistant)
+    monkeypatch.setattr(cc, "_get_app_database_path", lambda: tmp_path / "t.db")
+    (tmp_path / "t.db").write_bytes(b"")
+    monkeypatch.setattr(
+        cc,
+        "build_ai_context_pack",
+        lambda *a, **k: MagicMock(context_label="ctx", warning=None),
+    )
+
+    async def run():
+        buf = b""
+        async for piece in cc.process_frontend_copilot_turn_stream(
+            product_id=None,
+            page_key="workbench",
+            page_title="工作台",
+            user_message="hi",
+        ):
+            buf += piece
+        return buf
+
+    body = asyncio.run(run()).decode("utf-8")
+    frames = [
+        json.loads(evt.strip()[len("data: ") :])
+        for evt in body.split("\n\n")
+        if evt.strip().startswith("data: ")
+    ]
+    types = [f["type"] for f in frames]
+    assert "error" in types
+    error_frame = next(f for f in frames if f["type"] == "error")
+    assert "gemini down" in error_frame["message"]
+    # envelope must NOT appear after error
+    assert "envelope" not in types
+    assert types[-1] == "done"
+
+
+def test_copilot_stream_outer_exception_emits_error_and_done(tmp_path, monkeypatch):
+    """Upstream (context-pack build) exception → outer except fires → error + done frames."""
+    from src.backend import copilot_chat as cc
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("context build exploded")
+
+    monkeypatch.setattr(cc, "_get_app_database_path", lambda: tmp_path / "t.db")
+    (tmp_path / "t.db").write_bytes(b"")
+    monkeypatch.setattr(cc, "build_ai_context_pack", _boom)
+
+    async def run():
+        buf = b""
+        async for piece in cc.process_frontend_copilot_turn_stream(
+            product_id=None,
+            page_key="workbench",
+            page_title="工作台",
+            user_message="hi",
+        ):
+            buf += piece
+        return buf
+
+    body = asyncio.run(run()).decode("utf-8")
+    frames = [
+        json.loads(evt.strip()[len("data: ") :])
+        for evt in body.split("\n\n")
+        if evt.strip().startswith("data: ")
+    ]
+    types = [f["type"] for f in frames]
+    assert types[0] == "error"
+    assert "context build exploded" in frames[0]["message"]
+    assert types[-1] == "done"
