@@ -67,3 +67,46 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+  perf-budget:
+    # Sprint 5 · C.6 — 后端冷启动性能预算
+    # 本地 baseline（2026-04-24，Python 3.14）：1037ms（C.7 续 后）
+    # CI (ubuntu-latest + Python 3.11) 预计 +30-50%，设上限 3000ms。
+    # 回归阈值防止未来又把重依赖（google.genai / streamlit / pandas 等）
+    # 拖进顶层 import。
+    name: Perf · backend cold-start budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Measure backend cold-start
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          PYTHONUTF8: "1"
+        run: |
+          python scripts/profile_backend_startup.py | tee /tmp/cold-start.log
+          python - <<'EOF'
+          import re, sys, pathlib
+          log = pathlib.Path('/tmp/cold-start.log').read_text()
+          m = re.search(r'grand_total_ms:\s*([0-9.]+)', log)
+          if not m:
+              print('ERROR: grand_total_ms not found in profile output', file=sys.stderr)
+              sys.exit(2)
+          actual = float(m.group(1))
+          budget = 3000.0
+          print(f'::notice title=Cold-start::{actual:.1f} ms (budget {budget:.0f} ms)')
+          if actual > budget:
+              print(f'::error::Cold-start {actual:.1f}ms exceeds budget {budget:.0f}ms')
+              sys.exit(1)
+          EOF
