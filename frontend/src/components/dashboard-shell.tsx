@@ -68,7 +68,6 @@ export function DashboardShell({
 
 	const [collapsed, setCollapsed] = useState(false);
 	const [copilotCollapsed, setCopilotCollapsed] = useState(false);
-	const [hydrated, setHydrated] = useState(false);
 
 	useEffect(() => {
 		try {
@@ -79,7 +78,6 @@ export function DashboardShell({
 		} catch {
 			// ignore
 		}
-		setHydrated(true);
 	}, []);
 
 	function toggleSidebar() {
@@ -174,8 +172,7 @@ export function DashboardShell({
 					className={
 						"sticky top-0 h-[calc(100vh-52px)] shrink-0 bg-bg-elevated border-r border-border flex flex-col " +
 						"transition-[width] duration-200 ease-out " +
-						sidebarWidth +
-						(hydrated ? "" : " opacity-0")
+						sidebarWidth
 					}
 				>
 					<nav className="flex-1 py-2 overflow-y-auto">
@@ -282,10 +279,9 @@ export function DashboardShell({
 
 					<aside
 						className={
-							"hidden xl:block sticky top-[52px] self-start shrink-0 h-[calc(100vh-52px)] border-l border-border bg-bg-elevated relative " +
+							"hidden lg:block sticky top-[52px] self-start shrink-0 h-[calc(100vh-52px)] border-l border-border bg-bg-elevated relative " +
 							"transition-[width] duration-200 ease-out " +
-							copilotWidth +
-							(hydrated ? "" : " opacity-0")
+							copilotWidth
 						}
 					>
 						{/* 浮动切换按钮：左边缘中心凹起的小圆按钮 */}
