@@ -25,11 +25,11 @@
 | ID | 标题 | 状态 | 改动面 | 估时 |
 |---|---|---|---|---|
 | B1 | 审计 `src/ui/pages/*` 在 backend 的依赖链 | 🟢 | 仅 grep/分析，无改动 | 30m |
-| B2 | 抽取 `src/ui/pages/settings_data.py` 业务逻辑到 `src/services/settings_service.py` | 🟡 | workbench_payload + 新 service 层 | 2h |
+| B2 | 抽取 `src/ui/pages/settings_data.py` 业务逻辑到 `src/services/settings_service.py` | ✅ 9d852eb | workbench_payload + 新 service 层 | 2h |
 | B3 | 抽取 `src/ui/pages/home.py` 业务到 `src/services/workbench_service.py`（已部分在 workbench_payload） | 🟡 | 2 文件 | 2h |
 | B4 | 验证 `src/app.py` Streamlit 入口在 backend runtime 不被引用 | 🟢 | 仅 grep | 15m |
 | B5 | 删 `src/app.py` + `src/ui/pages/` + `src/ui/components/` + `src/ui/styles.py/utils.py` | 🔴 🔒(依赖 B2/B3) | ~2000 行 Python 删除 | 2h |
-| B6 | FastAPI 全局 exception handler 统一 HTTPException 结构（避免 fastapi-global-exception-handler-gotcha） | 🟢 | 1 文件 | 30m |
+| B6 | FastAPI 全局 exception handler 统一 HTTPException 结构（避免 fastapi-global-exception-handler-gotcha） | ✅ 436ff49 | 1 文件 + 2 tests | 30m |
 | B7 | 结构化日志（JSON formatter + request-id 中间件） | 🟡 | `src/config/logger.py` + middleware | 1.5h |
 | B8 | Pydantic 严格化（所有 `dict[str, Any]` 返回体替换为 BaseModel） | 🔴 | 多 handler | 3h |
 | B9 | 删 `src/ui/pages/settings_rules.py`（只 4% 覆盖率，最脏） | 🟢 🔒(B2) | ~592 行删除 | 30m |
@@ -44,13 +44,13 @@
 
 | ID | 标题 | 状态 | 改动面 | 估时 |
 |---|---|---|---|---|
-| C1 | 后端 request-timing 中间件（log 每个 API p50/p95） | 🟢 | `src/backend/app.py` middleware | 45m |
-| C2 | 新 endpoint `GET /metrics`（Prometheus-style 或简单 JSON） | 🟢 | 1 endpoint | 45m |
-| C3 | SQLite 慢查询追踪（`db.conn.set_trace_callback(...)` 记录 > 100ms） | 🟡 | `src/data/db.py` | 1h |
-| C4 | 前端 Web Vitals 埋点（`onCLS` / `onINP` / `onLCP` + console 或 beacon） | 🟢 | `frontend/src/app/layout.tsx` | 45m |
-| C5 | 前端 Sentry-lite error boundary 每页 | 🟡 | 6 页 + `frontend/src/app/error.tsx` | 1.5h |
+| C1 | 后端 request-timing 中间件（log 每个 API p50/p95） | ✅ | `src/backend/app.py` middleware | 45m |
+| C2 | 新 endpoint `GET /metrics`（Prometheus-style 或简单 JSON） | ✅ | 1 endpoint | 45m |
+| C3 | SQLite 慢查询追踪（执行时间超阈值记录 + 聚合统计） | ✅ 1c417a8 | `src/data/db.py` + 7 tests | 1h |
+| C4 | 前端 Web Vitals 埋点（`onCLS` / `onINP` / `onLCP` + console 或 beacon） | ✅ 4216a25 | `frontend/src/app/layout.tsx` | 45m |
+| C5 | 前端 Sentry-lite error boundary 每页 | ✅ 78f2273 | 6 页 + `frontend/src/app/error.tsx` | 1.5h |
 | C6 | 性能预算记录（bundle size / first-byte / 冷启时间的 baseline 值 + CI check） | 🟡 🔒(C1/C4) | CI workflow | 1h |
-| C7 | 后端启动时间 profile（识别最慢 import） | 🟢 | 一次性脚本 | 30m |
+| C7 | 后端启动时间 profile（识别最慢 import） | ✅ 2de51aa | 一次性脚本 | 30m |
 
 **建议路径：** C1 + C2 并行（都在 app.py） → C4 → C3 → C5 → C6。
 
@@ -63,9 +63,9 @@
 | ID | 标题 | 状态 | 改动面 | 估时 |
 |---|---|---|---|---|
 | D1 | Baseline coverage report（402 passed / 57% total）归档 | ✅ | `coverage.xml` 已生成于项目根 | - |
-| D2 | `pytest.ini` 加 coverage config + 阈值（backend ≥ 85%） | 🟢 | 1 文件 | 15m |
-| D3 | 提升 `src/ai/client.py` 覆盖率从 34% → 70%（加 generate/generate_json 的错误路径测试） | 🟡 | 新增 unit test | 1.5h |
-| D4 | 提升 `src/backend/copilot_chat.py` 从 58% → 80%（SSE error + cancel 路径） | 🟡 | 新增 unit test | 1.5h |
+| D2 | `pytest.ini` 加 coverage config + 阈值（backend ≥ 85%） | ✅ | 1 文件 | 15m |
+| D3 | 提升 `src/ai/client.py` 覆盖率从 34% → 70%（加 generate/generate_json 的错误路径测试） | ✅ 2f6d826 | 新增 unit test | 1.5h |
+| D4 | 提升 `src/backend/copilot_chat.py` 从 58% → 80%（SSE error + cancel 路径） | ✅ f83e2c9（error/outer exception 路径完成；timeout/cancel 延后） | 新增 unit test | 1.5h |
 | D5 | Playwright 初始化（`npm i -D @playwright/test` + `playwright.config.ts`） | 🟢 | frontend/ 新 config | 45m |
 | D6 | E2E smoke：首页加载 + 6 tab 跳转 + Copilot 发消息 + 流式响应 | 🔴 🔒(D5) | 6 tests | 3h |
 | D7 | E2E 关键路径：upload → analysis → review → actions → export | 🔴 🔒(D5) | 5 tests | 4h |
@@ -82,31 +82,41 @@
 | ID | 标题 | 状态 | 改动面 | 估时 |
 |---|---|---|---|---|
 | E1 | `docs/ENGINEERING_BACKLOG.md`（本文档） | ✅ | 1 文件 | - |
-| E2 | `.github/workflows/ci.yml`（pytest + frontend build + type-check） | 🟢 | 1 文件 | 30m |
-| E3 | `docs/ARCHITECTURE.md`（后端分层 + 前端 component tree + 数据流） | 🟡 | 1 文件 | 1.5h |
+| E2 | `.github/workflows/ci.yml`（pytest + frontend build + type-check） | ✅ | 1 文件 | 30m |
+| E3 | `docs/ARCHITECTURE.md`（后端分层 + 前端 component tree + 数据流） | ✅ 8558bed | 1 文件（368 行） | 1.5h |
 | E4 | `docs/CODEMAPS/` 按模块自动生成 (use doc-updater skill 或手写) | 🟡 | 多文件 | 2h |
-| E5 | `CONTRIBUTING.md` + 开发者 setup 指南 | 🟢 | 1 文件 | 30m |
-| E6 | `CHANGELOG.md` 从 Sprint 1 倒推整理 | 🟢 | 1 文件 | 1h |
-| E7 | Dependabot config（后端 + 前端每周扫 security） | 🟢 | `.github/dependabot.yml` | 15m |
-| E8 | Pre-commit hooks（black / ruff / prettier / tsc） | 🟡 | `.pre-commit-config.yaml` | 1h |
+| E5 | `CONTRIBUTING.md` + 开发者 setup 指南 | ✅ a795df7 | 1 文件 | 30m |
+| E6 | `CHANGELOG.md` 从 Sprint 1 倒推整理 | ✅ b22a60e | 1 文件 | 1h |
+| E7 | Dependabot config（后端 + 前端每周扫 security） | ✅ | `.github/dependabot.yml` | 15m |
+| E8 | Pre-commit hooks（black / ruff / prettier / tsc） | 🟡 需定偏好 | `.pre-commit-config.yaml` | 1h |
 
 **建议路径：** E1（已完）→ E2 → E5 → E6 → E3 → E4 → E7 → E8。
 
 ---
 
-## 本 session 实施（Sprint 5 quick wins）
+## Session 进度（截至 2026-04-24 续推）
 
-本次 session 完成：
-- ✅ **E1** 本 backlog 文档
-- ✅ **D1** Baseline coverage 归档（402 passed, 57% total）
-- 进行中 **E2** CI workflow
-- 进行中 **D2** pytest coverage config
+**已完成（19/32 ≈ 59%）：** B2 · B6 · C1 · C2 · C3 · C4 · C5 · C7 · D1 · D2 · D3 · D4（主要路径）· E1 · E2 · E3 · E5 · E6 · E7 · A1-A3（Sprint 4 流式 + hyperlink + 每日洞察）· UX（Copilot 可折叠）
 
-剩余待下次 session 按 ROI 挑：
-- **E5 / E6**（docs quick wins）
-- **C1 / C2**（observability quick wins）
-- **B1 / B4**（legacy 审计，decision-only 不落代码）
-- **D2-D4**（pytest 加固）
+**剩余未做：**
+- **B3** workbench_service 抽取（2h）
+- **B4** src/app.py backend runtime 引用审计（15m · quick win）
+- **B5** Streamlit legacy 整体删除（🔴 blocked by B3 + test_app_navigation.py 耦合）
+- **B7** 结构化日志 JSON + request-id（1.5h）
+- **B8** Pydantic 严格化（🔴 3h · 多 handler）
+- **B9** 删 settings_rules.py（🔒 由 B2 解锁，需整合 coverage gate）
+- **C6** 性能预算 CI check（1h · 需先 C1/C4 baseline 数据）
+- **D4 残留** timeout + cancel 路径（SSE 深入）
+- **D5 + D6 + D7** Playwright E2E 全量（🔴 3-7h · 大工程）
+- **D8** vitest frontend unit（需定 test runner 偏好）
+- **E4** CODEMAPS（2h · 可用 doc-updater agent）
+- **E8** pre-commit hooks（需定 linter 组合偏好）
+
+**下一步 ROI 排序（主人可挑）：**
+1. **B4**（15m）→ 快速审计，为 B5 铺路
+2. **B7**（1.5h）→ 结构化日志，与 C1 完美搭配
+3. **E4**（2h）→ 纯文档，可并行 agent 生成
+4. **D4 残留**（1h）→ SSE 鲁棒性收尾
 
 ---
 
