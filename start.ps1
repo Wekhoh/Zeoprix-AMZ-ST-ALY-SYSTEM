@@ -63,9 +63,12 @@ function Stop-RepoProcessOnPort([int]$port) {
 
 function Wait-ForHttp([string]$url, [int]$timeoutSeconds = 45) {
     $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+    $delayMs = 200
+    $capMs = 3000
     while ((Get-Date) -lt $deadline) {
         if (Test-Http $url) { return $true }
-        Start-Sleep -Milliseconds 500
+        Start-Sleep -Milliseconds $delayMs
+        $delayMs = [Math]::Min($delayMs * 2, $capMs)
     }
     return $false
 }
@@ -141,7 +144,7 @@ foreach ($log in @($BackendLog, $BackendErrLog, $FrontendLog, $FrontendErrLog)) 
 }
 $backendArgs = @('-m', 'uvicorn', 'src.backend.app:app', '--host', '127.0.0.1', '--port', "$BackendPort")
 Start-Process -FilePath $PythonExe -ArgumentList $backendArgs -WorkingDirectory $RepoRoot -RedirectStandardOutput $BackendLog -RedirectStandardError $BackendErrLog -PassThru -WindowStyle Minimized | Out-Null
-if (-not (Wait-ForHttp "$BackendUrl/frontend/workbench" 45)) {
+if (-not (Wait-ForHttp "$BackendUrl/health" 20)) {
     throw "后端启动失败，请查看日志：$BackendLog / $BackendErrLog"
 }
 Write-Stage 'OK' "后端已就绪：$BackendUrl" 'Green'
@@ -150,7 +153,7 @@ Write-Stage '5/5' '启动 Next 前端'
 $frontendCmd = "set BACKEND_BASE_URL=$BackendUrl&& set NEXT_PUBLIC_BACKEND_BASE_URL=$BackendUrl&& npm run start -- --hostname 127.0.0.1 --port $FrontendPort"
 Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', $frontendCmd -WorkingDirectory $FrontendDir -RedirectStandardOutput $FrontendLog -RedirectStandardError $FrontendErrLog -PassThru -WindowStyle Minimized | Out-Null
 Start-Sleep -Seconds 2
-if (-not (Wait-ForHttp $FrontendUrl 60)) {
+if (-not (Wait-ForHttp $FrontendUrl 30)) {
     Write-Stage 'WARN' "前端可能仍在启动，请查看日志：$FrontendLog / $FrontendErrLog" 'Yellow'
 } else {
     Write-Stage 'OK' "前端已就绪：$FrontendUrl" 'Green'

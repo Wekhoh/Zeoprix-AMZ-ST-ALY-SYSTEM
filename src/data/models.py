@@ -105,7 +105,6 @@ class ActionType:
         return value in {cls.OBSERVE, cls.CONTINUE_OBSERVE}
 
 
-
 # ==================== 产品配置结构说明 ====================
 # 产品的config字段应包含以下结构:
 #

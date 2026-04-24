@@ -96,7 +96,9 @@ def load_aggregate_expected_actions(workbook_path: Path) -> pd.DataFrame:
     )
 
 
-def compare_campaign_actions(expected_df: pd.DataFrame, db: Database, product_id: int) -> dict:
+def compare_campaign_actions(
+    expected_df: pd.DataFrame, db: Database, product_id: int
+) -> dict:
     results = analyze_search_terms_by_campaign(db, product_id)
     result_lookup = {
         (result.campaign_name.strip().lower(), result.term.strip().lower()): result
@@ -141,7 +143,9 @@ def compare_campaign_actions(expected_df: pd.DataFrame, db: Database, product_id
     }
 
 
-def compare_aggregate_actions(expected_df: pd.DataFrame, db: Database, product_id: int) -> dict:
+def compare_aggregate_actions(
+    expected_df: pd.DataFrame, db: Database, product_id: int
+) -> dict:
     results = analyze_search_terms_by_asin(db, product_id)
     result_lookup = {
         (result.asin_identifier.strip(), result.term.strip().lower()): result
@@ -231,7 +235,10 @@ def main() -> int:
     db = Database(str(db_path))
 
     try:
-        if not db.table_exists("search_terms") or db.get_table_count("search_terms") == 0:
+        if (
+            not db.table_exists("search_terms")
+            or db.get_table_count("search_terms") == 0
+        ):
             print(
                 "数据库当前没有 search_terms 数据；"
                 "请先导入真实 CSV（例如运行 scripts/import_test_data.py）。"
@@ -241,7 +248,9 @@ def main() -> int:
         campaign_expected = load_campaign_expected_actions(args.campaign_workbook)
         aggregate_expected = load_aggregate_expected_actions(args.aggregate_workbook)
 
-        campaign_comparison = compare_campaign_actions(campaign_expected, db, args.product_id)
+        campaign_comparison = compare_campaign_actions(
+            campaign_expected, db, args.product_id
+        )
         aggregate_comparison = compare_aggregate_actions(
             aggregate_expected, db, args.product_id
         )
@@ -251,7 +260,9 @@ def main() -> int:
 
         if args.output_csv:
             output_path = args.output_csv.expanduser().resolve()
-            combined = campaign_comparison["mismatches"] + aggregate_comparison["mismatches"]
+            combined = (
+                campaign_comparison["mismatches"] + aggregate_comparison["mismatches"]
+            )
             if combined:
                 pd.DataFrame(combined).to_csv(output_path, index=False)
                 print(f"\nMismatch 明细已导出: {output_path}")

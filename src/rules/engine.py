@@ -3,6 +3,7 @@
 根据配置的规则分析搜索词数据
 """
 
+import time
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -960,3 +961,60 @@ def analyze_search_terms_by_asin(
 
     logger.info(f"按ASIN分析完成，生成 {len(results)} 条结果")
     return apply_reviewed_truth(db, product_id, results)
+
+
+# ========== TTL 缓存（Sprint 1.3 启动性能优化）==========
+# 缓存 key 使用 SQLite PRAGMA data_version：每次 DB 写入自动 +1，读取不变。
+# 上传文件 / 规则修改 / 审核变动后自动失效，无需手动 invalidate。
+_CACHE_TTL_SECONDS = 120.0
+_MAX_CACHE_ENTRIES = 8
+_analysis_cache: dict = {}
+
+
+def _get_db_data_version(db: Database) -> int:
+    """读取 SQLite data_version；失败返回 -1（退回无缓存调用）。"""
+    try:
+        row = db.conn.execute("PRAGMA data_version").fetchone()
+        return int(row[0]) if row else -1
+    except Exception:
+        return -1
+
+
+def _cache_put(key: tuple, value: list) -> None:
+    """写入缓存并做最小容量控制（保留最近 8 条，防内存膨胀）。"""
+    _analysis_cache[key] = (value, time.time())
+    if len(_analysis_cache) > _MAX_CACHE_ENTRIES:
+        oldest_key = min(_analysis_cache.items(), key=lambda kv: kv[1][1])[0]
+        _analysis_cache.pop(oldest_key, None)
+
+
+def analyze_search_terms_cached(
+    db: Database, product_id: int = None
+) -> list[AnalysisResult]:
+    """analyze_search_terms 的 TTL 缓存版本（供 /frontend/workbench 等热路径使用）。"""
+    version = _get_db_data_version(db)
+    if version < 0:
+        return analyze_search_terms(db, product_id)
+    key = ("flat", product_id, version)
+    cached = _analysis_cache.get(key)
+    if cached is not None and (time.time() - cached[1]) < _CACHE_TTL_SECONDS:
+        return cached[0]
+    results = analyze_search_terms(db, product_id)
+    _cache_put(key, results)
+    return results
+
+
+def analyze_search_terms_by_asin_cached(
+    db: Database, product_id: int = None
+) -> list[ASINAnalysisResult]:
+    """analyze_search_terms_by_asin 的 TTL 缓存版本。"""
+    version = _get_db_data_version(db)
+    if version < 0:
+        return analyze_search_terms_by_asin(db, product_id)
+    key = ("asin", product_id, version)
+    cached = _analysis_cache.get(key)
+    if cached is not None and (time.time() - cached[1]) < _CACHE_TTL_SECONDS:
+        return cached[0]
+    results = analyze_search_terms_by_asin(db, product_id)
+    _cache_put(key, results)
+    return results

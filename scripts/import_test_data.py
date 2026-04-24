@@ -281,7 +281,9 @@ def main() -> int:
             else:
                 print("产品配置已存在，无需补齐")
 
-        total_terms, imported_files = import_csv_files(db, parser, product_id, csv_paths)
+        total_terms, imported_files = import_csv_files(
+            db, parser, product_id, csv_paths
+        )
         print(f"\n总计导入: {total_terms} 条搜索词记录")
         print(f"成功处理文件: {len(imported_files)} 个")
 

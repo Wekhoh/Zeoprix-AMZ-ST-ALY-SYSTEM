@@ -259,7 +259,9 @@ class ASINAnalyzer:
     # ==================== 层次三: 决策支撑 ====================
 
     @staticmethod
-    def _combine_action_counts(distribution: dict[str, dict[str, int]]) -> dict[str, int]:
+    def _combine_action_counts(
+        distribution: dict[str, dict[str, int]],
+    ) -> dict[str, int]:
         """合并多个ASIN的操作分布计数。"""
         combined: dict[str, int] = {}
         for action_counts in distribution.values():

@@ -101,7 +101,9 @@ class ReportExporter:
         """生成下载文件名（不包含目录）。"""
         return self._generate_filename(prefix, extension).name
 
-    def _build_negative_dataframe(self, results: list[AnalysisResult]) -> pd.DataFrame | None:
+    def _build_negative_dataframe(
+        self, results: list[AnalysisResult]
+    ) -> pd.DataFrame | None:
         """构建否词导出 DataFrame。"""
         negative_results = [r for r in results if ActionType.is_negative(r.action_type)]
 
@@ -117,7 +119,9 @@ class ReportExporter:
                     "类型": r.term_type,
                     "触发规则": r.triggered_rule,
                     "建议操作": r.suggested_action,
-                    "否定类型": self._get_negative_type(r.suggested_action, r.action_type),
+                    "否定类型": self._get_negative_type(
+                        r.suggested_action, r.action_type
+                    ),
                     "置信度": f"{r.confidence:.2%}",
                     "需AI确认": "是" if r.need_ai_judgment else "否",
                     "花费": r.data.get("total_spend", r.data.get("spend", 0)),
@@ -128,7 +132,9 @@ class ReportExporter:
 
         return pd.DataFrame(data)
 
-    def _build_manual_dataframe(self, results: list[AnalysisResult]) -> pd.DataFrame | None:
+    def _build_manual_dataframe(
+        self, results: list[AnalysisResult]
+    ) -> pd.DataFrame | None:
         """构建手动词导出 DataFrame。"""
         manual_results = [r for r in results if ActionType.is_manual(r.action_type)]
 
@@ -258,7 +264,9 @@ class ReportExporter:
         Returns:
             导出文件路径
         """
-        payload = self.export_negative_keywords_bytes(results, product_name=product_name)
+        payload = self.export_negative_keywords_bytes(
+            results, product_name=product_name
+        )
         if payload is None:
             return None
         file_bytes, default_name = payload
@@ -343,7 +351,9 @@ class ReportExporter:
             self._write_summary_sheet(writer, results, summary)
 
             # Sheet 2: 否词清单
-            negative_results = [r for r in results if ActionType.is_negative(r.action_type)]
+            negative_results = [
+                r for r in results if ActionType.is_negative(r.action_type)
+            ]
             if negative_results:
                 self._write_results_sheet(writer, negative_results, "否词清单")
 
@@ -372,9 +382,13 @@ class ReportExporter:
         """写入汇总Sheet"""
         # 统计数据
         total_count = len(results)
-        negative_count = len([r for r in results if ActionType.is_negative(r.action_type)])
+        negative_count = len(
+            [r for r in results if ActionType.is_negative(r.action_type)]
+        )
         manual_count = len([r for r in results if ActionType.is_manual(r.action_type)])
-        observe_count = len([r for r in results if ActionType.is_observe(r.action_type)])
+        observe_count = len(
+            [r for r in results if ActionType.is_observe(r.action_type)]
+        )
         ai_pending_count = len([r for r in results if r.need_ai_judgment])
 
         # 规则触发统计
@@ -496,9 +510,7 @@ class ReportExporter:
         if result.action_type == ActionType.NEGATIVE_EXACT:
             return "Negative exact"
         return (
-            "Negative exact"
-            if "精确" in result.suggested_action
-            else "Negative phrase"
+            "Negative exact" if "精确" in result.suggested_action else "Negative phrase"
         )
 
     def _suggest_bid(self, result: AnalysisResult) -> str:

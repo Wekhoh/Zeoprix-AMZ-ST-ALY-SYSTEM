@@ -17,8 +17,8 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SQLITE_PATH = PROJECT_ROOT / 'data' / 'db' / 'backend_app.db'
-DEFAULT_WORKSPACE_NAME = 'Default Workspace'
+DEFAULT_SQLITE_PATH = PROJECT_ROOT / "data" / "db" / "backend_app.db"
+DEFAULT_WORKSPACE_NAME = "Default Workspace"
 
 
 class Base(DeclarativeBase):
@@ -30,11 +30,13 @@ SessionFactory = sessionmaker[Session]
 
 def get_backend_database_url() -> str:
     """返回后端数据库连接串。"""
-    configured_url = os.getenv('AMZ_BACKEND_DATABASE_URL', '').strip()
+    configured_url = os.getenv("AMZ_BACKEND_DATABASE_URL", "").strip()
     if configured_url:
         return configured_url
 
-    sqlite_path = Path(os.getenv('AMZ_BACKEND_SQLITE_PATH', str(DEFAULT_SQLITE_PATH))).expanduser()
+    sqlite_path = Path(
+        os.getenv("AMZ_BACKEND_SQLITE_PATH", str(DEFAULT_SQLITE_PATH))
+    ).expanduser()
     sqlite_path.parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{sqlite_path.as_posix()}"
 
@@ -42,8 +44,8 @@ def get_backend_database_url() -> str:
 def create_engine_for_url(database_url: str) -> Engine:
     """按 URL 创建 SQLAlchemy Engine。"""
     connect_args: dict[str, Any] = {}
-    if database_url.startswith('sqlite'):
-        connect_args['check_same_thread'] = False
+    if database_url.startswith("sqlite"):
+        connect_args["check_same_thread"] = False
 
     return create_engine(
         database_url,
@@ -66,7 +68,10 @@ def create_session_factory(engine: Engine) -> SessionFactory:
 
 
 def _get_default_workspace_name() -> str:
-    return os.getenv('AMZ_BACKEND_DEFAULT_WORKSPACE_NAME', DEFAULT_WORKSPACE_NAME).strip() or DEFAULT_WORKSPACE_NAME
+    return (
+        os.getenv("AMZ_BACKEND_DEFAULT_WORKSPACE_NAME", DEFAULT_WORKSPACE_NAME).strip()
+        or DEFAULT_WORKSPACE_NAME
+    )
 
 
 def init_backend_schema(engine: Engine, session_factory: SessionFactory) -> None:
@@ -82,20 +87,22 @@ def init_backend_schema(engine: Engine, session_factory: SessionFactory) -> None
 
     workspace_name = _get_default_workspace_name()
     with session_factory() as session:
-        user = session.scalar(select(User).where(User.email == bootstrap_user['email']))
+        user = session.scalar(select(User).where(User.email == bootstrap_user["email"]))
         if user is None:
             user = User(
-                email=bootstrap_user['email'],
-                name=bootstrap_user['name'],
-                password_hash=bootstrap_user['password_hash'],
+                email=bootstrap_user["email"],
+                name=bootstrap_user["name"],
+                password_hash=bootstrap_user["password_hash"],
             )
             session.add(user)
             session.flush()
         else:
-            user.name = bootstrap_user['name']
-            user.password_hash = bootstrap_user['password_hash']
+            user.name = bootstrap_user["name"]
+            user.password_hash = bootstrap_user["password_hash"]
 
-        workspace = session.scalar(select(Workspace).where(Workspace.name == workspace_name))
+        workspace = session.scalar(
+            select(Workspace).where(Workspace.name == workspace_name)
+        )
         if workspace is None:
             workspace = Workspace(name=workspace_name)
             session.add(workspace)
@@ -111,11 +118,11 @@ def init_backend_schema(engine: Engine, session_factory: SessionFactory) -> None
             membership = WorkspaceMembership(
                 workspace_id=workspace.id,
                 user_id=user.id,
-                role='admin',
+                role="admin",
             )
             session.add(membership)
         else:
-            membership.role = 'admin'
+            membership.role = "admin"
 
         session.commit()
 

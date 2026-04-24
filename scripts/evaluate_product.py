@@ -9,7 +9,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_PYTEST_COUNT_RE = re.compile(r"(?P<count>\d+) (?P<label>passed|failed|errors|skipped|warnings)")
+_PYTEST_COUNT_RE = re.compile(
+    r"(?P<count>\d+) (?P<label>passed|failed|errors|skipped|warnings)"
+)
 _ALIGNMENT_RATE_RE = re.compile(r"=\s*(?P<rate>\d+(?:\.\d+)?)%")
 _TRAILING_COUNT_RE = re.compile(r":\s*(?P<count>\d+)\s*$", re.MULTILINE)
 _SECTION_RE = re.compile(
@@ -50,14 +52,21 @@ def parse_alignment_summary(text: str) -> dict[str, Any]:
                 campaign_rate = rate
             elif "汇总" in title:
                 aggregate_rate = rate
-                trailing_counts = [int(item.group("count")) for item in _TRAILING_COUNT_RE.finditer(body)]
+                trailing_counts = [
+                    int(item.group("count"))
+                    for item in _TRAILING_COUNT_RE.finditer(body)
+                ]
                 source_conflicts = trailing_counts[-1] if trailing_counts else 0
 
     if campaign_rate is None and aggregate_rate is None:
-        rates = [float(match.group("rate")) for match in _ALIGNMENT_RATE_RE.finditer(text)]
+        rates = [
+            float(match.group("rate")) for match in _ALIGNMENT_RATE_RE.finditer(text)
+        ]
         campaign_rate = rates[0] if len(rates) >= 1 else None
         aggregate_rate = rates[1] if len(rates) >= 2 else None
-        trailing_counts = [int(match.group("count")) for match in _TRAILING_COUNT_RE.finditer(text)]
+        trailing_counts = [
+            int(match.group("count")) for match in _TRAILING_COUNT_RE.finditer(text)
+        ]
         source_conflicts = trailing_counts[-1] if trailing_counts else 0
 
     return {
@@ -69,7 +78,9 @@ def parse_alignment_summary(text: str) -> dict[str, Any]:
 
 def summarize_llm_scores(scores: dict[str, float]) -> dict[str, Any]:
     normalized = {key: round(float(value), 2) for key, value in scores.items()}
-    average = round(sum(normalized.values()) / len(normalized), 2) if normalized else 0.0
+    average = (
+        round(sum(normalized.values()) / len(normalized), 2) if normalized else 0.0
+    )
     return {"scores": normalized, "average": average}
 
 
@@ -91,8 +102,15 @@ def compute_objective_score(
         else 0.0
     )
     warning_penalty = min(float(pytest_summary.get("warnings", 0)) * 0.25, 5.0)
-    conflict_penalty = max(float(alignment_summary.get("source_conflicts", 0)) - 5.0, 0.0) * 0.2
-    objective = (test_score * 0.55) + (alignment_score * 0.45) - warning_penalty - conflict_penalty
+    conflict_penalty = (
+        max(float(alignment_summary.get("source_conflicts", 0)) - 5.0, 0.0) * 0.2
+    )
+    objective = (
+        (test_score * 0.55)
+        + (alignment_score * 0.45)
+        - warning_penalty
+        - conflict_penalty
+    )
     return round(max(objective, 0.0), 2)
 
 
@@ -100,7 +118,9 @@ def compute_total_score(objective_score: float, llm_average: float) -> float:
     return round((objective_score * 0.6) + (llm_average * 0.4), 2)
 
 
-def _run_command(command: list[str], cwd: Path, extra_env: dict[str, str] | None = None) -> str:
+def _run_command(
+    command: list[str], cwd: Path, extra_env: dict[str, str] | None = None
+) -> str:
     env = os.environ.copy()
     if extra_env:
         env.update(extra_env)
@@ -139,7 +159,12 @@ def _parse_llm_scores(raw_scores: list[str]) -> dict[str, float]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="运行产品化评估并输出总分。")
     parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[1]))
-    parser.add_argument("--llm-score", action="append", default=[], help="传入 LLM 评审分数，格式如 ux=92")
+    parser.add_argument(
+        "--llm-score",
+        action="append",
+        default=[],
+        help="传入 LLM 评审分数，格式如 ux=92",
+    )
     parser.add_argument("--llm-review-file", help="包含 LLM 评审分数 JSON 的文件路径")
     parser.add_argument("--history-file", default="tasks/eval_history.jsonl")
     parser.add_argument("--change-note", default="", help="记录本轮改动摘要")
@@ -152,15 +177,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo_root).resolve()
-    pytest_output = _run_command([sys.executable, "-m", "pytest", "-q"], repo_root, extra_env={"DEBUG": "true"})
-    alignment_output = _run_command([sys.executable, "analyze_mismatches.py"], repo_root)
+    pytest_output = _run_command(
+        [sys.executable, "-m", "pytest", "-q"], repo_root, extra_env={"DEBUG": "true"}
+    )
+    alignment_output = _run_command(
+        [sys.executable, "analyze_mismatches.py"], repo_root
+    )
 
     pytest_summary = parse_pytest_summary(pytest_output)
     alignment_summary = parse_alignment_summary(alignment_output)
 
     llm_scores = _parse_llm_scores(args.llm_score)
     if args.llm_review_file:
-        llm_scores.update(json.loads(Path(args.llm_review_file).read_text(encoding="utf-8")))
+        llm_scores.update(
+            json.loads(Path(args.llm_review_file).read_text(encoding="utf-8"))
+        )
     llm_summary = summarize_llm_scores(llm_scores)
 
     objective_score = compute_objective_score(pytest_summary, alignment_summary)

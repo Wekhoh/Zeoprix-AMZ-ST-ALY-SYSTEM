@@ -75,7 +75,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_product_id(db: Database, product_id: int | None, product_name: str | None) -> int:
+def resolve_product_id(
+    db: Database, product_id: int | None, product_name: str | None
+) -> int:
     if product_id is not None:
         product = db.get_product(product_id)
         if not product:
@@ -84,7 +86,9 @@ def resolve_product_id(db: Database, product_id: int | None, product_name: str |
 
     if product_name:
         products = db.get_all_products()
-        product = next((item for item in products if item["name"] == product_name), None)
+        product = next(
+            (item for item in products if item["name"] == product_name), None
+        )
         if not product:
             raise ValueError(f"未找到产品名称: {product_name}")
         return int(product["id"])

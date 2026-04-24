@@ -83,7 +83,9 @@ def _normalize_term(term: Any) -> str:
     return _normalize_text(term).lower()
 
 
-def _first_row_value(row: pd.Series, aliases: tuple[str, ...], fallback_index: int) -> Any:
+def _first_row_value(
+    row: pd.Series, aliases: tuple[str, ...], fallback_index: int
+) -> Any:
     for alias in aliases:
         if alias in row.index:
             return row[alias]
@@ -96,8 +98,12 @@ def _normalize_column_name(value: Any) -> str:
     return _normalize_text(value)
 
 
-def _detect_alias_mapping(columns: list[str], alias_map: dict[str, tuple[str, ...]]) -> dict[str, str]:
-    normalized_columns = {_normalize_column_name(column): str(column) for column in columns}
+def _detect_alias_mapping(
+    columns: list[str], alias_map: dict[str, tuple[str, ...]]
+) -> dict[str, str]:
+    normalized_columns = {
+        _normalize_column_name(column): str(column) for column in columns
+    }
     mapping: dict[str, str] = {}
     for field_name, aliases in alias_map.items():
         for alias in aliases:
@@ -116,13 +122,19 @@ def inspect_campaign_truth_workbook(workbook_path: str | Path) -> dict[str, Any]
     df = pd.read_excel(path)
     columns = [str(column) for column in df.columns]
     recognized_fields = _detect_alias_mapping(columns, CAMPAIGN_SHEET_ALIASES)
-    missing_required = [field for field in CAMPAIGN_REQUIRED_FIELDS if field not in recognized_fields]
+    missing_required = [
+        field for field in CAMPAIGN_REQUIRED_FIELDS if field not in recognized_fields
+    ]
 
     data_rows = 0
     if not df.empty and not missing_required:
         for _, row in df.iterrows():
-            campaign_name = _normalize_text(_first_row_value(row, CAMPAIGN_SHEET_ALIASES["campaign_name"], 1))
-            term = _normalize_term(_first_row_value(row, CAMPAIGN_SHEET_ALIASES["term"], 2))
+            campaign_name = _normalize_text(
+                _first_row_value(row, CAMPAIGN_SHEET_ALIASES["campaign_name"], 1)
+            )
+            term = _normalize_term(
+                _first_row_value(row, CAMPAIGN_SHEET_ALIASES["term"], 2)
+            )
             if campaign_name and term:
                 data_rows += 1
 
@@ -149,8 +161,16 @@ def inspect_aggregate_truth_workbook(workbook_path: str | Path) -> dict[str, Any
             df = workbook.parse(sheet_name)
             columns = [str(column) for column in df.columns]
             recognized_fields = _detect_alias_mapping(columns, AGGREGATE_ROW_ALIASES)
-            missing_required = [field for field in AGGREGATE_REQUIRED_FIELDS if field not in recognized_fields]
-            action_fields = [field for field in AGGREGATE_ACTION_HINT_FIELDS if field in recognized_fields]
+            missing_required = [
+                field
+                for field in AGGREGATE_REQUIRED_FIELDS
+                if field not in recognized_fields
+            ]
+            action_fields = [
+                field
+                for field in AGGREGATE_ACTION_HINT_FIELDS
+                if field in recognized_fields
+            ]
             analyzed_sheets.append(
                 {
                     "sheet_name": sheet_name,
@@ -169,7 +189,8 @@ def inspect_aggregate_truth_workbook(workbook_path: str | Path) -> dict[str, Any
         "workbook_name": path.name,
         "sheet_names": sheet_names,
         "analyzed_sheets": analyzed_sheets,
-        "ready": bool(analyzed_sheets) and all(sheet["ready"] for sheet in analyzed_sheets),
+        "ready": bool(analyzed_sheets)
+        and all(sheet["ready"] for sheet in analyzed_sheets),
     }
 
 
@@ -305,7 +326,9 @@ def _build_truth_lookup(db: Database, product_id: int) -> tuple[dict, dict, dict
             if asin_identifier:
                 asin_key = (term_key, asin_identifier)
                 current = asin_truth.get(asin_key)
-                if current is None or _review_sort_key(review) >= _review_sort_key(current):
+                if current is None or _review_sort_key(review) >= _review_sort_key(
+                    current
+                ):
                     asin_truth[asin_key] = review
                 continue
             current = global_truth.get(term_key)
@@ -349,7 +372,9 @@ def apply_reviewed_truth(
             overridden.append(result)
             continue
 
-        action_type = review.get("truth_action_type") or getattr(result, "action_type", "")
+        action_type = review.get("truth_action_type") or getattr(
+            result, "action_type", ""
+        )
         replay_data = {
             "review_id": review.get("id"),
             "review_source": review.get("review_source"),
@@ -423,7 +448,9 @@ def _dedupe_truth_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not key:
             continue
         current = deduped.get(key)
-        if current is None or _truth_item_priority(item) > _truth_item_priority(current):
+        if current is None or _truth_item_priority(item) > _truth_item_priority(
+            current
+        ):
             deduped[key] = item
 
     return sorted(
@@ -512,7 +539,10 @@ def get_truth_first_action_buckets(
         if ActionType.is_manual(result.action_type):
             manual_keyword_items.append(item)
 
-        if "Neg Exact" in negate_keyword or result.action_type == ActionType.MANUAL_EXACT_WITH_NEG:
+        if (
+            "Neg Exact" in negate_keyword
+            or result.action_type == ActionType.MANUAL_EXACT_WITH_NEG
+        ):
             negative_exact_items.append(item)
         elif (
             result.action_type == ActionType.NEGATIVE_PHRASE
@@ -531,7 +561,9 @@ def get_truth_first_action_buckets(
     }
 
 
-def get_truth_first_pending_stats(db: Database, product_id: int) -> dict[str, int] | None:
+def get_truth_first_pending_stats(
+    db: Database, product_id: int
+) -> dict[str, int] | None:
     """返回 truth-first 首页待处理统计。"""
     buckets = get_truth_first_action_buckets(db, product_id)
     if buckets is None:
@@ -557,7 +589,9 @@ def get_truth_first_pending_stats(db: Database, product_id: int) -> dict[str, in
 
 def _snapshot_numeric_metric(result: Any, total_key: str, fallback_key: str) -> float:
     data = getattr(result, "data", {}) or {}
-    raw_value = data.get(total_key, getattr(result, fallback_key, data.get(fallback_key, 0)))
+    raw_value = data.get(
+        total_key, getattr(result, fallback_key, data.get(fallback_key, 0))
+    )
     return float(raw_value or 0)
 
 
@@ -580,14 +614,18 @@ def build_analysis_run_snapshot_rows(results: list[Any]) -> list[dict[str, Any]]
             "normalized_term": normalized_term,
             "term_type": _normalize_text(getattr(result, "term_type", "")) or "keyword",
             "action_type": _normalize_text(getattr(result, "action_type", "")),
-            "suggested_action": _normalize_text(getattr(result, "suggested_action", "")),
+            "suggested_action": _normalize_text(
+                getattr(result, "suggested_action", "")
+            ),
             "triggered_rule": _normalize_text(getattr(result, "triggered_rule", "")),
             "decision_source": _snapshot_decision_source(result),
             "clicks": _snapshot_numeric_metric(result, "total_clicks", "clicks"),
             "orders": _snapshot_numeric_metric(result, "total_orders", "orders"),
             "spend": _snapshot_numeric_metric(result, "total_spend", "spend"),
             "sales": _snapshot_numeric_metric(result, "total_sales", "sales"),
-            "impressions": _snapshot_numeric_metric(result, "impressions", "impressions"),
+            "impressions": _snapshot_numeric_metric(
+                result, "impressions", "impressions"
+            ),
             "confidence": float(getattr(result, "confidence", 0.0) or 0.0),
             "cvr": _snapshot_numeric_metric(result, "cvr", "cvr"),
             "acos": _snapshot_numeric_metric(result, "acos", "acos"),
@@ -682,8 +720,12 @@ def build_analysis_run_diff_rows(
                 or "",
                 "old_action_type": old_action_type,
                 "new_action_type": new_action_type,
-                "old_suggested_action": _normalize_text(previous.get("suggested_action")),
-                "new_suggested_action": _normalize_text(current.get("suggested_action")),
+                "old_suggested_action": _normalize_text(
+                    previous.get("suggested_action")
+                ),
+                "new_suggested_action": _normalize_text(
+                    current.get("suggested_action")
+                ),
                 "old_triggered_rule": _normalize_text(previous.get("triggered_rule")),
                 "new_triggered_rule": _normalize_text(current.get("triggered_rule")),
                 "old_decision_source": old_decision_source,
@@ -778,12 +820,8 @@ def get_latest_analysis_run_diff_preview(
             ),
             "旧来源": _analysis_diff_source_label(row.get("old_decision_source", "")),
             "新来源": _analysis_diff_source_label(row.get("new_decision_source", "")),
-            "旧触发规则": _analysis_diff_rule_label(
-                row.get("old_triggered_rule", "")
-            ),
-            "新触发规则": _analysis_diff_rule_label(
-                row.get("new_triggered_rule", "")
-            ),
+            "旧触发规则": _analysis_diff_rule_label(row.get("old_triggered_rule", "")),
+            "新触发规则": _analysis_diff_rule_label(row.get("new_triggered_rule", "")),
             "变化原因": _analysis_diff_reason_label(row),
         }
         for row in diff_rows
@@ -879,12 +917,12 @@ def get_execution_batch_effect_preview(
             "message": "执行批次创建后还没有形成新的分析快照，先跑一轮最新分析再回来复盘。",
         }
 
-    baseline_summary = baseline_snapshot.get("summary", {}) or build_analysis_run_snapshot_summary(
-        baseline_snapshot.get("rows", []) or []
-    )
-    current_summary = latest_snapshot.get("summary", {}) or build_analysis_run_snapshot_summary(
-        latest_snapshot.get("rows", []) or []
-    )
+    baseline_summary = baseline_snapshot.get(
+        "summary", {}
+    ) or build_analysis_run_snapshot_summary(baseline_snapshot.get("rows", []) or [])
+    current_summary = latest_snapshot.get(
+        "summary", {}
+    ) or build_analysis_run_snapshot_summary(latest_snapshot.get("rows", []) or [])
 
     cards = []
     for label, key in (
@@ -928,13 +966,17 @@ def get_execution_batch_effect_preview(
     }
 
 
-def summarize_execution_batch_effect(preview: dict[str, Any]) -> dict[str, str | list[str]]:
+def summarize_execution_batch_effect(
+    preview: dict[str, Any],
+) -> dict[str, str | list[str]]:
     """将执行批次前后对比压缩成首页可展示的效果摘要。"""
     if not preview.get("available"):
         return {
             "title": "最近执行效果",
             "status": "待观察",
-            "summary": str(preview.get("message") or "当前还没有足够的新分析结果来判断执行效果。"),
+            "summary": str(
+                preview.get("message") or "当前还没有足够的新分析结果来判断执行效果。"
+            ),
             "chips": [],
         }
 
@@ -952,7 +994,10 @@ def summarize_execution_batch_effect(preview: dict[str, Any]) -> dict[str, str |
             return 3
         if ActionType.is_negative(normalized):
             return 2
-        if normalized == ActionType.CONTINUE_OBSERVE or normalized == ActionType.OBSERVE:
+        if (
+            normalized == ActionType.CONTINUE_OBSERVE
+            or normalized == ActionType.OBSERVE
+        ):
             return 1
         if ActionType.is_manual(normalized):
             return 0
@@ -977,9 +1022,16 @@ def summarize_execution_batch_effect(preview: dict[str, Any]) -> dict[str, str |
     if (negative_delta < 0 and manual_delta >= 0) or conflict_delta < 0:
         status = "出现改善信号"
         summary = "执行后，止损压力或分歧数量开始下降，且更可执行的补量机会正在浮现。"
-    elif negative_delta == 0 and manual_delta == 0 and conflict_delta == 0 and observe_delta == 0:
+    elif (
+        negative_delta == 0
+        and manual_delta == 0
+        and conflict_delta == 0
+        and observe_delta == 0
+    ):
         status = "变化不明显"
-        summary = "执行前后当前这批关键动作的数量没有明显变化，建议结合更多天数继续观察。"
+        summary = (
+            "执行前后当前这批关键动作的数量没有明显变化，建议结合更多天数继续观察。"
+        )
     else:
         status = "继续观察"
         summary = "当前已经出现变化，但还不足以明确判断这批动作是否真正带来改善，建议继续拉新一轮分析。"
@@ -1060,7 +1112,9 @@ def _summary_conflict_details(items: list[Any]) -> str:
     details = []
     for item in sorted(items, key=lambda row: row.asin_identifier or ""):
         label = action_type_to_label(item.action_type)
-        asin_identifier = _normalize_text(getattr(item, "asin_identifier", "")) or "未知ASIN"
+        asin_identifier = (
+            _normalize_text(getattr(item, "asin_identifier", "")) or "未知ASIN"
+        )
         details.append(f"{asin_identifier}: {label}")
     return " | ".join(details)
 
@@ -1268,7 +1322,9 @@ def load_aggregate_truth_rows(workbook_path: str | Path) -> list[dict[str, Any]]
 
             for _, row in df.iterrows():
                 row_dict = {
-                    key: _first_row_value(row, aliases, AGGREGATE_ROW_FALLBACK_INDEX[key])
+                    key: _first_row_value(
+                        row, aliases, AGGREGATE_ROW_FALLBACK_INDEX[key]
+                    )
                     for key, aliases in AGGREGATE_ROW_ALIASES.items()
                 }
                 term = _normalize_term(row_dict["term"])
@@ -1283,17 +1339,29 @@ def load_aggregate_truth_rows(workbook_path: str | Path) -> list[dict[str, Any]]
                         "term": term,
                         "term_type": term_type,
                         "relevance": _normalize_text(row_dict["relevance"]) or None,
-                        "manual_action": _normalize_text(row_dict["manual_action"]) or None,
+                        "manual_action": _normalize_text(row_dict["manual_action"])
+                        or None,
                         "auto_action": _normalize_text(row_dict["auto_action"]) or None,
-                        "negate_keyword": _normalize_text(row_dict["negate_keyword"]) or None,
+                        "negate_keyword": _normalize_text(row_dict["negate_keyword"])
+                        or None,
                         "negate_asin": _normalize_text(row_dict["negate_asin"]) or None,
-                        "rule_trigger": _normalize_text(row_dict["rule_trigger"]) or None,
-                        "action_matrix": _normalize_text(row_dict["action_matrix"]) or None,
-                        "campaign_summary": _normalize_text(row_dict["campaign_summary"]) or None,
-                        "campaign_conflict": _normalize_text(row_dict["campaign_conflict"]) or None,
-                        "decision_source": _normalize_text(row_dict["decision_source"]) or None,
+                        "rule_trigger": _normalize_text(row_dict["rule_trigger"])
+                        or None,
+                        "action_matrix": _normalize_text(row_dict["action_matrix"])
+                        or None,
+                        "campaign_summary": _normalize_text(
+                            row_dict["campaign_summary"]
+                        )
+                        or None,
+                        "campaign_conflict": _normalize_text(
+                            row_dict["campaign_conflict"]
+                        )
+                        or None,
+                        "decision_source": _normalize_text(row_dict["decision_source"])
+                        or None,
                         "conflict_flag": bool(_normalize_text(row_dict["conflict"])),
-                        "original_notes": _normalize_text(row_dict["original_notes"]) or None,
+                        "original_notes": _normalize_text(row_dict["original_notes"])
+                        or None,
                         "truth_action_type": truth_action_type,
                         "review_source": "aggregate_truth",
                     }
@@ -1313,7 +1381,9 @@ def import_campaign_truth(
         (product_id,),
     ).fetchall()
     campaign_lookup = {
-        _normalize_text(row["name"]).lower(): row["id"] for row in campaigns if row["name"]
+        _normalize_text(row["name"]).lower(): row["id"]
+        for row in campaigns
+        if row["name"]
     }
 
     imported = 0
@@ -1419,4 +1489,3 @@ def seed_truth_workbooks(
     if aggregate_workbook_path:
         summary.update(import_aggregate_truth(db, product_id, aggregate_workbook_path))
     return summary
-

@@ -44,12 +44,15 @@ export async function streamCopilotChat(
 	payload: CopilotChatPayload,
 	handlers: StreamHandlers,
 ): Promise<void> {
-	const response = await fetch(`${BACKEND_BASE_URL}/frontend/copilot/chat/stream`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(payload),
-		signal: handlers.signal,
-	});
+	const response = await fetch(
+		`${BACKEND_BASE_URL}/frontend/copilot/chat/stream`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload),
+			signal: handlers.signal,
+		},
+	);
 	if (!response.ok) {
 		handlers.onError(`HTTP ${response.status}`);
 		return;

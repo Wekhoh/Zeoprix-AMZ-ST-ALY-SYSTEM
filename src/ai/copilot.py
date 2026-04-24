@@ -52,7 +52,9 @@ def _clean_text_list(values: list[Any] | None) -> list[str]:
     return [str(item).strip() for item in values or [] if str(item).strip()]
 
 
-def _normalize_evidence_items(rows: list[dict[str, Any]] | None, limit: int = 3) -> list[dict[str, Any]]:
+def _normalize_evidence_items(
+    rows: list[dict[str, Any]] | None, limit: int = 3
+) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for row in (rows or [])[:limit]:
         normalized.append(
@@ -96,7 +98,9 @@ def build_follow_up_context_hint(brief: dict[str, Any] | None) -> str:
     return "；".join(parts)
 
 
-def _build_metrics(summary: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_metrics(
+    summary: dict[str, Any], rows: list[dict[str, Any]]
+) -> dict[str, Any]:
     return {
         "negative_count": int(summary.get("negative", 0) or 0),
         "manual_count": int(summary.get("manual", 0) or 0),
@@ -115,7 +119,9 @@ def build_ai_context_pack(
 ) -> AIContextPack:
     """构建统一 AI 上下文；有 snapshot 时优先绑定最近一次有效分析结果。"""
     page_context = page_context or {}
-    product_name = str(page_context.get("product_name") or "当前产品").strip() or "当前产品"
+    product_name = (
+        str(page_context.get("product_name") or "当前产品").strip() or "当前产品"
+    )
 
     latest_snapshot = None
     summary: dict[str, Any] = {}
@@ -138,7 +144,9 @@ def build_ai_context_pack(
             snapshot_created_at = latest_snapshot.get("created_at")
             context_source = "latest_snapshot"
 
-    source_label = "最近一次分析结果" if context_source == "latest_snapshot" else "仅产品基础信息"
+    source_label = (
+        "最近一次分析结果" if context_source == "latest_snapshot" else "仅产品基础信息"
+    )
     context_label = f"当前产品：{product_name} · 上下文：{source_label}"
 
     return AIContextPack(
@@ -159,7 +167,11 @@ def build_ai_context_pack(
 
 
 def _split_response_text(message: str) -> tuple[str, list[str]]:
-    lines = [line.strip("•- ").strip() for line in str(message or "").splitlines() if line.strip()]
+    lines = [
+        line.strip("•- ").strip()
+        for line in str(message or "").splitlines()
+        if line.strip()
+    ]
     if not lines:
         return "AI 已完成分析。", []
     headline = lines[0]
@@ -169,19 +181,35 @@ def _split_response_text(message: str) -> tuple[str, list[str]]:
 
 def _default_next_actions(page_key: str) -> list[str]:
     mapping = {
-        "summary": ["先确认最浪费的词", "再整理手动投放机会", "最后回到审核页确认边界词"],
+        "summary": [
+            "先确认最浪费的词",
+            "再整理手动投放机会",
+            "最后回到审核页确认边界词",
+        ],
         "actions": ["先执行否词清单", "再处理手动投放草稿", "最后整理汇报摘要给团队"],
         "upload": ["先确认导入质量", "再运行规则分析", "最后进入汇总页查看机会与风险"],
         "campaign": ["先收紧高浪费活动", "再对高转化活动补量", "最后核对活动级边界词"],
-        "asin": ["先确认问题集中在哪个变体", "再排查页面承接与词意图", "最后回到审核页校准边界词"],
-        "review": ["先确认 AI 判断是否合理", "再保存人工最终决定", "最后回到操作清单查看影响"],
+        "asin": [
+            "先确认问题集中在哪个变体",
+            "再排查页面承接与词意图",
+            "最后回到审核页校准边界词",
+        ],
+        "review": [
+            "先确认 AI 判断是否合理",
+            "再保存人工最终决定",
+            "最后回到操作清单查看影响",
+        ],
     }
     return mapping.get(page_key, ["继续追问具体问题", "切到相关页面继续处理"])
 
 
 def build_ai_context_badges(context_pack: AIContextPack) -> list[str]:
     """把统一上下文整理成轻量徽标，供侧边栏与页面卡片共享。"""
-    source_label = "最近一次分析结果" if context_pack.context_source == "latest_snapshot" else "仅产品基础信息"
+    source_label = (
+        "最近一次分析结果"
+        if context_pack.context_source == "latest_snapshot"
+        else "仅产品基础信息"
+    )
     badges = [context_pack.page_title, source_label]
     if context_pack.snapshot_created_at:
         badges.append(f"快照：{str(context_pack.snapshot_created_at)[:16]}")
@@ -206,7 +234,9 @@ def build_chat_response_envelope(
         evidence=context_pack.evidence[:3],
         confidence=confidence,
         recommended_next_actions=_default_next_actions(context_pack.page_key),
-        follow_up_prompts=[option.label.strip() for option in response.options if option.label.strip()],
+        follow_up_prompts=[
+            option.label.strip() for option in response.options if option.label.strip()
+        ],
         draft_payload={},
         warning=warning,
         context_label=context_pack.context_label,
@@ -226,9 +256,7 @@ def build_summary_ai_brief(db, product_id: int) -> dict[str, Any]:
     evidence = context_pack.evidence[:2]
 
     if context_pack.context_source == "latest_snapshot":
-        headline = (
-            f"{context_pack.product_name} 当前最值得优先处理的是控制高浪费词，并同步放大已识别的高价值机会。"
-        )
+        headline = f"{context_pack.product_name} 当前最值得优先处理的是控制高浪费词，并同步放大已识别的高价值机会。"
         bullets = [
             f"最近一次分析识别出 {metrics['negative_count']} 个可直接否定词、{metrics['manual_count']} 个手动投放机会，另有 {metrics['conflict_count']} 个分歧点待人工确认。",
         ]
@@ -261,7 +289,11 @@ def build_summary_ai_brief(db, product_id: int) -> dict[str, Any]:
         "bullets": bullets,
         "evidence": evidence,
         "recommended_next_actions": _default_next_actions("summary"),
-        "follow_up_prompts": ["为什么 ACOS 高？", "哪些词最浪费？", "先做哪 3 个动作？"],
+        "follow_up_prompts": [
+            "为什么 ACOS 高？",
+            "哪些词最浪费？",
+            "先做哪 3 个动作？",
+        ],
         "context_label": context_pack.context_label,
         "draft_payload": draft_payload,
         "warning": (
@@ -275,15 +307,15 @@ def build_summary_ai_brief(db, product_id: int) -> dict[str, Any]:
 def build_actions_ai_brief(action_context: dict[str, Any]) -> dict[str, Any]:
     """为操作清单页生成执行说明卡。"""
     counts = action_context.get("counts") or {}
-    product_name = str(action_context.get("product_name") or "当前产品").strip() or "当前产品"
+    product_name = (
+        str(action_context.get("product_name") or "当前产品").strip() or "当前产品"
+    )
     context_label = str(
         action_context.get("context_label")
         or f"当前产品：{product_name} · 上下文：最近一次分析结果"
     )
 
-    headline = (
-        f"{product_name} 当前已经具备一批可直接执行的动作，建议先处理最确定的预算浪费点，再推进增量机会。"
-    )
+    headline = f"{product_name} 当前已经具备一批可直接执行的动作，建议先处理最确定的预算浪费点，再推进增量机会。"
     bullets = [
         f"当前清单里有 {int(counts.get('negative', 0) or 0)} 个可直接否定项、{int(counts.get('manual', 0) or 0)} 个手动投放机会，另有 {int(counts.get('conflict', 0) or 0)} 个分歧项需要人工拍板。",
         "否词与手动投放草稿都应先人工确认后再执行，避免把边界词直接带到广告后台。",
@@ -307,16 +339,12 @@ def build_actions_ai_brief(action_context: dict[str, Any]) -> dict[str, Any]:
         or [None]
     )[0]
     top_manual = (
-        buckets.get("manual_keywords")
-        or buckets.get("manual_products")
-        or [None]
+        buckets.get("manual_keywords") or buckets.get("manual_products") or [None]
     )[0]
     conflict_items = buckets.get("cross_asin_conflicts") or []
     top_negative_note = ""
     if isinstance(top_negative, dict) and top_negative.get("term"):
-        top_negative_note = (
-            f" 当前最优先的止损词是 {top_negative.get('term')}，已累计花费 ${float(top_negative.get('spend') or 0):.2f}。"
-        )
+        top_negative_note = f" 当前最优先的止损词是 {top_negative.get('term')}，已累计花费 ${float(top_negative.get('spend') or 0):.2f}。"
     top_manual_note = ""
     if isinstance(top_manual, dict) and top_manual.get("term"):
         top_manual_note = f" 当前最值得补量的词是 {top_manual.get('term')}。"
@@ -363,7 +391,11 @@ def build_actions_ai_brief(action_context: dict[str, Any]) -> dict[str, Any]:
         "bullets": bullets,
         "evidence": evidence[:3],
         "recommended_next_actions": _default_next_actions("actions"),
-        "follow_up_prompts": ["先执行哪些动作？", "给我老板汇报摘要", "哪些词还需要人工判断？"],
+        "follow_up_prompts": [
+            "先执行哪些动作？",
+            "给我老板汇报摘要",
+            "哪些词还需要人工判断？",
+        ],
         "draft_payload": draft_payload,
         "context_label": context_label,
         "warning": None,
@@ -413,10 +445,16 @@ def build_upload_ai_brief(
     base_bullets = [
         f"当前已解析 {parsed_files_count} 个文件，共覆盖 {total_terms} 个搜索词、{total_clicks} 次点击、{total_orders} 笔订单，累计花费 ${total_spend:.2f}。",
     ]
-    follow_up_prompts = ["导入后先看什么？", "这批数据够不够开始分析？", "接下来推荐哪一步？"]
+    follow_up_prompts = [
+        "导入后先看什么？",
+        "这批数据够不够开始分析？",
+        "接下来推荐哪一步？",
+    ]
 
     if not analysis_state:
-        base_bullets.append("当前还没有运行规则分析，建议先确认导入批次，再决定是否立即开始分析。")
+        base_bullets.append(
+            "当前还没有运行规则分析，建议先确认导入批次，再决定是否立即开始分析。"
+        )
         return {
             "headline": f"{product_name} 已完成导入预检，下一步建议先运行规则分析，再查看总结与执行清单。",
             "bullets": base_bullets,
@@ -449,7 +487,11 @@ def build_upload_ai_brief(
             "bullets": base_bullets,
             "evidence": evidence,
             "recommended_next_actions": _default_next_actions("upload"),
-            "follow_up_prompts": ["帮我总结当前最核心的问题", "先去汇总页还是审核页？", "哪些词最值得先处理？"],
+            "follow_up_prompts": [
+                "帮我总结当前最核心的问题",
+                "先去汇总页还是审核页？",
+                "哪些词最值得先处理？",
+            ],
             "context_label": context_label,
             "draft_payload": {
                 "import_readout": (
@@ -463,7 +505,9 @@ def build_upload_ai_brief(
     if status == "error":
         base_bullets.append(message or "规则分析失败，请检查当前导入数据或稍后重试。")
         if can_retry:
-            base_bullets.append("当前错误支持重试，建议先确认文件内容无误后再次运行分析。")
+            base_bullets.append(
+                "当前错误支持重试，建议先确认文件内容无误后再次运行分析。"
+            )
         return {
             "headline": f"{product_name} 已完成导入，但规则分析这一步还没有成功，需要先修复再进入后续页面。",
             "bullets": base_bullets,
@@ -494,7 +538,11 @@ def build_upload_ai_brief(
             "检查搜索词、点击、订单列是否齐全",
             "必要时补充更多原始报表后再分析",
         ],
-        "follow_up_prompts": ["为什么这批数据还不够？", "我应该补哪些数据？", "下一步先去哪一页？"],
+        "follow_up_prompts": [
+            "为什么这批数据还不够？",
+            "我应该补哪些数据？",
+            "下一步先去哪一页？",
+        ],
         "context_label": context_label,
         "draft_payload": {
             "data_quality_note": (
@@ -526,9 +574,19 @@ def build_campaign_ai_brief(
         }
 
     top_spend = max(rows, key=lambda row: float(row.get("spend") or 0.0))
-    campaign_count = len({str(row.get("campaign_id") or "").strip() for row in rows if str(row.get("campaign_id") or "").strip()})
-    negative_count = sum(1 for row in rows if "negative" in str(row.get("action_type") or ""))
-    manual_count = sum(1 for row in rows if "manual" in str(row.get("action_type") or ""))
+    campaign_count = len(
+        {
+            str(row.get("campaign_id") or "").strip()
+            for row in rows
+            if str(row.get("campaign_id") or "").strip()
+        }
+    )
+    negative_count = sum(
+        1 for row in rows if "negative" in str(row.get("action_type") or "")
+    )
+    manual_count = sum(
+        1 for row in rows if "manual" in str(row.get("action_type") or "")
+    )
 
     bullets = [
         f"当前共覆盖 {campaign_count} 个活动，其中 {negative_count} 条结果倾向先控浪费，另有 {manual_count} 条结果提示值得补量。",
@@ -544,7 +602,11 @@ def build_campaign_ai_brief(
         "bullets": bullets,
         "evidence": _normalize_evidence_items(rows, limit=3),
         "recommended_next_actions": _default_next_actions("campaign"),
-        "follow_up_prompts": ["为什么这个活动最差？", "哪些活动该先减预算？", "哪些活动值得补量？"],
+        "follow_up_prompts": [
+            "为什么这个活动最差？",
+            "哪些活动该先减预算？",
+            "哪些活动值得补量？",
+        ],
         "context_label": context_label,
         "draft_payload": {
             "campaign_focus_note": (
@@ -576,7 +638,13 @@ def build_asin_ai_brief(
         }
 
     top_spend = max(rows, key=lambda row: float(row.get("spend") or 0.0))
-    asin_count = len({str(row.get("asin_identifier") or "").strip() for row in rows if str(row.get("asin_identifier") or "").strip()})
+    asin_count = len(
+        {
+            str(row.get("asin_identifier") or "").strip()
+            for row in rows
+            if str(row.get("asin_identifier") or "").strip()
+        }
+    )
     bullets = [
         f"当前共覆盖 {asin_count} 个变体，最值得先排查的是 {top_spend.get('asin_identifier') or '未知 ASIN'} 对应的高花费词流量。",
         f"代表词 {top_spend.get('term') or '-'} 已累计花费 ${float(top_spend.get('spend') or 0):.2f}，当前建议动作是 {top_spend.get('suggested_action') or top_spend.get('action_type') or '继续观察'}。",
@@ -591,7 +659,11 @@ def build_asin_ai_brief(
         "bullets": bullets,
         "evidence": _normalize_evidence_items(rows, limit=3),
         "recommended_next_actions": _default_next_actions("asin"),
-        "follow_up_prompts": ["哪个 ASIN 最拖后腿？", "这是词不准还是页面问题？", "哪些变体值得继续放量？"],
+        "follow_up_prompts": [
+            "哪个 ASIN 最拖后腿？",
+            "这是词不准还是页面问题？",
+            "哪些变体值得继续放量？",
+        ],
         "context_label": context_label,
         "draft_payload": {
             "variant_focus_note": (
@@ -616,7 +688,9 @@ def build_review_ai_brief(
     clicks = int(float(item.get("total_clicks") or item.get("clicks") or 0))
     orders = int(float(item.get("total_orders") or item.get("orders") or 0))
     spend = float(item.get("total_spend") or item.get("spend") or 0.0)
-    current_manual = item.get("competition_level") if term_type == "asin" else item.get("relevance")
+    current_manual = (
+        item.get("competition_level") if term_type == "asin" else item.get("relevance")
+    )
 
     if ai_suggestion:
         ai_label = str(ai_suggestion.get("relevance") or "pending").strip() or "pending"
@@ -631,7 +705,7 @@ def build_review_ai_brief(
             bullets.append(f"AI 主要理由：{reasoning}")
         if suggested_action:
             bullets.append(f"建议动作：{suggested_action}")
-        warning = str(ai_suggestion.get('status_message') or "").strip() or None
+        warning = str(ai_suggestion.get("status_message") or "").strip() or None
         headline = f"{term_label} 当前已有 AI 审核建议，下一步重点是确认这条判断是否适合作为最终人工结论。"
         draft_payload = {
             "review_decision_note": (
@@ -647,7 +721,9 @@ def build_review_ai_brief(
             "当前还没有 AI 审核建议，建议先获取建议，再判断是否采纳。",
         ]
         warning = "当前尚未获取 AI 建议。"
-        headline = f"{term_label} 当前还没有 AI 审核建议，建议先生成建议再决定最终标记。"
+        headline = (
+            f"{term_label} 当前还没有 AI 审核建议，建议先生成建议再决定最终标记。"
+        )
         draft_payload = {
             "review_decision_note": f"{term_label} 当前尚未形成 AI 建议，建议先获取建议后再做人工最终判断。",
         }
@@ -668,7 +744,11 @@ def build_review_ai_brief(
             }
         ],
         "recommended_next_actions": _default_next_actions("review"),
-        "follow_up_prompts": ["为什么这么判断？", "如果不采纳会怎样？", "给我一个更保守的建议"],
+        "follow_up_prompts": [
+            "为什么这么判断？",
+            "如果不采纳会怎样？",
+            "给我一个更保守的建议",
+        ],
         "context_label": context_label,
         "draft_payload": draft_payload,
         "warning": warning,
