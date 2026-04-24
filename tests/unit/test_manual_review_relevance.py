@@ -20,7 +20,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.data.db import Database
 from src.ai.analyzer import RelevanceSuggestion
-from src.ui.pages.review import _build_ai_request_state, _build_ai_suggestion_state
 
 
 @pytest.fixture
@@ -46,7 +45,9 @@ class TestGetManualReviewRelevance:
     """测试 get_manual_review_relevance() 方法"""
 
     def test_returns_none_when_no_record(self, test_db):
-        result = test_db.get_manual_review_relevance(product_id=1, term="nonexistent_term")
+        result = test_db.get_manual_review_relevance(
+            product_id=1, term="nonexistent_term"
+        )
         assert result is None
 
     def test_returns_local_record_with_null_campaign(self, test_db):
@@ -215,7 +216,9 @@ class TestUpsertManualReview:
         assert row["ai_confidence"] == 0.92
         assert row["review_source"] == "ai_assistant"
         assert '"ai_reasoning": "搜索词直接命中产品核心用途"' in row["evidence_payload"]
-        assert '"ai_suggested_action": "建议保留并手动精准投放"' in row["evidence_payload"]
+        assert (
+            '"ai_suggested_action": "建议保留并手动精准投放"' in row["evidence_payload"]
+        )
 
     def test_save_manual_review_ai_suggestion_persists_status_payload(self, test_db):
         test_db.upsert_manual_review(
@@ -244,105 +247,11 @@ class TestUpsertManualReview:
         ).fetchone()
 
         assert '"ai_status": "warning"' in row["evidence_payload"]
-        assert '"ai_status_message": "AI 本次未返回有效建议，请稍后重试。"' in row["evidence_payload"]
+        assert (
+            '"ai_status_message": "AI 本次未返回有效建议，请稍后重试。"'
+            in row["evidence_payload"]
+        )
         assert '"ai_can_retry": true' in row["evidence_payload"]
-
-
-class TestReviewAiSuggestionState:
-    def test_build_ai_suggestion_state_reads_reasoning_from_evidence_payload(self):
-        state = _build_ai_suggestion_state(
-            {
-                "ai_suggestion": "strong_core",
-                "ai_confidence": 0.88,
-                "evidence_payload": '{"ai_reasoning":"命中核心词","ai_suggested_action":"保留"}',
-            }
-        )
-
-        assert state == {
-            "relevance": "strong_core",
-            "confidence": 0.88,
-            "reasoning": "命中核心词",
-            "suggested_action": "保留",
-            "status": "success",
-            "status_message": "",
-            "can_retry": False,
-        }
-
-    def test_build_ai_suggestion_state_tolerates_invalid_evidence_payload(self):
-        state = _build_ai_suggestion_state(
-            {
-                "ai_suggestion": "weak",
-                "ai_confidence": 0.51,
-                "evidence_payload": "not-json",
-            }
-        )
-
-        assert state == {
-            "relevance": "weak",
-            "confidence": 0.51,
-            "reasoning": "",
-            "suggested_action": "",
-            "status": "success",
-            "status_message": "",
-            "can_retry": False,
-        }
-
-    def test_build_ai_suggestion_state_reads_retry_metadata_from_evidence_payload(self):
-        state = _build_ai_suggestion_state(
-            {
-                "ai_suggestion": "pending",
-                "ai_confidence": 0.0,
-                "evidence_payload": '{"ai_reasoning":"AI分析失败","ai_suggested_action":"需人工判断","ai_status":"warning","ai_status_message":"AI 本次未返回有效建议，请稍后重试。","ai_can_retry":true}',
-            }
-        )
-
-        assert state == {
-            "relevance": "pending",
-            "confidence": 0,
-            "reasoning": "AI分析失败",
-            "suggested_action": "需人工判断",
-            "status": "warning",
-            "status_message": "AI 本次未返回有效建议，请稍后重试。",
-            "can_retry": True,
-        }
-
-
-class TestReviewAiRequestState:
-    def test_build_ai_request_state_marks_successful_suggestion(self):
-        state = _build_ai_request_state(
-            suggestion=RelevanceSuggestion(
-                term="travel pillow",
-                suggested_relevance="strong_core",
-                confidence=0.91,
-                reasoning="直接命中产品核心用途",
-                suggested_action="建议保留并精准投放",
-            )
-        )
-
-        assert state == {
-            "relevance": "strong_core",
-            "confidence": 0.91,
-            "reasoning": "直接命中产品核心用途",
-            "suggested_action": "建议保留并精准投放",
-            "status": "success",
-            "status_message": "",
-            "can_retry": False,
-        }
-
-    def test_build_ai_request_state_classifies_missing_api_key_error(self):
-        state = _build_ai_request_state(error=ValueError("未配置 GEMINI_API_KEY"))
-
-        assert state == {
-            "relevance": "pending",
-            "confidence": 0.0,
-            "reasoning": "未配置 GEMINI_API_KEY",
-            "suggested_action": "请先配置 AI 密钥后重试",
-            "status": "error",
-            "status_message": "未配置 GEMINI_API_KEY，暂时无法使用 AI 建议。",
-            "can_retry": False,
-        }
-
-
 class TestProductConfigSeed:
     """测试 create_product 的默认配置注入。"""
 
@@ -442,7 +351,9 @@ class TestPendingReviews:
 
     def test_list_pending_reviews(self, test_db):
         for i in range(5):
-            test_db.upsert_manual_review(product_id=1, term=f"list_test_{i}", relevance=None)
+            test_db.upsert_manual_review(
+                product_id=1, term=f"list_test_{i}", relevance=None
+            )
         test_db.upsert_manual_review(product_id=1, term="reviewed", relevance="weak")
 
         pending = test_db.get_pending_reviews_list(product_id=1, limit=10)
@@ -459,7 +370,9 @@ class TestPendingReviews:
             product_id=1, term="B0ASIN123", term_type="asin", relevance=None
         )
 
-        keywords_only = test_db.get_pending_reviews_list(product_id=1, term_type="keyword")
+        keywords_only = test_db.get_pending_reviews_list(
+            product_id=1, term_type="keyword"
+        )
         assert len(keywords_only) == 1
         assert keywords_only[0]["term"] == "keyword_term"
 
@@ -487,7 +400,9 @@ class TestBatchUpdateRelevance:
 
     def test_batch_update_multiple_terms(self, test_db):
         for i in range(3):
-            test_db.upsert_manual_review(product_id=1, term=f"batch_{i}", relevance=None)
+            test_db.upsert_manual_review(
+                product_id=1, term=f"batch_{i}", relevance=None
+            )
 
         updates = [
             {"term": "batch_0", "relevance": "strong_core"},

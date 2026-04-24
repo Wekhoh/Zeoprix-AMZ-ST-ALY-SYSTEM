@@ -50,7 +50,9 @@ class SafeTemporaryDirectory:
     def _create_dir(self) -> Path:
         self._base_dir.mkdir(parents=True, exist_ok=True)
         while True:
-            candidate = self._base_dir / f"{self._prefix}{uuid.uuid4().hex}{self._suffix}"
+            candidate = (
+                self._base_dir / f"{self._prefix}{uuid.uuid4().hex}{self._suffix}"
+            )
             try:
                 candidate.mkdir(parents=True, exist_ok=False)
                 return candidate

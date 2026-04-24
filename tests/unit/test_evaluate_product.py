@@ -36,7 +36,13 @@ def test_parse_alignment_summary_extracts_dual_rates_and_conflicts():
 
 
 def test_parse_alignment_summary_tolerates_garbled_non_utf8_labels():
-    text = """\n=== 乱码一 ===\n字段甲: 107\n对齐率: 107/107 = 100.0%\n\n=== 乱码二 ===\n字段乙: 398\n对齐率: 398/398 = 100.0%\n乱七八糟: 5\n""".replace('对齐率', '乱码率').replace('字段甲', '错别字').replace('字段乙', '再错')
+    text = (
+        """\n=== 乱码一 ===\n字段甲: 107\n对齐率: 107/107 = 100.0%\n\n=== 乱码二 ===\n字段乙: 398\n对齐率: 398/398 = 100.0%\n乱七八糟: 5\n""".replace(
+            "对齐率", "乱码率"
+        )
+        .replace("字段甲", "错别字")
+        .replace("字段乙", "再错")
+    )
 
     summary = parse_alignment_summary(text)
 

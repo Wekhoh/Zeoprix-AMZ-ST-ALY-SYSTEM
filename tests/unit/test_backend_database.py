@@ -6,7 +6,11 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-from src.backend.database import create_engine_for_url, create_session_factory, get_backend_database_url
+from src.backend.database import (
+    create_engine_for_url,
+    create_session_factory,
+    get_backend_database_url,
+)
 
 
 def test_get_backend_database_url_defaults_to_local_sqlite(tmp_path, monkeypatch):
@@ -30,4 +34,3 @@ def test_session_factory_executes_simple_query_against_sqlite(tmp_path):
         result = session.execute(text("select 1")).scalar_one()
 
     assert result == 1
-
