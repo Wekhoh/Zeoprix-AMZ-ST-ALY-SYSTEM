@@ -29,7 +29,7 @@ type Match = {
 	value: string;
 };
 
-function tokenize(input: string): Token[] {
+export function tokenize(input: string): Token[] {
 	const tokens: Token[] = [];
 	let cursor = 0;
 	const matches: Match[] = [];
