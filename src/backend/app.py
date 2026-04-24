@@ -50,8 +50,10 @@ from src.backend.insights import (
     get_today_insight,
 )
 from src.backend.schemas import (
+    DailyInsightRow,
     ErrorResponse,
     HealthResponse,
+    InsightTodayResponse,
     MetricsResponse,
 )
 from src.backend.workbench_payload import (
@@ -786,7 +788,11 @@ def create_app() -> FastAPI:
             },
         )
 
-    @app.get("/frontend/insights/today", tags=["frontend"])
+    @app.get(
+        "/frontend/insights/today",
+        tags=["frontend"],
+        response_model=InsightTodayResponse,
+    )
     async def frontend_insights_today(product_id: int | None = None) -> dict:
         """Return today's cached AI insight for a product (or null)."""
         from src.backend.workbench_payload import _get_app_database_path
@@ -797,7 +803,11 @@ def create_app() -> FastAPI:
             today = get_today_insight(db, product_id)
         return {"today": today}
 
-    @app.post("/frontend/insights/generate", tags=["frontend"])
+    @app.post(
+        "/frontend/insights/generate",
+        tags=["frontend"],
+        response_model=DailyInsightRow,
+    )
     async def frontend_insights_generate(product_id: int | None = None) -> dict:
         """Run analyzer.generate_insights and persist a fresh daily row."""
         from src.backend.workbench_payload import _get_app_database_path

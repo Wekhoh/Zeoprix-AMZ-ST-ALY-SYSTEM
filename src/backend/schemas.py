@@ -77,3 +77,37 @@ class ErrorResponse(BaseModel):
     """`{\"error\": {...}}` — 所有 ValueError / LookupError / Exception 的包装。"""
 
     error: ErrorBody
+
+
+# ── Daily AI Insights (A.3 · Sprint 4) ───────────────────────────────────
+
+
+class DailyInsightRow(BaseModel):
+    """`daily_insights` 表一行的 JSON 表示。"""
+
+    id: int = Field(..., description="Row primary key")
+    product_id: int | None = Field(
+        None,
+        description="Product being analyzed; None means cross-product (rare)",
+    )
+    date: str = Field(..., description="ISO date, e.g. '2026-04-24'")
+    summary: str = Field(..., description="AI-generated short narrative")
+    key_findings: list = Field(
+        default_factory=list,
+        description="Top insights list, shape determined by analyzer",
+    )
+    recommendations: list = Field(
+        default_factory=list,
+        description="Suggested actions list, shape determined by analyzer",
+    )
+    statistics: dict = Field(
+        default_factory=dict,
+        description="Raw metrics used to derive the insight",
+    )
+    created_at: str = Field(..., description="ISO timestamp when row was persisted")
+
+
+class InsightTodayResponse(BaseModel):
+    """`GET /frontend/insights/today` 响应。`today` 为 null 表示当天未生成。"""
+
+    today: DailyInsightRow | None = None
