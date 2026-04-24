@@ -5,7 +5,9 @@
 
 import datetime as dt
 import json
+import os
 import sqlite3
+import time as _time_module
 import weakref
 from uuid import uuid4
 from pathlib import Path
@@ -18,6 +20,59 @@ from src.data.models import ALL_SCHEMAS, DEFAULT_RULES, INDEXES
 from src.rules.asin_rules import is_valid_asin
 
 logger = get_logger(__name__)
+
+# ── Sprint 5 C.3 · 慢查询追踪 ──────────────────────────────────────────
+# 每次 Database.execute() / executemany() 都测时间，超过阈值写 WARNING 日志
+# 并累加到 _SLOW_QUERY_STATS，供 `get_slow_query_stats()` 检视。阈值通过
+# 环境变量 `AMZ_DB_SLOW_QUERY_MS` 调节（默认 100ms）。
+_SLOW_QUERY_DEFAULT_MS = 100
+_SLOW_QUERY_LOG_LIMIT = 160  # SQL 日志前 N 字符（防止 INSERT … VALUES 过长）
+_SLOW_QUERY_STATS: dict[str, dict[str, float]] = {}
+
+
+def _slow_query_threshold_ms() -> int:
+    """从环境变量读取阈值，无效值回退到默认。"""
+    raw = os.environ.get("AMZ_DB_SLOW_QUERY_MS")
+    if not raw:
+        return _SLOW_QUERY_DEFAULT_MS
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return _SLOW_QUERY_DEFAULT_MS
+
+
+def _record_slow_query(sql: str, duration_ms: float) -> None:
+    """命中慢查询阈值时累加统计 + 写 WARNING 日志。"""
+    snippet = " ".join(sql.split())[:_SLOW_QUERY_LOG_LIMIT]
+    bucket = _SLOW_QUERY_STATS.setdefault(
+        snippet, {"count": 0.0, "total_ms": 0.0, "max_ms": 0.0}
+    )
+    bucket["count"] += 1
+    bucket["total_ms"] += duration_ms
+    if duration_ms > bucket["max_ms"]:
+        bucket["max_ms"] = duration_ms
+    logger.warning(
+        "slow_query duration_ms=%.1f sql=%s",
+        duration_ms,
+        snippet,
+    )
+
+
+def get_slow_query_stats() -> dict[str, dict[str, float]]:
+    """暴露慢查询聚合数据；后续可接 /metrics 路由。"""
+    return {
+        sql: {
+            "count": int(bucket["count"]),
+            "avg_ms": round(bucket["total_ms"] / max(bucket["count"], 1), 1),
+            "max_ms": round(bucket["max_ms"], 1),
+        }
+        for sql, bucket in _SLOW_QUERY_STATS.items()
+    }
+
+
+def reset_slow_query_stats() -> None:
+    """测试辅助 · 清空累计统计。"""
+    _SLOW_QUERY_STATS.clear()
 
 
 class Database:
@@ -37,7 +92,9 @@ class Database:
         self.db_path = db_path
         self._ensure_dir()
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30.0)
-        self._conn_finalizer = weakref.finalize(self, sqlite3.Connection.close, self.conn)
+        self._conn_finalizer = weakref.finalize(
+            self, sqlite3.Connection.close, self.conn
+        )
         # 启用外键约束
         self.conn.execute("PRAGMA foreign_keys = ON")
         # 返回字典形式的行
@@ -295,12 +352,22 @@ class Database:
         return repaired
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        """执行SQL语句"""
-        return self._get_connection().execute(sql, params)
+        """执行SQL语句（Sprint 5 C.3 · 慢查询追踪）。"""
+        start = _time_module.perf_counter()
+        cursor = self._get_connection().execute(sql, params)
+        duration_ms = (_time_module.perf_counter() - start) * 1000
+        if duration_ms >= _slow_query_threshold_ms():
+            _record_slow_query(sql, duration_ms)
+        return cursor
 
     def executemany(self, sql: str, params_list: list) -> sqlite3.Cursor:
-        """批量执行SQL语句"""
-        return self._get_connection().executemany(sql, params_list)
+        """批量执行SQL语句（Sprint 5 C.3 · 慢查询追踪）。"""
+        start = _time_module.perf_counter()
+        cursor = self._get_connection().executemany(sql, params_list)
+        duration_ms = (_time_module.perf_counter() - start) * 1000
+        if duration_ms >= _slow_query_threshold_ms():
+            _record_slow_query(sql, duration_ms)
+        return cursor
 
     def commit(self) -> None:
         """提交事务"""
@@ -417,7 +484,9 @@ class Database:
             return
         admin_count = self._count_workspace_role_members(product_id, "admin")
         if admin_count <= 1:
-            raise ValueError("当前工作区至少需要保留 1 个管理员，不能降级最后一个管理员。")
+            raise ValueError(
+                "当前工作区至少需要保留 1 个管理员，不能降级最后一个管理员。"
+            )
 
     def remove_workspace_member(self, product_id: int, user_id: int) -> None:
         """删除工作区成员，并保护最后一个管理员不被移除。"""
@@ -427,7 +496,9 @@ class Database:
         if current_role == "admin":
             admin_count = self._count_workspace_role_members(product_id, "admin")
             if admin_count <= 1:
-                raise ValueError("当前工作区至少需要保留 1 个管理员，不能删除最后一个管理员。")
+                raise ValueError(
+                    "当前工作区至少需要保留 1 个管理员，不能删除最后一个管理员。"
+                )
 
         cursor = self.conn.execute(
             """
@@ -1478,9 +1549,7 @@ class Database:
             return None
         batch = dict(row)
         batch["summary"] = (
-            json.loads(batch.pop("summary_json"))
-            if batch.get("summary_json")
-            else {}
+            json.loads(batch.pop("summary_json")) if batch.get("summary_json") else {}
         )
         return batch
 
