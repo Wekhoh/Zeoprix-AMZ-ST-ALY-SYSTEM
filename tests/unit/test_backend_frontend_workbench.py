@@ -156,3 +156,16 @@ def test_fetch_historical_decisions_returns_empty_for_blank_term():
     assert _fetch_historical_decisions(db, 1, "") == []
     # 空串短路 → 不调 db 方法
     db.get_manual_reviews_by_term.assert_not_called()
+
+
+# ── Sprint A.2 · term detail endpoint ────────────────────────────────────
+
+
+def test_term_detail_endpoint_validates_blank_term():
+    """空 term 应抛 ValueError → 全局 handler 转 400 JSON"""
+    import pytest
+
+    from src.backend.workbench_payload import build_term_detail_payload
+
+    with pytest.raises(ValueError, match="term"):
+        build_term_detail_payload(product_id=1, term="")

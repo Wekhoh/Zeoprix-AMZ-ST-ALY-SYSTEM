@@ -63,6 +63,7 @@ from src.backend.workbench_payload import (
     build_analysis_page_payload,
     build_review_page_payload,
     build_settings_page_payload,
+    build_term_detail_payload,
     build_upload_page_payload,
     build_workbench_payload,
     clear_runtime_for_frontend,
@@ -649,6 +650,13 @@ def create_app() -> FastAPI:
     @app.get("/frontend/analysis", tags=["frontend"])
     async def read_frontend_analysis(product_id: int | None = None) -> dict:
         return build_analysis_page_payload(product_id=product_id)
+
+    @app.get("/frontend/analysis/term/{term}", tags=["frontend"])
+    async def read_frontend_term_detail(
+        term: str, product_id: int | None = None, days: int = 30
+    ) -> dict:
+        """Sprint A.2 — 单 term 30 天详情：日聚合 + 应用过的规则 + 历史决策"""
+        return build_term_detail_payload(product_id, term, days=days)
 
     @app.get("/frontend/actions", tags=["frontend"])
     async def read_frontend_actions(product_id: int | None = None) -> dict:

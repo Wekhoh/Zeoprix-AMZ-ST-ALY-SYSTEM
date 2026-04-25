@@ -1104,6 +1104,120 @@ def _fetch_historical_decisions(
     return history[:limit]
 
 
+def build_term_detail_payload(
+    product_id: int | None, term: str, *, days: int = 30
+) -> dict[str, Any]:
+    """Sprint A.2 — 单 term 30 天详情，给前端详情抽屉用。
+
+    返回：
+      - term / termType / firstSeen / lastSeen
+      - dailySeries: [{date, spend, clicks, orders, sales}]（最近 N 天）
+      - aggregates: 30d 总和（spend/clicks/orders/sales/cvr/acos）
+      - appliedRules: 该 term 历次匹配的规则（unique by rule name）
+      - historicalDecisions: 复用 _fetch_historical_decisions
+      - currentRelevance: 最新一次的 relevance（pending 表示未审）
+    """
+    if not term:
+        raise ValueError("term 不能为空")
+
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        product = _resolve_product(db, product_id)
+        product_id = int(product["id"])
+
+        # 1) 拉所有 search_term 行 + analysis_result 关联
+        cursor = db.execute(
+            """
+            SELECT st.term, st.term_type, st.spend, st.clicks, st.orders, st.sales,
+                   st.report_date, st.created_at, ar.triggered_rule, ar.action_type,
+                   ar.confidence
+              FROM search_terms st
+              LEFT JOIN analysis_results ar ON ar.search_term_id = st.id
+              JOIN campaigns c ON st.campaign_id = c.id
+             WHERE c.product_id = ? AND st.term = ?
+             ORDER BY COALESCE(st.report_date, st.created_at) DESC
+             LIMIT 200
+            """,
+            (product_id, term),
+        )
+        rows = [dict(r) for r in cursor.fetchall()]
+
+        if not rows:
+            return {
+                "term": term,
+                "termType": "keyword",
+                "found": False,
+                "message": "该词在最近数据中未出现",
+            }
+
+        # 2) Daily 聚合（按 report_date 分组）
+        from collections import defaultdict
+
+        daily: dict[str, dict[str, float]] = defaultdict(
+            lambda: {"spend": 0.0, "clicks": 0.0, "orders": 0.0, "sales": 0.0}
+        )
+        applied_rules: dict[str, int] = {}
+        agg_total = {"spend": 0.0, "clicks": 0.0, "orders": 0.0, "sales": 0.0}
+        for row in rows:
+            day = (row.get("report_date") or row.get("created_at") or "")[:10]
+            if not day:
+                continue
+            for k in ("spend", "clicks", "orders", "sales"):
+                v = float(row.get(k) or 0.0)
+                daily[day][k] += v
+                agg_total[k] += v
+            rule = row.get("triggered_rule")
+            if rule:
+                applied_rules[rule] = applied_rules.get(rule, 0) + 1
+
+        # 截取最近 N 天
+        sorted_days = sorted(daily.keys(), reverse=True)[:days]
+        daily_series = [
+            {"date": d, **{k: round(daily[d][k], 2) for k in daily[d]}}
+            for d in sorted(sorted_days)
+        ]
+
+        cvr = (
+            (agg_total["orders"] / agg_total["clicks"])
+            if agg_total["clicks"] > 0
+            else 0.0
+        )
+        acos = (
+            (agg_total["spend"] / agg_total["sales"]) if agg_total["sales"] > 0 else 0.0
+        )
+
+        # 3) 历史决策（复用 helper）
+        history = _fetch_historical_decisions(db, product_id, term, limit=10)
+        current_relevance = history[0]["decision"] if history else "pending"
+
+        first_seen = sorted(daily.keys())[0] if daily else None
+        last_seen = sorted(daily.keys(), reverse=True)[0] if daily else None
+
+        return {
+            "term": term,
+            "termType": rows[0].get("term_type") or "keyword",
+            "found": True,
+            "firstSeen": first_seen,
+            "lastSeen": last_seen,
+            "currentRelevance": current_relevance,
+            "dailySeries": daily_series,
+            "aggregates": {
+                "spend": round(agg_total["spend"], 2),
+                "clicks": int(agg_total["clicks"]),
+                "orders": int(agg_total["orders"]),
+                "sales": round(agg_total["sales"], 2),
+                "cvr": round(cvr, 4),
+                "acos": round(acos, 4),
+                "rowCount": len(rows),
+            },
+            "appliedRules": [
+                {"rule": k, "hits": v}
+                for k, v in sorted(applied_rules.items(), key=lambda kv: -kv[1])
+            ],
+            "historicalDecisions": history,
+        }
+
+
 def build_review_page_payload(product_id: int | None = None) -> dict[str, Any]:
     workbench = build_workbench_payload(product_id)
     if workbench.get("source") != "live":
