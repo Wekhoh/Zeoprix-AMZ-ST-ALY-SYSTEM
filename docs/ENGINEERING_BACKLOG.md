@@ -85,7 +85,7 @@
 | E1 | `docs/ENGINEERING_BACKLOG.md`（本文档） | ✅ | 1 文件 | - |
 | E2 | `.github/workflows/ci.yml`（pytest + frontend build + type-check） | ✅ | 1 文件 | 30m |
 | E3 | `docs/ARCHITECTURE.md`（后端分层 + 前端 component tree + 数据流） | ✅ 8558bed | 1 文件（368 行） | 1.5h |
-| E4 | `docs/CODEMAPS/` 按模块自动生成 (use doc-updater skill 或手写) | 🟡 | 多文件 | 2h |
+| E4 | `docs/CODEMAPS/` 按模块自动生成 | ✅ doc-updater agent 一次性产出（28 文件） | 1 README 索引 + 27 模块 codemap，覆盖 backend / data / rules / ai / analysis / config / export / services；零占位、纯源码提取；无循环依赖；核心节点 `src.data.db`（23 处 import） | 2h |
 | E5 | `CONTRIBUTING.md` + 开发者 setup 指南 | ✅ a795df7 | 1 文件 | 30m |
 | E6 | `CHANGELOG.md` 从 Sprint 1 倒推整理 | ✅ b22a60e | 1 文件 | 1h |
 | E7 | Dependabot config（后端 + 前端每周扫 security） | ✅ | `.github/dependabot.yml` | 15m |

@@ -33,6 +33,12 @@
   - 验证报告归档 `logs/verification-report-2026-04-25.md`
   - 修复后实测：hydration 0.6% → 93%，sidebar 220px / copilot 360px 默认展开正确
 
+### Documented
+- **[E.4 CODEMAPS]** 2026-04-25 — `docs/CODEMAPS/` 一次性产出 28 文件（1 README 索引 + 27 模块 codemap），由 `everything-claude-code:doc-updater` 后台 agent 自动生成（782s · 72k tokens）：
+  - **覆盖**：8 backend / 4 data / 3 rules / 4 ai / 2 analysis / 4 config / 1 export / 1 services
+  - **每个 codemap**：~42 行；含职责、公开 API、关键依赖（top-3）、DB 表读写、被谁调用
+  - **关键发现**：无循环依赖；`src.data.db` 23 处 import（最核心节点）；`src.backend.database` 8 处；双数据库架构（SQLAlchemy auth + SQLite 业务）已正式记录
+
 ### Removed
 - **[SPRINT-5 B.5]** Streamlit legacy 整包删除 (2026-04-24):
   - `src/app.py`（1550 行 Streamlit 入口）+ `src/ui/__init__.py` + `src/ui/components/ai_chatbox.py`
