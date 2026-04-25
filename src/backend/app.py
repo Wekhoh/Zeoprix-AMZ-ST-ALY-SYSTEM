@@ -23,7 +23,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -60,6 +60,7 @@ from src.backend.schemas import (
 )
 from src.backend.workbench_payload import (
     build_actions_page_payload,
+    build_amazon_bulk_csv_export,
     build_analysis_page_payload,
     build_review_page_payload,
     build_settings_page_payload,
@@ -753,6 +754,21 @@ def create_app() -> FastAPI:
             status=payload.status,
             execution_note=payload.execution_note,
             review_note=payload.review_note,
+        )
+
+    @app.get("/frontend/actions/export-bulk-csv", tags=["frontend"])
+    async def export_amazon_bulk_csv(product_id: int | None = None) -> Response:
+        """Sprint D.2 — 当前产品所有 negative 推荐导出为 Amazon SP Bulk CSV。"""
+        result = build_amazon_bulk_csv_export(product_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="无可导出否词")
+        csv_bytes, file_name = result
+        return Response(
+            content=csv_bytes,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{file_name}"',
+            },
         )
 
     @app.post("/frontend/review/manual-reviews", tags=["frontend"])

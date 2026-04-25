@@ -1181,6 +1181,47 @@ def _fetch_historical_decisions(
     return history[:limit]
 
 
+def build_amazon_bulk_csv_export(
+    product_id: int | None,
+) -> tuple[bytes, str] | None:
+    """Sprint D.2 — 当前产品所有 negative 推荐 → Amazon Bulk Operations CSV bytes。
+
+    返回 (csv_bytes, file_name) 或 None（无 negative 时）。
+    Endpoint 直接 Response(content=bytes, media_type="text/csv") 让浏览器下载。
+    """
+    from src.export.exporter import ReportExporter
+    from src.rules.engine import AnalysisResult
+
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        product = _resolve_product(db, product_id)
+        product_id = int(product["id"])
+        df = db.get_analysis_results({"product_id": product_id})
+        if df.empty:
+            return None
+
+        # DataFrame → list[AnalysisResult]
+        results: list[AnalysisResult] = []
+        for _, row in df.iterrows():
+            results.append(
+                AnalysisResult(
+                    term=str(row.get("term") or ""),
+                    term_type=str(row.get("term_type") or "keyword"),
+                    triggered_rule=str(row.get("triggered_rule") or ""),
+                    suggested_action=str(row.get("suggested_action") or ""),
+                    action_type=str(row.get("action_type") or ""),
+                    confidence=float(row.get("confidence") or 0.0),
+                    campaign_name=str(row.get("campaign_name") or ""),
+                    data={},
+                )
+            )
+
+        exporter = ReportExporter()
+        return exporter.export_amazon_bulk_csv_bytes(
+            results, product_name=str(product.get("name") or "")
+        )
+
+
 def build_term_detail_payload(
     product_id: int | None, term: str, *, days: int = 30
 ) -> dict[str, Any]:

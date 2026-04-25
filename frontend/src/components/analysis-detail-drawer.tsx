@@ -116,7 +116,8 @@ export function AnalysisDetailDrawer({ term, productId, onClose }: Props) {
 		const url = new URL(
 			`${BACKEND_BASE_URL}/frontend/analysis/term/${encodeURIComponent(term)}`,
 		);
-		if (productId != null) url.searchParams.set("product_id", String(productId));
+		if (productId != null)
+			url.searchParams.set("product_id", String(productId));
 		fetch(url.toString(), { signal: controller.signal })
 			.then(async (r) => {
 				if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -258,7 +259,9 @@ export function AnalysisDetailDrawer({ term, productId, onClose }: Props) {
 									</div>
 									<div className="space-y-2">
 										<div>
-											<div className="text-[11px] text-fg-subtle mb-0.5">花费</div>
+											<div className="text-[11px] text-fg-subtle mb-0.5">
+												花费
+											</div>
 											<MiniSparkline
 												points={data.dailySeries}
 												field="spend"
@@ -266,7 +269,9 @@ export function AnalysisDetailDrawer({ term, productId, onClose }: Props) {
 											/>
 										</div>
 										<div>
-											<div className="text-[11px] text-fg-subtle mb-0.5">订单</div>
+											<div className="text-[11px] text-fg-subtle mb-0.5">
+												订单
+											</div>
 											<MiniSparkline
 												points={data.dailySeries}
 												field="orders"
@@ -274,7 +279,9 @@ export function AnalysisDetailDrawer({ term, productId, onClose }: Props) {
 											/>
 										</div>
 										<div>
-											<div className="text-[11px] text-fg-subtle mb-0.5">点击</div>
+											<div className="text-[11px] text-fg-subtle mb-0.5">
+												点击
+											</div>
 											<MiniSparkline
 												points={data.dailySeries}
 												field="clicks"

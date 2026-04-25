@@ -164,6 +164,21 @@ export function ActionsMutationPanel({
 				>
 					标记最近批次已复盘
 				</button>
+				<button
+					disabled={pending || !productId}
+					onClick={() => {
+						if (!productId) return;
+						const url = `${backendBaseUrl}/frontend/actions/export-bulk-csv?product_id=${productId}`;
+						window.open(url, "_blank", "noopener");
+						setMessage(
+							"已请求下载 Amazon Bulk CSV — 检查浏览器下载列表",
+						);
+					}}
+					title="导出当前产品所有 negative 推荐为 Amazon Sponsored Products Bulk Operations CSV"
+					className="rounded-full border border-amber-300 bg-amber-50 px-5 py-2.5 text-sm font-medium text-amber-900 shadow-sm transition hover:bg-amber-100 disabled:opacity-50"
+				>
+					下载 Amazon Bulk CSV
+				</button>
 			</div>
 			{message ? (
 				<p className="mt-4 text-sm leading-relaxed text-zinc-500">{message}</p>
