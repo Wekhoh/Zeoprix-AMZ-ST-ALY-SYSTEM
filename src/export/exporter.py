@@ -217,6 +217,83 @@ class ReportExporter:
             df.to_excel(writer, sheet_name="否词记录", index=False)
         return buffer.getvalue(), file_name
 
+    def _build_amazon_bulk_dataframe(
+        self, results: list[AnalysisResult]
+    ) -> pd.DataFrame | None:
+        """Sprint D.2 — 构建 Amazon Sponsored Products Bulk Operations 兼容 CSV。
+
+        遵循 Amazon Ads 官方 Bulk template 列名规范：
+        Product / Entity / Operation / Campaign Name / Ad Group Name /
+        State / Keyword Text / Product Targeting Expression / Match Type
+
+        - keyword + negative_exact → Entity=Negative Keyword, Match Type=negativeExact
+        - keyword + negative_phrase → Entity=Negative Keyword, Match Type=negativePhrase
+        - asin + negative_* → Entity=Negative Product Targeting,
+          Product Targeting Expression='asin="B0XXXX"'
+        - 主人需在导出后手填空 Ad Group Name（系统不持有此字段；
+          推荐做法：上传到 Amazon 后台时按 Campaign 内单一 ad group 填入）
+        """
+        negative_results = [r for r in results if ActionType.is_negative(r.action_type)]
+        if not negative_results:
+            logger.warning("没有需要导出 Amazon Bulk 的否词")
+            return None
+
+        rows = []
+        for r in negative_results:
+            is_asin = (r.term_type or "keyword").lower() == "asin"
+            if is_asin:
+                entity = "Negative Product Targeting"
+                keyword_text = ""
+                target_expr = f'asin="{r.term.upper()}"'
+                match_type = ""
+            else:
+                entity = "Negative Keyword"
+                keyword_text = r.term
+                target_expr = ""
+                # action_type 含 "phrase" → negativePhrase；否则默认 negativeExact
+                if "phrase" in (r.action_type or "").lower():
+                    match_type = "negativePhrase"
+                else:
+                    match_type = "negativeExact"
+
+            rows.append(
+                {
+                    "Product": "Sponsored Products",
+                    "Entity": entity,
+                    "Operation": "Create",
+                    "Campaign Name": r.campaign_name or "",
+                    "Ad Group Name": "",  # 主人手填
+                    "State": "enabled",
+                    "Keyword Text": keyword_text,
+                    "Product Targeting Expression": target_expr,
+                    "Match Type": match_type,
+                }
+            )
+
+        return pd.DataFrame(rows)
+
+    def export_amazon_bulk_csv_bytes(
+        self,
+        results: list[AnalysisResult],
+        product_name: str = None,
+    ) -> tuple[bytes, str] | None:
+        """Sprint D.2 — 生成 Amazon Bulk Operations 兼容 CSV bytes。
+
+        返回 (csv_bytes, file_name)，None 表示无可导出否词。
+        前端通过 endpoint 拿到后让浏览器直接下载，主人上传到
+        广告后台 Bulk Operations 即可。
+        """
+        df = self._build_amazon_bulk_dataframe(results)
+        if df is None:
+            return None
+        prefix = (
+            f"{product_name}_amazon_bulk_negatives"
+            if product_name
+            else "amazon_bulk_negatives"
+        )
+        file_name = self._generate_download_name(prefix, "csv")
+        return df.to_csv(index=False).encode("utf-8"), file_name
+
     def export_manual_keywords_bytes(
         self,
         results: list[AnalysisResult],

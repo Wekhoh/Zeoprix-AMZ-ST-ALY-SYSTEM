@@ -454,3 +454,75 @@ class TestExportIntegration:
         assert secure_filename("../../../etc/passwd") == "_____etc_passwd"
         assert secure_filename("") == "unnamed"
         assert len(secure_filename("a" * 300)) <= 200
+
+    # ── Sprint D.2 · Amazon Bulk Operations CSV ─────────────────────
+
+    def test_amazon_bulk_csv_export_keyword_negatives(self):
+        """keyword + negative_exact / phrase 应输出 Negative Keyword + 对应 Match Type"""
+        from src.export.exporter import ReportExporter
+
+        results = [
+            build_result(
+                term="cheap travel pillow",
+                action_type=ActionType.NEGATIVE_EXACT,
+                suggested_action="精确否定",
+                term_type="keyword",
+            ),
+            build_result(
+                term="airport blanket",
+                action_type=ActionType.NEGATIVE_PHRASE,
+                suggested_action="短语否定",
+                term_type="keyword",
+            ),
+        ]
+        for r in results:
+            r.campaign_name = "BLK-TP01-LOT01-SP-Auto"
+
+        exporter = ReportExporter(output_dir="/tmp")
+        out = exporter.export_amazon_bulk_csv_bytes(results, product_name="旅行枕")
+        assert out is not None
+        csv_bytes, file_name = out
+
+        text = csv_bytes.decode("utf-8")
+        assert "Product,Entity,Operation,Campaign Name" in text
+        assert "Sponsored Products" in text
+        assert "Negative Keyword" in text
+        assert "negativeExact" in text
+        assert "negativePhrase" in text
+        assert "BLK-TP01-LOT01-SP-Auto" in text
+        assert "amazon_bulk_negatives" in file_name
+        assert file_name.endswith(".csv")
+
+    def test_amazon_bulk_csv_export_asin_uses_product_targeting(self):
+        """asin + negative_* 应用 Product Targeting Expression='asin=\"X\"'，ASIN 大写"""
+        from src.export.exporter import ReportExporter
+
+        result = build_result(
+            term="b07abc1234",
+            action_type=ActionType.NEGATIVE_EXACT,
+            suggested_action="ASIN 否定",
+            term_type="asin",
+        )
+        result.campaign_name = "Test-SP"
+
+        exporter = ReportExporter(output_dir="/tmp")
+        out = exporter.export_amazon_bulk_csv_bytes([result])
+        assert out is not None
+        text = out[0].decode("utf-8")
+
+        assert "Negative Product Targeting" in text
+        assert 'asin=""B07ABC1234""' in text or 'asin="B07ABC1234"' in text
+
+    def test_amazon_bulk_csv_returns_none_when_no_negatives(self):
+        """全是 manual 类动作时返回 None"""
+        from src.export.exporter import ReportExporter
+
+        results = [
+            build_result(
+                term="strong term",
+                action_type=ActionType.MANUAL_EXACT,
+                suggested_action="手动精准",
+            ),
+        ]
+        exporter = ReportExporter(output_dir="/tmp")
+        assert exporter.export_amazon_bulk_csv_bytes(results) is None
