@@ -1044,6 +1044,66 @@ def build_upload_page_payload(product_id: int | None = None) -> dict[str, Any]:
         }
 
 
+def _cluster_pending_terms(
+    items: list[dict[str, Any]], similarity_threshold: float = 0.7
+) -> dict[str, int]:
+    """Sprint A.1 — 用 SequenceMatcher.ratio() 给待审 terms 做轻量聚类。
+
+    返回 `{term: cluster_id}` 映射；ratio >= threshold 归一类。
+    cluster_id 从 0 开始递增；single-item 簇也分配 id 便于前端统一渲染。
+    无外部依赖；O(N²) 但 N≤8（pending limit）成本可忽略。
+    """
+    from difflib import SequenceMatcher
+
+    terms: list[str] = [
+        str(it.get("term") or "").strip().lower() for it in items if it.get("term")
+    ]
+    cluster_of: dict[str, int] = {}
+    next_id = 0
+    for term in terms:
+        if term in cluster_of:
+            continue
+        cluster_of[term] = next_id
+        for other in terms:
+            if other in cluster_of or other == term:
+                continue
+            if SequenceMatcher(None, term, other).ratio() >= similarity_threshold:
+                cluster_of[other] = next_id
+        next_id += 1
+    return cluster_of
+
+
+def _fetch_historical_decisions(
+    db: "Database", product_id: int, term: str, *, limit: int = 5
+) -> list[dict[str, Any]]:
+    """Sprint A.1 — 按 term 拉历史决策给前端提示"32 天前已否定过"等。
+
+    复用 `db.get_manual_reviews_by_term()`；按 decidedAt desc，最多 limit 条。
+    跳过 status=pending 的（仅返回真正已决策的）。
+    """
+    if not term:
+        return []
+    rows = db.get_manual_reviews_by_term(product_id, term) or []
+    history = []
+    for row in rows:
+        relevance = row.get("relevance")
+        if not relevance or relevance == "pending":
+            continue
+        history.append(
+            {
+                "decidedAt": _format_timestamp(
+                    row.get("updated_at") or row.get("created_at")
+                ),
+                "decision": relevance,
+                "scope": row.get("scope") or "local",
+                "campaignId": row.get("campaign_id"),
+                "notes": (row.get("relevance_notes") or row.get("notes") or "")[:140],
+            }
+        )
+    history.sort(key=lambda r: r.get("decidedAt") or "", reverse=True)
+    return history[:limit]
+
+
 def build_review_page_payload(product_id: int | None = None) -> dict[str, Any]:
     workbench = build_workbench_payload(product_id)
     if workbench.get("source") != "live":
@@ -1055,6 +1115,8 @@ def build_review_page_payload(product_id: int | None = None) -> dict[str, Any]:
         product_id = int(product["id"])
         review_stats = db.get_review_stats(product_id)
         pending_items = db.get_pending_reviews_list(product_id, limit=8)
+        # Sprint A.1: 加 cluster_id（相似词聚簇）+ historicalDecisions（同 term 历史拍板）
+        cluster_map = _cluster_pending_terms(pending_items)
         return {
             **workbench,
             "review": {
@@ -1067,6 +1129,12 @@ def build_review_page_payload(product_id: int | None = None) -> dict[str, Any]:
                         "campaignId": item.get("campaign_id"),
                         "relevance": item.get("relevance") or "pending",
                         "createdAt": _format_timestamp(item.get("created_at")),
+                        "clusterId": cluster_map.get(
+                            str(item.get("term") or "").strip().lower(), -1
+                        ),
+                        "historicalDecisions": _fetch_historical_decisions(
+                            db, product_id, str(item.get("term") or "")
+                        ),
                     }
                     for item in pending_items
                 ],
