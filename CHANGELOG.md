@@ -25,6 +25,14 @@
   - **E.8** `.pre-commit-config.yaml`：ruff lint+format + 7 条文件卫生 hook（trailing-whitespace / EOF / yaml+json+toml check / merge-conflict / 1MB 大文件上限）。`pre-commit install` 一次即常驻
   - **cleanup** requirements.txt 删死依赖 `streamlit>=1.40.0`（B.5 删除后零引用）；ruff 修 11 个历史 lint（unused import / E741 `l` / E402 顶层 import）
 
+### Fixed
+- **[hydration 三连环 Bug]** 2026-04-25 — 主人发现 sidebar / Copilot drawer 折叠展开按钮失效，用 claude-in-chrome 实测查 live DOM 找到根因：
+  - **Bug 1** (`f931fbe`)：Next 16 默认 `allowedDevOrigins` 仅允许 `localhost`；`127.0.0.1` 被当跨源屏蔽 client bundle → React hydration 0.6%（实测 3/465 元素有 fiber）→ 所有 onClick 失效。修 `next.config.ts` 加 `allowedDevOrigins: ["127.0.0.1", "localhost", "0.0.0.0"]`
+  - **Bug 2** (`f931fbe`)：Tailwind v4 JIT 在 ternary `collapsed ? "w-[60px]" : "w-[220px]"` 中只生成 collapsed 分支 → expanded 没规则 → flex 把 aside 压成 60px。修：把 width 改 number + inline style，绕开 JIT 不确定性
+  - **Bug 3** (`ab4ef8e`)：`setCollapsed` updater 内部带 `localStorage.setItem` 副作用 → React 19 Strict Mode dev 双调用 → 净 state 不变。修：updater 纯化为 `prev => !prev`，把 localStorage 同步移到独立 `useEffect`，加 `hasMounted` gate
+  - 验证报告归档 `logs/verification-report-2026-04-25.md`
+  - 修复后实测：hydration 0.6% → 93%，sidebar 220px / copilot 360px 默认展开正确
+
 ### Removed
 - **[SPRINT-5 B.5]** Streamlit legacy 整包删除 (2026-04-24):
   - `src/app.py`（1550 行 Streamlit 入口）+ `src/ui/__init__.py` + `src/ui/components/ai_chatbox.py`

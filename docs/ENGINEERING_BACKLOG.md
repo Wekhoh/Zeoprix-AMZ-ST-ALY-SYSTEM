@@ -68,7 +68,7 @@
 | D3 | 提升 `src/ai/client.py` 覆盖率从 34% → 70%（加 generate/generate_json 的错误路径测试） | ✅ 2f6d826 | 新增 unit test | 1.5h |
 | D4 | 提升 `src/backend/copilot_chat.py` 从 58% → 80%（SSE error + cancel 路径） | ✅ f83e2c9（error/outer exception 路径完成；timeout/cancel 延后） | 新增 unit test | 1.5h |
 | D5 | Playwright 初始化 ~~(改用 claude-in-chrome MCP 实测驱动)~~ | ❌ 放弃 | 主人 2026-04-24 指示：用 claude-in-chrome MCP 做 E2E，不装 Playwright | - |
-| D6 | E2E smoke：首页加载 + 6 tab 跳转 + Copilot 发消息 + 流式响应 | 🟡 手动 chrome | 用 claude-in-chrome 导航验证，归档 `logs/verification-report-*.md` | 30m |
+| D6 | E2E smoke：首页加载 + 6 tab 跳转 + Copilot 发消息 + 流式响应 | ✅ 部分（claude-in-chrome 实测，归档 logs/verification-report-2026-04-25.md） | 用 claude-in-chrome 实测发现并修了 3 连环 hydration bug（Next 16 allowedDevOrigins / Tailwind v4 JIT / React 19 updater purity） | 30m |
 | D7 | E2E 关键路径：upload → analysis → review → actions → export | 🟡 手动 chrome | 同 D6 | 1h |
 | D8 | Frontend vitest 初始化 + 10 smoke（SSE parser + ASIN tokenizer） | ✅ 7f2130a + c48d3a4 + 555f866 | vitest + 10 tests + CI 集成 | 2h |
 

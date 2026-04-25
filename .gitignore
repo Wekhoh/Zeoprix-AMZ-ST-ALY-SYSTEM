@@ -81,7 +81,11 @@ task_plan.md
 # 日志文件
 # ===================
 *.log
-logs/
+# 用 logs/* 而非 logs/ —— git 不允许 negation 重收 ignored parent dir 内的子文件，
+# 所以需要 ignore 内容而非整个 directory
+logs/*
+# 例外：验证报告 (verification-report-*.md) 是设计交付物，需要入库
+!logs/verification-report-*.md
 
 # ===================
 # 测试和覆盖率
