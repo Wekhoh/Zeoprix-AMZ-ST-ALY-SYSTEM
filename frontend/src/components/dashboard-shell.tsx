@@ -104,8 +104,12 @@ export function DashboardShell({
 		});
 	}
 
-	const sidebarWidth = collapsed ? "w-[60px]" : "w-[220px]";
-	const copilotWidth = copilotCollapsed ? "w-[44px]" : "w-[360px]";
+	// 用数字 + inline style 而非 Tailwind arbitrary class —— 绕过 Tailwind v4
+	// JIT 在 ternary 双分支扫描时只生成 collapsed 分支（实测：CSS 里有
+	// `.w-\[60px\]` `.w-\[44px\]` 但缺 `.w-\[220px\]` `.w-\[360px\]`）的 bug，
+	// 导致展开态宽度规则缺失、aside 被 flex 压成内容宽度（60px）。
+	const sidebarWidthPx = collapsed ? 60 : 220;
+	const copilotWidthPx = copilotCollapsed ? 44 : 360;
 
 	return (
 		<div className="min-h-screen bg-bg text-fg">
@@ -169,11 +173,8 @@ export function DashboardShell({
 			<div className="flex">
 				{/* ═══ 可折叠 sidebar ═══ */}
 				<aside
-					className={
-						"sticky top-0 h-[calc(100vh-52px)] shrink-0 bg-bg-elevated border-r border-border flex flex-col " +
-						"transition-[width] duration-200 ease-out " +
-						sidebarWidth
-					}
+					style={{ width: sidebarWidthPx }}
+					className="sticky top-0 h-[calc(100vh-52px)] shrink-0 bg-bg-elevated border-r border-border flex flex-col transition-[width] duration-200 ease-out"
 				>
 					<nav className="flex-1 py-2 overflow-y-auto">
 						<ul className="space-y-0.5">
@@ -278,11 +279,8 @@ export function DashboardShell({
 					</main>
 
 					<aside
-						className={
-							"hidden lg:block sticky top-[52px] self-start shrink-0 h-[calc(100vh-52px)] border-l border-border bg-bg-elevated relative " +
-							"transition-[width] duration-200 ease-out " +
-							copilotWidth
-						}
+						style={{ width: copilotWidthPx }}
+						className="hidden lg:block sticky top-[52px] self-start shrink-0 h-[calc(100vh-52px)] border-l border-border bg-bg-elevated relative transition-[width] duration-200 ease-out"
 					>
 						{/* 浮动切换按钮：左边缘中心凹起的小圆按钮 */}
 						<button
