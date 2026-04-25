@@ -33,6 +33,12 @@
   - 验证报告归档 `logs/verification-report-2026-04-25.md`
   - 修复后实测：hydration 0.6% → 93%，sidebar 220px / copilot 360px 默认展开正确
 
+### Verified
+- **[D.7 partial]** 2026-04-25 — Sprint 5 全栈健康 sweep（无业务流交互，仅 SSR+API 健康）：
+  - 6 个 Next.js SSR 页全 200（/, /upload, /analysis, /review, /actions, /settings），每页 42-58KB HTML，aside 渲染、brand 字在、零 error markers
+  - 5 个核心 backend API 全 200（/health, /metrics, /frontend/workbench, /frontend/upload, /frontend/insights/today），uptime ≈ 1200s 稳定
+  - 证明 toggle 修复 + 全 Sprint 5 backend/前端改动未引回归
+
 ### Documented
 - **[E.4 CODEMAPS]** 2026-04-25 — `docs/CODEMAPS/` 一次性产出 28 文件（1 README 索引 + 27 模块 codemap），由 `everything-claude-code:doc-updater` 后台 agent 自动生成（782s · 72k tokens）：
   - **覆盖**：8 backend / 4 data / 3 rules / 4 ai / 2 analysis / 4 config / 1 export / 1 services

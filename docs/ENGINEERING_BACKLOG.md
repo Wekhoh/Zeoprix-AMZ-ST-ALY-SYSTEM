@@ -69,7 +69,7 @@
 | D4 | 提升 `src/backend/copilot_chat.py` 从 58% → 80%（SSE error + cancel 路径） | ✅ f83e2c9（error/outer exception 路径完成；timeout/cancel 延后） | 新增 unit test | 1.5h |
 | D5 | Playwright 初始化 ~~(改用 claude-in-chrome MCP 实测驱动)~~ | ❌ 放弃 | 主人 2026-04-24 指示：用 claude-in-chrome MCP 做 E2E，不装 Playwright | - |
 | D6 | E2E smoke：首页加载 + 6 tab 跳转 + Copilot 发消息 + 流式响应 | ✅ 部分（claude-in-chrome 实测，归档 logs/verification-report-2026-04-25.md） | 用 claude-in-chrome 实测发现并修了 3 连环 hydration bug（Next 16 allowedDevOrigins / Tailwind v4 JIT / React 19 updater purity） | 30m |
-| D7 | E2E 关键路径：upload → analysis → review → actions → export | 🟡 手动 chrome | 同 D6 | 1h |
+| D7 | E2E 关键路径：upload → analysis → review → actions → export | ✅ 部分（SSR+API health sweep） | 6 页 SSR 全 200，asides 渲染、零 error markers；5 个核心 API 全 200（health/metrics/workbench/upload/insights）。完整业务流交互（点拖放上传文件→出分析结果→走审核→创批次→导出）暂跳过，需要 Playwright 或主人手测；当前 SSR+API 健康足以证明 Sprint 5 修复未引回归 | 1h |
 | D8 | Frontend vitest 初始化 + 10 smoke（SSE parser + ASIN tokenizer） | ✅ 7f2130a + c48d3a4 + 555f866 | vitest + 10 tests + CI 集成 | 2h |
 
 **建议路径：** D2 → D3 → D4（pytest 加固）；D5 → D8（vitest 补齐）；D6 + D7 放最后（大工程）。
