@@ -9,6 +9,7 @@ import { Search, Info } from "lucide-react";
 import { writePageContext } from "@/components/page-context";
 import type { AnalysisPayload, AnalysisRow } from "@/lib/mock-data";
 import { AnalysisTable } from "@/components/workbench-sections";
+import { AnalysisDetailDrawer } from "@/components/analysis-detail-drawer";
 
 type Props = {
 	payload: AnalysisPayload;
@@ -63,6 +64,8 @@ export function AnalysisLivePanel({ payload }: Props) {
 	const [query, setQuery] = useState("");
 	const [sortKey, setSortKey] = useState<SortKey>("spend-desc");
 	const [focusMode, setFocusMode] = useState<FocusMode>("all");
+	// Sprint A.2: 详情抽屉状态 —— 选中 term 触发抽屉打开
+	const [selectedTerm, setSelectedTerm] = useState<string | null>(null);
 
 	const filteredRows = useMemo(() => {
 		const normalizedQuery = query.trim().toLowerCase();
@@ -341,7 +344,17 @@ export function AnalysisLivePanel({ payload }: Props) {
 			</section>
 
 			{/* ═══ 4. Table ═══ */}
-			<AnalysisTable analysisRows={filteredRows} />
+			<AnalysisTable
+				analysisRows={filteredRows}
+				onRowClick={(term) => setSelectedTerm(term)}
+			/>
+
+			{/* Sprint A.2: 详情抽屉 */}
+			<AnalysisDetailDrawer
+				term={selectedTerm}
+				productId={payload.productId ?? null}
+				onClose={() => setSelectedTerm(null)}
+			/>
 		</div>
 	);
 }

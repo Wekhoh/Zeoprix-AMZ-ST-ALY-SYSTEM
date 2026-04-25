@@ -780,15 +780,18 @@ export function OperationsStream({
 
 export function AnalysisTable({
 	analysisRows = defaultAnalysisRows,
+	onRowClick,
 }: {
 	analysisRows?: AnalysisRow[];
+	// Sprint A.2: 行点击回调，传入 term —— 触发详情抽屉
+	onRowClick?: (term: string) => void;
 }) {
 	return (
 		<section className="space-y-4">
 			<SectionHead
 				code="TABLE"
 				label="搜索词分析总览"
-				count={`${analysisRows.length} rows`}
+				count={`${analysisRows.length} rows${onRowClick ? " · 点击行看 30 天详情" : ""}`}
 			/>
 			<div className="border border-border rounded-md overflow-hidden">
 				<table className="w-full border-collapse text-left text-[13px]">
@@ -807,7 +810,11 @@ export function AnalysisTable({
 						{analysisRows.map((row) => (
 							<tr
 								key={row.term}
-								className="border-t border-border hover:bg-bg-subtle/40"
+								onClick={onRowClick ? () => onRowClick(row.term) : undefined}
+								className={
+									"border-t border-border hover:bg-bg-subtle/40 transition" +
+									(onRowClick ? " cursor-pointer" : "")
+								}
 							>
 								<td className="px-3 py-2.5 font-mono text-[13px] font-medium text-fg">
 									{row.term}
