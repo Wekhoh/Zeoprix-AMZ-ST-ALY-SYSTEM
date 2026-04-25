@@ -4,6 +4,7 @@
  * 骨架：metric cards grid + tab pills + filter card + analysis table
  */
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams, usePathname, useRouter } from "next/navigation";
 import { Search, Info } from "lucide-react";
 
 import { writePageContext } from "@/components/page-context";
@@ -59,13 +60,40 @@ export function AnalysisLivePanel({ payload }: Props) {
 		typeCounts: {} as Record<string, number>,
 		actionCounts: {} as Record<string, number>,
 	};
-	const [typeFilter, setTypeFilter] = useState<string>("all");
-	const [actionFilter, setActionFilter] = useState<string>("all");
-	const [query, setQuery] = useState("");
-	const [sortKey, setSortKey] = useState<SortKey>("spend-desc");
-	const [focusMode, setFocusMode] = useState<FocusMode>("all");
+	// Sprint A.3: 从 URL searchParams 读初始 filter（"分享链接打开就是同一份视图"）
+	const searchParams = useSearchParams();
+	const pathname = usePathname();
+	const router = useRouter();
+
+	const [typeFilter, setTypeFilter] = useState<string>(
+		searchParams.get("type") || "all",
+	);
+	const [actionFilter, setActionFilter] = useState<string>(
+		searchParams.get("action") || "all",
+	);
+	const [query, setQuery] = useState(searchParams.get("q") || "");
+	const [sortKey, setSortKey] = useState<SortKey>(
+		(searchParams.get("sort") as SortKey) || "spend-desc",
+	);
+	const [focusMode, setFocusMode] = useState<FocusMode>(
+		(searchParams.get("focus") as FocusMode) || "all",
+	);
 	// Sprint A.2: 详情抽屉状态 —— 选中 term 触发抽屉打开
 	const [selectedTerm, setSelectedTerm] = useState<string | null>(null);
+
+	// Sprint A.3: filter 改变时同步到 URL，刷新/分享链接保持同一视图
+	useEffect(() => {
+		const next = new URLSearchParams();
+		if (typeFilter !== "all") next.set("type", typeFilter);
+		if (actionFilter !== "all") next.set("action", actionFilter);
+		if (query) next.set("q", query);
+		if (sortKey !== "spend-desc") next.set("sort", sortKey);
+		if (focusMode !== "all") next.set("focus", focusMode);
+		const nextStr = next.toString();
+		const url = nextStr ? `${pathname}?${nextStr}` : pathname;
+		// replaceState 不入 history，避免每次 filter 变化都创建一条历史
+		router.replace(url, { scroll: false });
+	}, [typeFilter, actionFilter, query, sortKey, focusMode, pathname, router]);
 
 	const filteredRows = useMemo(() => {
 		const normalizedQuery = query.trim().toLowerCase();

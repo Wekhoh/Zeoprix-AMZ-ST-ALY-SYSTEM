@@ -3,7 +3,7 @@
  * DashboardShell — Phase 7.2 Amazon Ads Console + collapsible sidebar
  */
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import {
 	Home,
@@ -13,6 +13,7 @@ import {
 	ListChecks,
 	Settings,
 	Bell,
+	RotateCw,
 	HelpCircle,
 	User,
 	ChevronsLeft,
@@ -62,6 +63,7 @@ export function DashboardShell({
 	aiCard,
 }: DashboardShellProps) {
 	const pathname = usePathname();
+	const router = useRouter();
 	const currentProduct = productContext ?? defaultProductContext;
 	const primaryCard = aiCard ?? aiCopilotCards[0];
 	const currentNav = navItems.find((n) => n.href === pathname);
@@ -155,6 +157,14 @@ export function DashboardShell({
 						{currentProduct.workspace}
 					</span>
 				</div>
+				<button
+					type="button"
+					title="刷新当前页 (router.refresh)"
+					onClick={() => router.refresh()}
+					className="inline-flex h-8 w-8 items-center justify-center rounded hover:bg-white/10 transition-colors"
+				>
+					<RotateCw className="h-4 w-4 text-white/80" />
+				</button>
 				<button
 					type="button"
 					title="通知"
