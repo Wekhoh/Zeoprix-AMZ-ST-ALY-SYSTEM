@@ -138,6 +138,14 @@ export type ActionsPayload = WorkbenchPayload & {
 	};
 };
 
+export type HistoricalReviewDecision = {
+	decidedAt: string;
+	decision: string;
+	scope: string;
+	campaignId?: number | null;
+	notes?: string;
+};
+
 export type ReviewPendingItem = {
 	term: string;
 	termType: string;
@@ -145,6 +153,10 @@ export type ReviewPendingItem = {
 	campaignId?: number | null;
 	relevance: string;
 	createdAt: string;
+	// Sprint A.1: similar-word cluster id（相同 clusterId 的 term 是相似词，前端可圈起来）
+	clusterId?: number;
+	// Sprint A.1: 历史审核决策（同 term 已决策记录，按 decidedAt desc）
+	historicalDecisions?: HistoricalReviewDecision[];
 };
 
 export type ReviewPayload = WorkbenchPayload & {
