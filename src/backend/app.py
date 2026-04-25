@@ -182,6 +182,8 @@ class FrontendReviewDecisionRequest(BaseModel):
     campaign_id: int | None = None
     relevance: str
     notes: str | None = None
+    # Sprint A.4: 主人在前端 inline-confirm 后传 force=True 跳过冲突检查
+    force: bool = False
 
 
 class FrontendProductRequest(BaseModel):
@@ -764,6 +766,7 @@ def create_app() -> FastAPI:
             campaign_id=payload.campaign_id,
             relevance=payload.relevance,
             notes=payload.notes,
+            force=payload.force,
         )
 
     @app.post(

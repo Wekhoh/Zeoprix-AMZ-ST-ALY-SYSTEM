@@ -612,6 +612,70 @@ def update_execution_batch_for_frontend(
         return batch
 
 
+def _check_decision_conflicts(
+    db: "Database",
+    product_id: int,
+    term: str,
+    new_relevance: str,
+    *,
+    days: int = 14,
+) -> list[dict[str, Any]]:
+    """Sprint A.4 — 检测当前决策是否与 14 天内的历史决策方向冲突。
+
+    场景：
+      - 此前 14 天内被标 strong_core，现在改 irrelevant → 警告（可能误操作）
+      - 此前 14 天内被标 irrelevant，现在改 strong_core → 警告（可能复活）
+
+    返回 [] 表示无冲突；非空 list 表示至少一条冲突记录。
+    """
+    import datetime as _dt
+
+    POSITIVE = {"strong_core", "strong_longtail"}
+    NEGATIVE = {"irrelevant", "generic", "weak", "car"}
+
+    new_dir = (
+        "positive"
+        if new_relevance in POSITIVE
+        else ("negative" if new_relevance in NEGATIVE else "neutral")
+    )
+    if new_dir == "neutral":
+        return []
+
+    rows = db.get_manual_reviews_by_term(product_id, term) or []
+    cutoff = _dt.datetime.now() - _dt.timedelta(days=days)
+    conflicts: list[dict[str, Any]] = []
+    for row in rows:
+        prev = row.get("relevance")
+        if not prev or prev == "pending":
+            continue
+        prev_dir = (
+            "positive"
+            if prev in POSITIVE
+            else ("negative" if prev in NEGATIVE else "neutral")
+        )
+        if prev_dir == "neutral" or prev_dir == new_dir:
+            continue
+        # 时间过滤
+        ts_str = row.get("updated_at") or row.get("created_at") or ""
+        try:
+            ts = _dt.datetime.fromisoformat(str(ts_str).replace("T", " ").split(".")[0])
+        except (ValueError, TypeError):
+            continue
+        if ts < cutoff:
+            continue
+        conflicts.append(
+            {
+                "previousDecision": prev,
+                "previousDirection": prev_dir,
+                "decidedAt": _format_timestamp(ts_str),
+                "scope": row.get("scope") or "local",
+                "campaignId": row.get("campaign_id"),
+                "notes": (row.get("relevance_notes") or row.get("notes") or "")[:140],
+            }
+        )
+    return conflicts
+
+
 def submit_review_decision_for_frontend(
     *,
     product_id: int,
@@ -620,9 +684,22 @@ def submit_review_decision_for_frontend(
     campaign_id: int | None,
     relevance: str,
     notes: str | None = None,
+    force: bool = False,
 ) -> dict[str, Any]:
     db_path = _get_app_database_path()
     with Database(str(db_path)) as db:
+        # Sprint A.4: 写入前查 14 天内反向决策，未 force 则返回冲突让前端二次确认
+        if not force:
+            conflicts = _check_decision_conflicts(db, product_id, term, relevance)
+            if conflicts:
+                return {
+                    "requiresConfirmation": True,
+                    "conflicts": conflicts,
+                    "message": (
+                        f"检测到 {len(conflicts)} 条与"
+                        f"当前决策方向相反的近期记录，请确认是否仍要提交"
+                    ),
+                }
         review_id = db.upsert_manual_review(
             product_id=product_id,
             term=term,

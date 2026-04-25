@@ -17,7 +17,9 @@ type Props = {
 };
 
 type ReviewMutationResponse = {
-	reviewId: number;
+	// Sprint A.4: 冲突响应时无 reviewId（mutation panel 已处理冲突分支，不会
+	// 调到此 callback；保持 optional 以匹配 panel 端 response 类型）
+	reviewId?: number;
 	stats?: {
 		total?: number;
 		reviewed?: number;

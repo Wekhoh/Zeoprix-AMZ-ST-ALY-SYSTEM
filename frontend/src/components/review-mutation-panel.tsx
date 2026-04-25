@@ -15,12 +15,30 @@ type Props = {
 };
 
 type ReviewMutationResponse = {
-	reviewId: number;
+	reviewId?: number;
 	stats?: {
 		total?: number;
 		reviewed?: number;
 		pending?: number;
 	};
+	// Sprint A.4: 冲突响应（无 reviewId、无 stats，前端需弹二次确认）
+	requiresConfirmation?: boolean;
+	conflicts?: Array<{
+		previousDecision: string;
+		previousDirection: string;
+		decidedAt: string;
+		scope: string;
+		notes?: string;
+	}>;
+	message?: string;
+};
+
+type PendingConfirmation = {
+	itemKey: string;
+	term: string;
+	relevance: string;
+	conflicts: NonNullable<ReviewMutationResponse["conflicts"]>;
+	message: string;
 };
 
 function buildReviewKey(
@@ -54,6 +72,9 @@ export function ReviewMutationPanel({
 	const [pending, startTransition] = useTransition();
 	// Sprint A.1: 当前键盘焦点的 queue item index（默认第 1 项）
 	const [focusedIndex, setFocusedIndex] = useState(0);
+	// Sprint A.4: 等待二次确认的冲突
+	const [pendingConfirmation, setPendingConfirmation] =
+		useState<PendingConfirmation | null>(null);
 
 	const visibleItems = (review?.pendingItems ?? []).slice(0, 5);
 
@@ -99,6 +120,7 @@ export function ReviewMutationPanel({
 	async function submitDecision(
 		item: NonNullable<ReviewPayload["review"]>["pendingItems"][number],
 		relevance: string,
+		force = false,
 	) {
 		if (!productId) return;
 		setMessage(null);
@@ -115,6 +137,7 @@ export function ReviewMutationPanel({
 						campaign_id: item.campaignId ?? null,
 						relevance,
 						notes: notes[item.term] || undefined,
+						force,
 					}),
 				},
 			);
@@ -128,12 +151,23 @@ export function ReviewMutationPanel({
 			const body = (await response
 				.json()
 				.catch(() => ({}))) as ReviewMutationResponse;
+			// Sprint A.4: 冲突响应 → 不写库，弹二次确认
+			if (body.requiresConfirmation && body.conflicts) {
+				setPendingConfirmation({
+					itemKey: buildReviewKey(item),
+					term: item.term,
+					relevance,
+					conflicts: body.conflicts,
+					message: body.message || "检测到冲突",
+				});
+				return;
+			}
 			setMessage(
 				`已提交 ${item.term} 的人工审核：${formatDecisionLabel(relevance)}`,
 			);
 			onDecisionSubmitted?.(
 				buildReviewKey(item),
-				body,
+				body as ReviewMutationResponse & { reviewId: number },
 				formatDecisionLabel(relevance),
 			);
 			setNotes((current) => {
@@ -141,7 +175,21 @@ export function ReviewMutationPanel({
 				delete next[item.term];
 				return next;
 			});
+			setPendingConfirmation(null);
 		});
+	}
+
+	function confirmConflictedDecision() {
+		if (!pendingConfirmation) return;
+		const item = visibleItems.find(
+			(it) => buildReviewKey(it) === pendingConfirmation.itemKey,
+		);
+		if (!item) {
+			setPendingConfirmation(null);
+			return;
+		}
+		// 用 force=true 重发
+		submitDecision(item, pendingConfirmation.relevance, true);
 	}
 
 	return (
@@ -153,13 +201,19 @@ export function ReviewMutationPanel({
 				审核操作
 			</h3>
 			<p className="mt-3 text-sm leading-relaxed text-zinc-500">
-				直接在新前端里提交人工相关性判断，刷新后队列会减少。
-				{" "}
+				直接在新前端里提交人工相关性判断，刷新后队列会减少。{" "}
 				<span className="text-zinc-400">
-					快捷键：<kbd className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px]">1</kbd>=强相关 ·{" "}
-					<kbd className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px]">2</kbd>=泛词 ·{" "}
-					<kbd className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px]">3</kbd>=不相关 ·{" "}
-					<kbd className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px]">↑↓</kbd>=切换
+					快捷键：
+					<kbd className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px]">1</kbd>
+					=强相关 ·{" "}
+					<kbd className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px]">2</kbd>
+					=泛词 ·{" "}
+					<kbd className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px]">3</kbd>
+					=不相关 ·{" "}
+					<kbd className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px]">
+						↑↓
+					</kbd>
+					=切换
 				</span>
 			</p>
 			<div className="mt-5 space-y-4">
@@ -178,7 +232,9 @@ export function ReviewMutationPanel({
 							}
 						>
 							<div className="flex items-start justify-between gap-3">
-								<div className="text-sm font-medium text-zinc-950">{item.term}</div>
+								<div className="text-sm font-medium text-zinc-950">
+									{item.term}
+								</div>
 								{typeof item.clusterId === "number" && item.clusterId >= 0 ? (
 									<span
 										title={`相似词簇 #${item.clusterId}`}
@@ -248,6 +304,61 @@ export function ReviewMutationPanel({
 			</div>
 			{message ? (
 				<p className="mt-4 text-sm leading-relaxed text-zinc-500">{message}</p>
+			) : null}
+
+			{/* Sprint A.4: 冲突二次确认弹窗（inline，非 modal） */}
+			{pendingConfirmation ? (
+				<div className="mt-4 rounded-2xl border-2 border-amber-500 bg-amber-50 p-4">
+					<div className="flex items-start gap-2">
+						<span aria-hidden className="text-2xl leading-none">
+							⚠
+						</span>
+						<div className="flex-1">
+							<div className="text-sm font-semibold text-amber-900">
+								⚠ 决策方向冲突 — {pendingConfirmation.term}
+							</div>
+							<div className="mt-1 text-[12px] text-amber-800">
+								{pendingConfirmation.message}
+							</div>
+							<ul className="mt-2 space-y-1.5 text-[12px] text-zinc-700">
+								{pendingConfirmation.conflicts.slice(0, 3).map((c, i) => (
+									<li key={i} className="rounded bg-white/60 p-2">
+										<div>
+											<span className="font-medium">{c.previousDecision}</span>
+											<span className="ml-1 font-mono text-zinc-500">
+												({c.decidedAt})
+											</span>
+											{c.scope === "global" ? (
+												<span className="ml-1 text-amber-700">[全局]</span>
+											) : null}
+										</div>
+										{c.notes ? (
+											<div className="mt-0.5 text-zinc-600">{c.notes}</div>
+										) : null}
+									</li>
+								))}
+							</ul>
+							<div className="mt-3 flex gap-2">
+								<button
+									type="button"
+									disabled={pending}
+									onClick={confirmConflictedDecision}
+									className="rounded-full bg-amber-600 px-4 py-1.5 text-[13px] font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+								>
+									仍要提交（force）
+								</button>
+								<button
+									type="button"
+									disabled={pending}
+									onClick={() => setPendingConfirmation(null)}
+									className="rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-[13px] font-medium text-zinc-700 hover:bg-zinc-50"
+								>
+									取消
+								</button>
+							</div>
+						</div>
+					</div>
+				</div>
 			) : null}
 		</section>
 	);

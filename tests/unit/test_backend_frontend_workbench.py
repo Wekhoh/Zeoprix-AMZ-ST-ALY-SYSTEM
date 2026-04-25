@@ -169,3 +169,91 @@ def test_term_detail_endpoint_validates_blank_term():
 
     with pytest.raises(ValueError, match="term"):
         build_term_detail_payload(product_id=1, term="")
+
+
+# ── Sprint A.4 · 冲突检测 ─────────────────────────────────────────────
+
+
+def test_check_decision_conflicts_detects_recent_opposite_direction():
+    """14 天内有反向决策 → 冲突；同向 → 无冲突。"""
+    import datetime as _dt
+    from unittest.mock import MagicMock
+
+    from src.backend.workbench_payload import _check_decision_conflicts
+
+    yesterday = (_dt.datetime.now() - _dt.timedelta(days=2)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    db = MagicMock()
+    db.get_manual_reviews_by_term.return_value = [
+        {
+            "relevance": "strong_core",
+            "updated_at": yesterday,
+            "scope": "local",
+        },
+    ]
+    # 之前 strong_core，现在改 irrelevant → 反向冲突
+    conflicts = _check_decision_conflicts(db, 1, "wireless mouse", "irrelevant")
+    assert len(conflicts) == 1
+    assert conflicts[0]["previousDirection"] == "positive"
+
+    # 同向不冲突
+    same = _check_decision_conflicts(db, 1, "wireless mouse", "strong_longtail")
+    assert same == []
+
+
+def test_check_decision_conflicts_ignores_old_decisions():
+    """14 天前的决策不算冲突。"""
+    import datetime as _dt
+    from unittest.mock import MagicMock
+
+    from src.backend.workbench_payload import _check_decision_conflicts
+
+    long_ago = (_dt.datetime.now() - _dt.timedelta(days=60)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    db = MagicMock()
+    db.get_manual_reviews_by_term.return_value = [
+        {"relevance": "strong_core", "updated_at": long_ago, "scope": "local"},
+    ]
+    assert _check_decision_conflicts(db, 1, "x", "irrelevant") == []
+
+
+def test_submit_review_decision_returns_conflict_without_force():
+    """force=False + 有冲突 → 返回 requiresConfirmation 不写库。"""
+    import datetime as _dt
+    from unittest.mock import MagicMock, patch
+
+    from src.backend.workbench_payload import submit_review_decision_for_frontend
+
+    yesterday = (_dt.datetime.now() - _dt.timedelta(days=2)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    mock_db = MagicMock()
+    mock_db.get_manual_reviews_by_term.return_value = [
+        {"relevance": "strong_core", "updated_at": yesterday, "scope": "local"},
+    ]
+    # mock context manager
+    db_cm = MagicMock()
+    db_cm.__enter__ = MagicMock(return_value=mock_db)
+    db_cm.__exit__ = MagicMock(return_value=False)
+
+    with (
+        patch("src.backend.workbench_payload.Database", return_value=db_cm),
+        patch(
+            "src.backend.workbench_payload._get_app_database_path",
+            return_value="/tmp/x.db",
+        ),
+    ):
+        result = submit_review_decision_for_frontend(
+            product_id=1,
+            term="wireless mouse",
+            term_type="keyword",
+            campaign_id=None,
+            relevance="irrelevant",
+            force=False,
+        )
+    assert result.get("requiresConfirmation") is True
+    assert "conflicts" in result
+    # 关键：未写 manual_review
+    mock_db.upsert_manual_review.assert_not_called()
