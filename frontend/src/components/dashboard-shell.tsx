@@ -68,6 +68,9 @@ export function DashboardShell({
 
 	const [collapsed, setCollapsed] = useState(false);
 	const [copilotCollapsed, setCopilotCollapsed] = useState(false);
+	// 跳过 first mount 的 localStorage 写：避免一上来就把默认 false 覆盖掉
+	// 用户已保存的 "1"。
+	const [hasMounted, setHasMounted] = useState(false);
 
 	useEffect(() => {
 		try {
@@ -78,30 +81,35 @@ export function DashboardShell({
 		} catch {
 			// ignore
 		}
+		setHasMounted(true);
 	}, []);
 
+	// localStorage 同步必须放 effect，不能塞进 setState updater
+	// （React 19 Strict Mode dev 下 updater 会被双调用，pure 是契约）
+	useEffect(() => {
+		if (!hasMounted) return;
+		try {
+			window.localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0");
+		} catch {
+			// ignore
+		}
+	}, [collapsed, hasMounted]);
+
+	useEffect(() => {
+		if (!hasMounted) return;
+		try {
+			window.localStorage.setItem(COPILOT_KEY, copilotCollapsed ? "1" : "0");
+		} catch {
+			// ignore
+		}
+	}, [copilotCollapsed, hasMounted]);
+
 	function toggleSidebar() {
-		setCollapsed((prev) => {
-			const next = !prev;
-			try {
-				window.localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0");
-			} catch {
-				// ignore
-			}
-			return next;
-		});
+		setCollapsed((prev) => !prev);
 	}
 
 	function toggleCopilot() {
-		setCopilotCollapsed((prev) => {
-			const next = !prev;
-			try {
-				window.localStorage.setItem(COPILOT_KEY, next ? "1" : "0");
-			} catch {
-				// ignore
-			}
-			return next;
-		});
+		setCopilotCollapsed((prev) => !prev);
 	}
 
 	// 用数字 + inline style 而非 Tailwind arbitrary class —— 绕过 Tailwind v4
