@@ -121,6 +121,44 @@ export type UploadPayload = WorkbenchPayload & {
 	};
 };
 
+// Sprint C.1 — 内部竞品 ASIN 监控
+export type CompetitorAsinRow = {
+	asin: string;
+	isConfigured: boolean;
+	suggestedAction: string;
+	impressions: number;
+	clicks: number;
+	spend: number;
+	orders: number;
+	sales: number;
+	acos: number;
+};
+
+export type CompetitorPerformerBrief = {
+	asin: string;
+	spend: number;
+	orders: number;
+	acos: number;
+};
+
+export type CompetitorPayload = {
+	source?: string;
+	productId?: number;
+	productName?: string;
+	configuredCompetitorAsins: string[];
+	discoveredCompetitors: CompetitorAsinRow[];
+	negativeAsinsCount: number;
+	watchAsinsCount: number;
+	insights: {
+		totalCount: number;
+		totalSpend: number;
+		totalOrders: number;
+		avgAcos: number;
+		topPerformers: CompetitorPerformerBrief[];
+		worstPerformers: CompetitorPerformerBrief[];
+	};
+};
+
 // Sprint B.1 — Campaign 聚合行（来自 DataAggregator.aggregate_by_campaign）
 export type CampaignAggRow = {
 	campaignName: string;

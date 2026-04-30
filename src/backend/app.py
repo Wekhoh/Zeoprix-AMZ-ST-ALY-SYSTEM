@@ -62,6 +62,7 @@ from src.backend.workbench_payload import (
     build_actions_page_payload,
     build_amazon_bulk_csv_export,
     build_analysis_page_payload,
+    build_competitors_payload,
     build_review_page_payload,
     build_settings_page_payload,
     build_term_detail_payload,
@@ -828,6 +829,11 @@ def create_app() -> FastAPI:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @app.get("/frontend/competitors", tags=["frontend"])
+    async def frontend_competitors(product_id: int | None = None) -> dict:
+        """Sprint C.1 — 内部竞品 ASIN 监控（实时计算，无 schema migration）。"""
+        return build_competitors_payload(product_id)
 
     @app.get(
         "/frontend/insights/today",

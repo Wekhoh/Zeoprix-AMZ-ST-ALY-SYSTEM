@@ -1611,6 +1611,97 @@ def build_actions_page_payload(product_id: int | None = None) -> dict[str, Any]:
         }
 
 
+def build_competitors_payload(product_id: int | None = None) -> dict[str, Any]:
+    """Sprint C.1 — 内部竞品 ASIN 监控（复用现有 asin_rules 模块）。
+
+    数据通路：
+    - 读 products.config.competitor_asins（已配置的竞品列表）
+    - 读 search_terms df（本产品所有搜索词，含作为 term 的对手 ASIN）
+    - 调 src.rules.asin_rules.classify_asins → 4 类（own/competitor/negative/watch）
+    - 调 get_competitor_insights → top/worst performers + 总览
+    - 序列化为前端友好 JSON
+
+    不需要 schema migration（实时计算，类似 B.1/B.2 聚合视图）。
+    """
+    db_path = _get_app_database_path()
+    with Database(str(db_path)) as db:
+        product = _resolve_product(db, product_id)
+        if not product:
+            return {"source": "empty"}
+        resolved_pid = int(product["id"])
+        product_config = product.get("config") or {}
+        configured = product_config.get("competitor_asins") or []
+        configured_upper = {str(s).upper() for s in configured}
+
+        df = db.get_search_terms({"product_id": resolved_pid})
+        if df.empty:
+            return {
+                "source": "empty",
+                "productId": resolved_pid,
+                "productName": str(product.get("name") or ""),
+                "configuredCompetitorAsins": list(configured),
+                "discoveredCompetitors": [],
+                "negativeAsinsCount": 0,
+                "watchAsinsCount": 0,
+                "insights": {
+                    "totalCount": 0,
+                    "totalSpend": 0.0,
+                    "totalOrders": 0,
+                    "avgAcos": 0.0,
+                    "topPerformers": [],
+                    "worstPerformers": [],
+                },
+            }
+
+        from src.rules.asin_rules import classify_asins, get_competitor_insights
+
+        classified = classify_asins(df, product_config)
+        competitor_list = classified.get("competitor_asins", [])
+        insights = get_competitor_insights(competitor_list)
+
+        def _perf_brief(a):
+            p = a.performance
+            return {
+                "asin": a.asin,
+                "spend": float(p.get("spend") or 0.0),
+                "orders": int(p.get("orders") or 0),
+                "acos": float(p.get("acos") or 0.0),
+            }
+
+        return {
+            "source": "live",
+            "productId": resolved_pid,
+            "productName": str(product.get("name") or ""),
+            "configuredCompetitorAsins": list(configured),
+            "discoveredCompetitors": [
+                {
+                    "asin": a.asin,
+                    "isConfigured": a.asin in configured_upper,
+                    "suggestedAction": a.suggested_action,
+                    "impressions": int(a.performance.get("impressions") or 0),
+                    "clicks": int(a.performance.get("clicks") or 0),
+                    "spend": float(a.performance.get("spend") or 0.0),
+                    "orders": int(a.performance.get("orders") or 0),
+                    "sales": float(a.performance.get("sales") or 0.0),
+                    "acos": float(a.performance.get("acos") or 0.0),
+                }
+                for a in competitor_list
+            ],
+            "negativeAsinsCount": len(classified.get("negative_asins", [])),
+            "watchAsinsCount": len(classified.get("watch_asins", [])),
+            "insights": {
+                "totalCount": int(insights.get("total_count") or 0),
+                "totalSpend": float(insights.get("total_spend") or 0.0),
+                "totalOrders": int(insights.get("total_orders") or 0),
+                "avgAcos": float(insights.get("avg_acos") or 0.0),
+                "topPerformers": [_perf_brief(a) for a in insights.get("top_performers", [])],
+                "worstPerformers": [
+                    _perf_brief(a) for a in insights.get("worst_performers", [])
+                ],
+            },
+        }
+
+
 def build_analysis_page_payload(product_id: int | None = None) -> dict[str, Any]:
     workbench = build_workbench_payload(product_id)
     if workbench.get("source") != "live":

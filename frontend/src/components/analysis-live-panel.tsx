@@ -442,137 +442,137 @@ export function AnalysisLivePanel({ payload }: Props) {
 			</div>
 
 			{viewMode === "term" && (
-			<>
-			{/* ═══ 2. Focus tab pills ═══ */}
-			<div className="flex flex-wrap items-center gap-2">
-				{FOCUS_OPTIONS.map(([value, label]) => {
-					const active = focusMode === value;
-					return (
-						<button
-							key={value}
-							type="button"
-							onClick={() => setFocusMode(value)}
-							className={
-								"px-3.5 h-8 inline-flex items-center rounded-full text-[13px] transition-colors " +
-								(active
-									? "bg-bg-elevated border border-fg text-fg font-semibold"
-									: "bg-bg-elevated border border-border text-fg-muted hover:bg-bg-subtle hover:border-border-strong")
-							}
-						>
-							{label}
-						</button>
-					);
-				})}
-			</div>
-
-			{/* ═══ 3. Filter & Sort card ═══ */}
-			<section className="bg-bg-elevated border border-border rounded-lg overflow-hidden">
-				<div className="flex items-center justify-between px-4 py-3 border-b border-border">
-					<div className="flex items-baseline gap-3">
-						<h2 className="text-fg">筛选与排序</h2>
-						<span className="text-[12px] text-fg-muted">
-							{filteredRows.length} / {totalRows} rows
-						</span>
-					</div>
-				</div>
-				<div className="p-4 grid gap-3 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] md:items-end">
-					<div className="space-y-1.5">
-						<label className="text-[12px] font-semibold text-fg-muted">
-							搜索
-						</label>
-						<div className="relative">
-							<Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-fg-subtle pointer-events-none" />
-							<input
-								value={query}
-								onChange={(e) => setQuery(e.target.value)}
-								placeholder="搜索关键词、规则或动作…"
-								className="w-full h-9 rounded border border-border bg-bg-elevated pl-9 pr-3 text-[13px] text-fg outline-none placeholder:text-fg-subtle transition-colors focus-visible:border-accent focus-visible:ring-[3px] focus-visible:ring-accent/20"
-							/>
-						</div>
-					</div>
-					<div className="space-y-1.5">
-						<label className="text-[12px] font-semibold text-fg-muted">
-							词类型
-						</label>
-						<select
-							value={typeFilter}
-							onChange={(e) => setTypeFilter(e.target.value)}
-							className="h-9 w-full rounded border border-border bg-bg-elevated px-3 text-[13px] text-fg outline-none cursor-pointer transition-colors focus-visible:border-accent focus-visible:ring-[3px] focus-visible:ring-accent/20"
-						>
-							{typeOptions.map((option) => (
-								<option key={option} value={option}>
-									{option === "all" ? "全部" : option}
-								</option>
-							))}
-						</select>
-					</div>
-					<div className="space-y-1.5">
-						<label className="text-[12px] font-semibold text-fg-muted">
-							建议动作
-						</label>
-						<select
-							value={actionFilter}
-							onChange={(e) => setActionFilter(e.target.value)}
-							className="h-9 w-full rounded border border-border bg-bg-elevated px-3 text-[13px] text-fg outline-none cursor-pointer transition-colors focus-visible:border-accent focus-visible:ring-[3px] focus-visible:ring-accent/20"
-						>
-							{actionOptions.map((option) => (
-								<option key={option} value={option}>
-									{option === "all" ? "全部" : option}
-								</option>
-							))}
-						</select>
-					</div>
-					<div className="space-y-1.5">
-						<label className="text-[12px] font-semibold text-fg-muted">
-							排序
-						</label>
-						<select
-							value={sortKey}
-							onChange={(e) => setSortKey(e.target.value as SortKey)}
-							className="h-9 w-full rounded border border-border bg-bg-elevated px-3 text-[13px] text-fg outline-none cursor-pointer transition-colors focus-visible:border-accent focus-visible:ring-[3px] focus-visible:ring-accent/20"
-						>
-							{SORT_OPTIONS.map(([k, label]) => (
-								<option key={k} value={k}>
+				<>
+					{/* ═══ 2. Focus tab pills ═══ */}
+					<div className="flex flex-wrap items-center gap-2">
+						{FOCUS_OPTIONS.map(([value, label]) => {
+							const active = focusMode === value;
+							return (
+								<button
+									key={value}
+									type="button"
+									onClick={() => setFocusMode(value)}
+									className={
+										"px-3.5 h-8 inline-flex items-center rounded-full text-[13px] transition-colors " +
+										(active
+											? "bg-bg-elevated border border-fg text-fg font-semibold"
+											: "bg-bg-elevated border border-border text-fg-muted hover:bg-bg-subtle hover:border-border-strong")
+									}
+								>
 									{label}
-								</option>
-							))}
-						</select>
+								</button>
+							);
+						})}
 					</div>
-				</div>
-				{(Object.keys(visibleActionCounts).length > 0 ||
-					Object.keys(visibleTypeCounts).length > 0) && (
-					<div className="px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] border-t border-border">
-						<span className="text-fg-subtle font-semibold uppercase tracking-wide">
-							分布
-						</span>
-						{Object.entries(visibleActionCounts).map(([k, v]) => (
-							<span
-								key={`a-${k}`}
-								className="inline-flex items-baseline gap-1 px-2 py-0.5 rounded-full bg-accent-bg text-accent-strong"
-							>
-								<span className="font-semibold">{k}</span>
-								<span className="font-mono tabular-nums">{v}</span>
-							</span>
-						))}
-						{Object.entries(visibleTypeCounts).map(([k, v]) => (
-							<span
-								key={`t-${k}`}
-								className="inline-flex items-baseline gap-1 px-2 py-0.5 rounded-full bg-bg-subtle text-fg-muted border border-border"
-							>
-								<span>{k}</span>
-								<span className="font-mono tabular-nums text-fg">{v}</span>
-							</span>
-						))}
-					</div>
-				)}
-			</section>
 
-			{/* ═══ 4. Table ═══ */}
-			<AnalysisTable
-				analysisRows={filteredRows}
-				onRowClick={(term) => setSelectedTerm(term)}
-			/>
-			</>
+					{/* ═══ 3. Filter & Sort card ═══ */}
+					<section className="bg-bg-elevated border border-border rounded-lg overflow-hidden">
+						<div className="flex items-center justify-between px-4 py-3 border-b border-border">
+							<div className="flex items-baseline gap-3">
+								<h2 className="text-fg">筛选与排序</h2>
+								<span className="text-[12px] text-fg-muted">
+									{filteredRows.length} / {totalRows} rows
+								</span>
+							</div>
+						</div>
+						<div className="p-4 grid gap-3 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] md:items-end">
+							<div className="space-y-1.5">
+								<label className="text-[12px] font-semibold text-fg-muted">
+									搜索
+								</label>
+								<div className="relative">
+									<Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-fg-subtle pointer-events-none" />
+									<input
+										value={query}
+										onChange={(e) => setQuery(e.target.value)}
+										placeholder="搜索关键词、规则或动作…"
+										className="w-full h-9 rounded border border-border bg-bg-elevated pl-9 pr-3 text-[13px] text-fg outline-none placeholder:text-fg-subtle transition-colors focus-visible:border-accent focus-visible:ring-[3px] focus-visible:ring-accent/20"
+									/>
+								</div>
+							</div>
+							<div className="space-y-1.5">
+								<label className="text-[12px] font-semibold text-fg-muted">
+									词类型
+								</label>
+								<select
+									value={typeFilter}
+									onChange={(e) => setTypeFilter(e.target.value)}
+									className="h-9 w-full rounded border border-border bg-bg-elevated px-3 text-[13px] text-fg outline-none cursor-pointer transition-colors focus-visible:border-accent focus-visible:ring-[3px] focus-visible:ring-accent/20"
+								>
+									{typeOptions.map((option) => (
+										<option key={option} value={option}>
+											{option === "all" ? "全部" : option}
+										</option>
+									))}
+								</select>
+							</div>
+							<div className="space-y-1.5">
+								<label className="text-[12px] font-semibold text-fg-muted">
+									建议动作
+								</label>
+								<select
+									value={actionFilter}
+									onChange={(e) => setActionFilter(e.target.value)}
+									className="h-9 w-full rounded border border-border bg-bg-elevated px-3 text-[13px] text-fg outline-none cursor-pointer transition-colors focus-visible:border-accent focus-visible:ring-[3px] focus-visible:ring-accent/20"
+								>
+									{actionOptions.map((option) => (
+										<option key={option} value={option}>
+											{option === "all" ? "全部" : option}
+										</option>
+									))}
+								</select>
+							</div>
+							<div className="space-y-1.5">
+								<label className="text-[12px] font-semibold text-fg-muted">
+									排序
+								</label>
+								<select
+									value={sortKey}
+									onChange={(e) => setSortKey(e.target.value as SortKey)}
+									className="h-9 w-full rounded border border-border bg-bg-elevated px-3 text-[13px] text-fg outline-none cursor-pointer transition-colors focus-visible:border-accent focus-visible:ring-[3px] focus-visible:ring-accent/20"
+								>
+									{SORT_OPTIONS.map(([k, label]) => (
+										<option key={k} value={k}>
+											{label}
+										</option>
+									))}
+								</select>
+							</div>
+						</div>
+						{(Object.keys(visibleActionCounts).length > 0 ||
+							Object.keys(visibleTypeCounts).length > 0) && (
+							<div className="px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] border-t border-border">
+								<span className="text-fg-subtle font-semibold uppercase tracking-wide">
+									分布
+								</span>
+								{Object.entries(visibleActionCounts).map(([k, v]) => (
+									<span
+										key={`a-${k}`}
+										className="inline-flex items-baseline gap-1 px-2 py-0.5 rounded-full bg-accent-bg text-accent-strong"
+									>
+										<span className="font-semibold">{k}</span>
+										<span className="font-mono tabular-nums">{v}</span>
+									</span>
+								))}
+								{Object.entries(visibleTypeCounts).map(([k, v]) => (
+									<span
+										key={`t-${k}`}
+										className="inline-flex items-baseline gap-1 px-2 py-0.5 rounded-full bg-bg-subtle text-fg-muted border border-border"
+									>
+										<span>{k}</span>
+										<span className="font-mono tabular-nums text-fg">{v}</span>
+									</span>
+								))}
+							</div>
+						)}
+					</section>
+
+					{/* ═══ 4. Table ═══ */}
+					<AnalysisTable
+						analysisRows={filteredRows}
+						onRowClick={(term) => setSelectedTerm(term)}
+					/>
+				</>
 			)}
 
 			{viewMode === "campaign" && (
