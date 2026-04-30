@@ -1588,6 +1588,84 @@ def build_settings_page_payload(product_id: int | None = None) -> dict[str, Any]
         }
 
 
+def _build_weekly_compare(db: Database, product_id: int) -> dict[str, Any]:
+    """Sprint B.3 — 最近 14 天日序列 + 本周 vs 上周对比。
+
+    返回 4 字段：dailySeries / thisWeek / lastWeek / delta。
+    delta 是比例（-0.12 = -12%），无上周数据时返回 1.0（增长）或 0.0（持平）。
+
+    复用现有 search_terms.report_date 字段，无需 schema migration。
+    """
+    rows = db.execute(
+        """
+        SELECT
+            COALESCE(st.report_date, date(st.created_at)) AS bucket_date,
+            COALESCE(SUM(st.spend), 0) AS spend,
+            COALESCE(SUM(st.orders), 0) AS orders,
+            COALESCE(SUM(st.sales), 0) AS sales
+        FROM search_terms st
+        JOIN campaigns c ON st.campaign_id = c.id
+        WHERE c.product_id = ?
+          AND COALESCE(st.report_date, date(st.created_at)) >= date('now', '-14 days')
+        GROUP BY bucket_date
+        ORDER BY bucket_date ASC
+        """,
+        (product_id,),
+    ).fetchall()
+
+    daily = [
+        {
+            "date": str(r["bucket_date"] or ""),
+            "spend": float(r["spend"] or 0.0),
+            "orders": int(r["orders"] or 0),
+            "sales": float(r["sales"] or 0.0),
+        }
+        for r in rows
+    ]
+
+    # 本周 = 最近 7 天日期范围（calendar），上周 = 之前 7 天日期范围
+    today = dt.date.today()
+    this_week_start = today - dt.timedelta(days=6)  # 含今天共 7 天
+    last_week_start = today - dt.timedelta(days=13)
+    last_week_end = today - dt.timedelta(days=7)
+
+    def _in_range(item: dict, start: dt.date, end: dt.date) -> bool:
+        try:
+            d = dt.date.fromisoformat(item["date"])
+        except (ValueError, TypeError):
+            return False
+        return start <= d <= end
+
+    this_week_data = [i for i in daily if _in_range(i, this_week_start, today)]
+    last_week_data = [i for i in daily if _in_range(i, last_week_start, last_week_end)]
+
+    def _sum(items: list[dict]) -> dict[str, float]:
+        return {
+            "spend": float(sum(i["spend"] for i in items)),
+            "orders": int(sum(i["orders"] for i in items)),
+            "sales": float(sum(i["sales"] for i in items)),
+        }
+
+    this_week = _sum(this_week_data)
+    last_week = _sum(last_week_data)
+
+    def _delta(a: float, b: float) -> float:
+        if b == 0:
+            return 1.0 if a > 0 else 0.0
+        return (a - b) / b
+
+    return {
+        "dailySeries": daily,
+        "thisWeek": this_week,
+        "lastWeek": last_week,
+        "delta": {
+            "spend": _delta(this_week["spend"], last_week["spend"]),
+            "orders": _delta(this_week["orders"], last_week["orders"]),
+            "sales": _delta(this_week["sales"], last_week["sales"]),
+        },
+    }
+
+
 def build_actions_page_payload(product_id: int | None = None) -> dict[str, Any]:
     workbench = build_workbench_payload(product_id)
     if workbench.get("source") != "live":
@@ -1598,6 +1676,7 @@ def build_actions_page_payload(product_id: int | None = None) -> dict[str, Any]:
         product = _resolve_product(db, product_id)
         product_id = int(product["id"])
         pending_stats = _get_pending_stats(db, product_id)
+        weekly_compare = _build_weekly_compare(db, product_id)
         return {
             **workbench,
             "actions": {
@@ -1608,6 +1687,7 @@ def build_actions_page_payload(product_id: int | None = None) -> dict[str, Any]:
                     "code"
                 ),
             },
+            "weeklyCompare": weekly_compare,
         }
 
 
@@ -1694,7 +1774,9 @@ def build_competitors_payload(product_id: int | None = None) -> dict[str, Any]:
                 "totalSpend": float(insights.get("total_spend") or 0.0),
                 "totalOrders": int(insights.get("total_orders") or 0),
                 "avgAcos": float(insights.get("avg_acos") or 0.0),
-                "topPerformers": [_perf_brief(a) for a in insights.get("top_performers", [])],
+                "topPerformers": [
+                    _perf_brief(a) for a in insights.get("top_performers", [])
+                ],
                 "worstPerformers": [
                     _perf_brief(a) for a in insights.get("worst_performers", [])
                 ],

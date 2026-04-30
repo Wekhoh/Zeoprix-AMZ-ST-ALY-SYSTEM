@@ -10,7 +10,117 @@ import { recordFrontendActivity } from "@/components/live-activity";
 import { writePageContext } from "@/components/page-context";
 import { ActionsMutationPanel } from "@/components/actions-mutation-panel";
 import { ExecutionBatchBoard } from "@/components/workbench-sections";
-import type { ActionsPayload, ExecutionBatch } from "@/lib/mock-data";
+import type {
+	ActionsPayload,
+	ExecutionBatch,
+	WeeklyCompareData,
+	WeeklyCompareDailyPoint,
+} from "@/lib/mock-data";
+
+// Sprint B.3 — 内联 SVG sparkline（复用 analysis-detail-drawer 模式，避免引入 recharts）
+function MiniSparkline({
+	points,
+	field,
+}: {
+	points: WeeklyCompareDailyPoint[];
+	field: "spend" | "orders" | "sales";
+}) {
+	if (points.length === 0)
+		return <div className="text-[11px] text-fg-subtle">无数据</div>;
+	const values = points.map((p) => p[field] as number);
+	const max = Math.max(...values, 1);
+	const min = Math.min(...values, 0);
+	const range = max - min || 1;
+	const stepX = points.length > 1 ? 100 / (points.length - 1) : 0;
+	const path = values
+		.map((v, i) => {
+			const x = (i * stepX).toFixed(2);
+			const y = (48 - ((v - min) / range) * 44 - 2).toFixed(2);
+			return `${i === 0 ? "M" : "L"}${x},${y}`;
+		})
+		.join(" ");
+	return (
+		<svg
+			viewBox="0 0 100 48"
+			preserveAspectRatio="none"
+			className="w-full h-full"
+		>
+			<path d={path} fill="none" stroke="var(--accent)" strokeWidth={1.5} />
+		</svg>
+	);
+}
+
+function fmtDelta(d: number) {
+	const pct = (d * 100).toFixed(1);
+	const sign = d > 0 ? "▲" : d < 0 ? "▼" : "·";
+	const tone =
+		d > 0 ? "text-success-fg" : d < 0 ? "text-error-fg" : "text-fg-muted";
+	return { sign, pct, tone };
+}
+
+function WeeklyCompareSection({ data }: { data?: WeeklyCompareData }) {
+	if (!data) return null;
+	const sd = fmtDelta(data.delta.spend);
+	const od = fmtDelta(data.delta.orders);
+	const lt = fmtDelta(data.delta.sales);
+	const cards = [
+		{
+			label: "花费",
+			thisV: data.thisWeek.spend,
+			lastV: data.lastWeek.spend,
+			d: sd,
+			fmt: (n: number) => `$${n.toFixed(2)}`,
+			field: "spend" as const,
+		},
+		{
+			label: "订单",
+			thisV: data.thisWeek.orders,
+			lastV: data.lastWeek.orders,
+			d: od,
+			fmt: (n: number) => String(n),
+			field: "orders" as const,
+		},
+		{
+			label: "销售",
+			thisV: data.thisWeek.sales,
+			lastV: data.lastWeek.sales,
+			d: lt,
+			fmt: (n: number) => `$${n.toFixed(2)}`,
+			field: "sales" as const,
+		},
+	];
+	return (
+		<section className="bg-bg-elevated border border-border rounded-lg overflow-hidden">
+			<div className="px-4 py-3 border-b border-border flex items-baseline gap-3">
+				<h2 className="text-fg">本周 vs 上周</h2>
+				<span className="text-[12px] text-fg-muted">
+					14 天日序列 · 最近 7 天 vs 之前 7 天
+				</span>
+			</div>
+			<div className="p-4 grid gap-4 md:grid-cols-3">
+				{cards.map((m) => (
+					<div key={m.label}>
+						<div className="text-[11px] text-fg-subtle mb-1">{m.label}</div>
+						<div className="flex items-baseline gap-2 flex-wrap">
+							<span className="text-[20px] font-bold tabular-nums text-fg">
+								{m.fmt(m.thisV)}
+							</span>
+							<span className={`text-[12px] font-semibold ${m.d.tone}`}>
+								{m.d.sign} {m.d.pct}%
+							</span>
+						</div>
+						<div className="text-[11px] text-fg-muted mt-0.5">
+							上周 {m.fmt(m.lastV)}
+						</div>
+						<div className="mt-2 h-12">
+							<MiniSparkline points={data.dailySeries} field={m.field} />
+						</div>
+					</div>
+				))}
+			</div>
+		</section>
+	);
+}
 
 type Props = {
 	payload: ActionsPayload;
@@ -217,6 +327,9 @@ export function ActionsLivePanel({ payload, backendBaseUrl }: Props) {
 					))}
 				</div>
 			</div>
+
+			{/* ═══ 1.5 Sprint B.3 — 本周 vs 上周对比 + 14 天 sparkline ═══ */}
+			<WeeklyCompareSection data={payload.weeklyCompare} />
 
 			{/* ═══ 2. 操作卡 + 活动 log ═══ */}
 			<div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">

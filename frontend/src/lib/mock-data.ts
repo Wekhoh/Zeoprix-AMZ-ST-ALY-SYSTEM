@@ -206,6 +206,27 @@ export type AnalysisPayload = WorkbenchPayload & {
 	asinRows?: AsinAggRow[];
 };
 
+// Sprint B.3 — 周对比 + 14 天日序列
+export type WeeklyCompareDailyPoint = {
+	date: string;
+	spend: number;
+	orders: number;
+	sales: number;
+};
+
+export type WeeklyCompareTotals = {
+	spend: number;
+	orders: number;
+	sales: number;
+};
+
+export type WeeklyCompareData = {
+	dailySeries: WeeklyCompareDailyPoint[];
+	thisWeek: WeeklyCompareTotals;
+	lastWeek: WeeklyCompareTotals;
+	delta: { spend: number; orders: number; sales: number };
+};
+
 export type ActionsPayload = WorkbenchPayload & {
 	actions?: {
 		negativeCount: number;
@@ -213,6 +234,7 @@ export type ActionsPayload = WorkbenchPayload & {
 		conflictCount: number;
 		latestBatchCode?: string | null;
 	};
+	weeklyCompare?: WeeklyCompareData;
 };
 
 export type HistoricalReviewDecision = {
