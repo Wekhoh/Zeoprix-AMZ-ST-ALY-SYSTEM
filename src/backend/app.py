@@ -759,15 +759,24 @@ def create_app() -> FastAPI:
     @app.get("/frontend/actions/export-bulk-csv", tags=["frontend"])
     async def export_amazon_bulk_csv(product_id: int | None = None) -> Response:
         """Sprint D.2 — 当前产品所有 negative 推荐导出为 Amazon SP Bulk CSV。"""
+        from urllib.parse import quote
+
         result = build_amazon_bulk_csv_export(product_id)
         if result is None:
             raise HTTPException(status_code=404, detail="无可导出否词")
         csv_bytes, file_name = result
+        # RFC 5987 — HTTP 头默认 latin-1，含中文必须用 filename*=UTF-8''<percent-encoded>，
+        # 同时给 ASCII filename= 作 fallback。
+        ascii_fallback = file_name.encode("ascii", "ignore").decode() or "export.csv"
+        encoded = quote(file_name, safe="")
         return Response(
             content=csv_bytes,
             media_type="text/csv",
             headers={
-                "Content-Disposition": f'attachment; filename="{file_name}"',
+                "Content-Disposition": (
+                    f'attachment; filename="{ascii_fallback}"; '
+                    f"filename*=UTF-8''{encoded}"
+                ),
             },
         )
 

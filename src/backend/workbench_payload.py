@@ -1201,20 +1201,21 @@ def build_amazon_bulk_csv_export(
             return None
 
         # DataFrame → list[AnalysisResult]
+        # campaign_name 不是 dataclass 字段，按 exporter 测试 fixture 的做法
+        # 在实例化之后用动态属性赋值（dataclass 默认无 slots，允许扩展属性）。
         results: list[AnalysisResult] = []
         for _, row in df.iterrows():
-            results.append(
-                AnalysisResult(
-                    term=str(row.get("term") or ""),
-                    term_type=str(row.get("term_type") or "keyword"),
-                    triggered_rule=str(row.get("triggered_rule") or ""),
-                    suggested_action=str(row.get("suggested_action") or ""),
-                    action_type=str(row.get("action_type") or ""),
-                    confidence=float(row.get("confidence") or 0.0),
-                    campaign_name=str(row.get("campaign_name") or ""),
-                    data={},
-                )
+            ar = AnalysisResult(
+                term=str(row.get("term") or ""),
+                term_type=str(row.get("term_type") or "keyword"),
+                triggered_rule=str(row.get("triggered_rule") or ""),
+                suggested_action=str(row.get("suggested_action") or ""),
+                action_type=str(row.get("action_type") or ""),
+                confidence=float(row.get("confidence") or 0.0),
+                data={},
             )
+            ar.campaign_name = str(row.get("campaign_name") or "")
+            results.append(ar)
 
         exporter = ReportExporter()
         return exporter.export_amazon_bulk_csv_bytes(
