@@ -4,12 +4,66 @@ Gemini API 客户端模块
 """
 
 import asyncio
+import os
 import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from src.config.logger import get_logger
 from src.config.settings import Settings
+
+
+# Sprint D.5 · Anthropic Haiku fallback ─────────────────────────────────
+# 当 Gemini 重试耗尽仍失败时，若用户配置了 ANTHROPIC_API_KEY，自动切换到
+# claude-haiku-4-5 应急。anthropic 模块已在依赖中（0.78+）；lazy import
+# 避免冷启动 +200ms 成本。无 ANTHROPIC_API_KEY 时静默跳过，原异常继续抛。
+_ANTHROPIC_FALLBACK_MODEL = "claude-haiku-4-5-20251001"
+_ANTHROPIC_FALLBACK_TIMEOUT = 30.0
+
+
+def _anthropic_fallback(
+    prompt: str,
+    system_instruction: str | None = None,
+    *,
+    temperature: float = 0.7,
+    max_tokens: int = 2048,
+) -> str | None:
+    """Gemini 失败时的应急 fallback。返回文本或 None（fallback 不可用）。"""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+    try:
+        import anthropic
+    except ImportError:
+        return None
+    try:
+        client = anthropic.Anthropic(
+            api_key=api_key, timeout=_ANTHROPIC_FALLBACK_TIMEOUT
+        )
+        kwargs = {
+            "model": _ANTHROPIC_FALLBACK_MODEL,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if system_instruction:
+            kwargs["system"] = system_instruction
+        msg = client.messages.create(**kwargs)
+        parts = [
+            getattr(b, "text", "") for b in (msg.content or []) if hasattr(b, "text")
+        ]
+        text = "".join(parts).strip()
+        if text:
+            logger.warning(
+                "AI fallback 成功：Gemini 失败 → Anthropic Haiku (%d chars)",
+                len(text),
+            )
+            return text
+        return None
+    except Exception as fallback_exc:
+        logger.error(f"Anthropic fallback 也失败: {fallback_exc}")
+        return None
+
 
 if TYPE_CHECKING:  # Type-checking only — real import deferred to runtime
     from google import genai  # noqa: F401
@@ -134,6 +188,15 @@ class GeminiClient:
                     time.sleep(wait_time)
                 else:
                     logger.error(f"生成失败，已达最大重试次数: {e}")
+                    # Sprint D.5 · 重试耗尽 → 尝试 Anthropic Haiku fallback
+                    fallback_text = _anthropic_fallback(
+                        prompt,
+                        system_instruction,
+                        temperature=temperature,
+                        max_tokens=max_output_tokens,
+                    )
+                    if fallback_text is not None:
+                        return fallback_text
                     raise
 
     def generate_json(
