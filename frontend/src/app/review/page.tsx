@@ -1,4 +1,4 @@
-import { getReviewPayload } from "@/lib/backend";
+import { BACKEND_BASE_URL, getReviewPayload } from "@/lib/backend";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { ReviewLivePanel } from "@/components/review-live-panel";
 
@@ -14,14 +14,7 @@ export default async function ReviewPage() {
 			productContext={payload.productContext}
 			aiCard={payload.aiCopilotCards[0]}
 		>
-			<ReviewLivePanel
-				payload={payload}
-				backendBaseUrl={
-					process.env.BACKEND_BASE_URL ??
-					process.env.NEXT_PUBLIC_BACKEND_BASE_URL ??
-					"http://127.0.0.1:8000"
-				}
-			/>
+			<ReviewLivePanel payload={payload} backendBaseUrl={BACKEND_BASE_URL} />
 		</DashboardShell>
 	);
 }

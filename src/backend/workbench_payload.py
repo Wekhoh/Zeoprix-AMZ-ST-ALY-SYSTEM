@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from src.analysis.truth_replay import (
     get_truth_first_pending_stats,
     summarize_execution_batch_effect,
 )
+from src.config.logger import get_logger
 from src.data.db import Database
 from src.data.parser import FileParser
 from src.rules.engine import analyze_search_terms_cached
@@ -21,6 +23,8 @@ from src.services.settings_service import (
     restore_full_backup,
     save_config_version,
 )
+
+logger = get_logger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_APP_DB_PATH = PROJECT_ROOT / "data" / "db" / "app.db"
@@ -1742,7 +1746,13 @@ def _snapshot_daily_pacing(db: Database, product_id: int) -> int:
 
         db.commit()
         return written
-    except Exception:
+    except sqlite3.Error as exc:
+        # 写到一半失败时回滚，避免 campaign 行已写而 product 聚合行未写的脏数据
+        try:
+            db.conn.rollback()
+        except Exception:
+            pass
+        logger.warning("daily_pacing snapshot 失败，已回滚: %s", exc)
         return 0
 
 

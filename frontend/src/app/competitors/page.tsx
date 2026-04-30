@@ -1,14 +1,9 @@
 import { CompetitorsLivePanel } from "@/components/competitors-live-panel";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { getWorkbenchPayload } from "@/lib/backend";
+import { BACKEND_BASE_URL, getWorkbenchPayload } from "@/lib/backend";
 import type { CompetitorPayload } from "@/lib/mock-data";
 
 export const dynamic = "force-dynamic";
-
-const BACKEND_BASE_URL =
-	process.env.BACKEND_BASE_URL ??
-	process.env.NEXT_PUBLIC_BACKEND_BASE_URL ??
-	"http://127.0.0.1:8008";
 
 const EMPTY_COMPETITORS: CompetitorPayload = {
 	source: "empty",

@@ -1,4 +1,4 @@
-import { getActionsPayload } from "@/lib/backend";
+import { BACKEND_BASE_URL, getActionsPayload } from "@/lib/backend";
 import { ActionsLivePanel } from "@/components/actions-live-panel";
 import { DashboardShell } from "@/components/dashboard-shell";
 
@@ -14,14 +14,7 @@ export default async function ActionsPage() {
 			productContext={payload.productContext}
 			aiCard={payload.aiCopilotCards[0]}
 		>
-			<ActionsLivePanel
-				payload={payload}
-				backendBaseUrl={
-					process.env.BACKEND_BASE_URL ??
-					process.env.NEXT_PUBLIC_BACKEND_BASE_URL ??
-					"http://127.0.0.1:8000"
-				}
-			/>
+			<ActionsLivePanel payload={payload} backendBaseUrl={BACKEND_BASE_URL} />
 		</DashboardShell>
 	);
 }

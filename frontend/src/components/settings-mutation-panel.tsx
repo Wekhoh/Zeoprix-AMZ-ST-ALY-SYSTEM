@@ -79,7 +79,13 @@ export function SettingsMutationPanel({
 
 	async function restoreBackup(file: File) {
 		const text = await file.text();
-		const backupData = JSON.parse(text);
+		let backupData: unknown;
+		try {
+			backupData = JSON.parse(text);
+		} catch {
+			setMessage("文件格式无效，无法解析为 JSON");
+			return;
+		}
 		setMessage(null);
 		startTransition(async () => {
 			const response = await fetch(
