@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import sqlite3
 
 from src.config.logger import get_logger
 
@@ -60,53 +61,66 @@ def _delete_product_backup_records(db, product_id: int) -> None:
 
 
 def clear_product_runtime_data(db, product_id: int) -> None:
-    """清空产品运行数据，保留产品配置与规则配置。"""
-    db.execute("DELETE FROM execution_batches WHERE product_id = ?", (product_id,))
-    db.execute(
-        """
-        DELETE FROM action_plans
-        WHERE analysis_result_id IN (
-            SELECT ar.id FROM analysis_results ar
-            JOIN search_terms st ON ar.search_term_id = st.id
-            JOIN campaigns c ON st.campaign_id = c.id
-            WHERE c.product_id = ?
-        )
-        """,
-        (product_id,),
-    )
-    db.execute(
-        """
-        DELETE FROM analysis_results
-        WHERE search_term_id IN (
-            SELECT st.id FROM search_terms st
-            JOIN campaigns c ON st.campaign_id = c.id
-            WHERE c.product_id = ?
-        )
-        """,
-        (product_id,),
-    )
-    db.execute(
-        "DELETE FROM analysis_run_snapshots WHERE product_id = ?",
-        (product_id,),
-    )
-    db.execute(
-        """
-        DELETE FROM search_terms
-        WHERE campaign_id IN (
-            SELECT id FROM campaigns WHERE product_id = ?
-        )
-        """,
-        (product_id,),
-    )
-    db.execute("DELETE FROM manual_reviews WHERE product_id = ?", (product_id,))
-    # Sprint B.4 follow-up: 清空 daily_pacing 快照
+    """清空产品运行数据，保留产品配置与规则配置。
+
+    所有 DELETE 包在显式事务（BEGIN IMMEDIATE）内，中途失败 rollback 全部，
+    避免半清空状态。daily_pacing 用 sqlite_master 探测代替 try/except，
+    不再吞 sqlite3.Error。
+    """
+    has_pacing = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='daily_pacing'"
+    ).fetchone()
     try:
-        db.execute("DELETE FROM daily_pacing WHERE product_id = ?", (product_id,))
-    except Exception:
-        # 旧 db 没有 daily_pacing 表时静默跳过
-        pass
-    db.execute("DELETE FROM campaigns WHERE product_id = ?", (product_id,))
-    db.commit()
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("DELETE FROM execution_batches WHERE product_id = ?", (product_id,))
+        db.execute(
+            """
+            DELETE FROM action_plans
+            WHERE analysis_result_id IN (
+                SELECT ar.id FROM analysis_results ar
+                JOIN search_terms st ON ar.search_term_id = st.id
+                JOIN campaigns c ON st.campaign_id = c.id
+                WHERE c.product_id = ?
+            )
+            """,
+            (product_id,),
+        )
+        db.execute(
+            """
+            DELETE FROM analysis_results
+            WHERE search_term_id IN (
+                SELECT st.id FROM search_terms st
+                JOIN campaigns c ON st.campaign_id = c.id
+                WHERE c.product_id = ?
+            )
+            """,
+            (product_id,),
+        )
+        db.execute(
+            "DELETE FROM analysis_run_snapshots WHERE product_id = ?",
+            (product_id,),
+        )
+        db.execute(
+            """
+            DELETE FROM search_terms
+            WHERE campaign_id IN (
+                SELECT id FROM campaigns WHERE product_id = ?
+            )
+            """,
+            (product_id,),
+        )
+        db.execute("DELETE FROM manual_reviews WHERE product_id = ?", (product_id,))
+        if has_pacing:
+            db.execute("DELETE FROM daily_pacing WHERE product_id = ?", (product_id,))
+        db.execute("DELETE FROM campaigns WHERE product_id = ?", (product_id,))
+        db.commit()
+    except sqlite3.Error as exc:
+        try:
+            db.conn.rollback()
+        except Exception:
+            pass
+        logger.error("clear_product_runtime_data 失败已回滚: %s", exc, exc_info=True)
+        raise
 
 
 def build_rule_config_export_payload(db, product_id: int) -> dict | None:
