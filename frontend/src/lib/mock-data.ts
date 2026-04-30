@@ -285,6 +285,7 @@ export const navItems: NavItem[] = [
 	{ href: "/analysis", label: "搜索词分析", eyebrow: "Analysis" },
 	{ href: "/actions", label: "操作清单", eyebrow: "Execution" },
 	{ href: "/review", label: "审核中心", eyebrow: "Review" },
+	{ href: "/competitors", label: "竞品监控", eyebrow: "Competitors" },
 	{ href: "/settings", label: "数据管理", eyebrow: "Data" },
 ];
 
