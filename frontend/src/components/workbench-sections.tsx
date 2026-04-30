@@ -27,7 +27,6 @@ import { writePageContext } from "@/components/page-context";
 import {
 	analysisRows as defaultAnalysisRows,
 	executionBatches as defaultExecutionBatches,
-	executionEffect as defaultExecutionEffect,
 	structureBuckets as defaultStructureBuckets,
 	topActions as defaultTopActions,
 	recentActivity as defaultRecentActivity,
@@ -36,7 +35,6 @@ import {
 	workbenchStats as defaultWorkbenchStats,
 	type AnalysisRow,
 	type ExecutionBatch,
-	type ExecutionEffect,
 	type StructureBucket,
 	type TopAction,
 	type RecentActivityItem,
@@ -71,61 +69,6 @@ function SectionHead({
 			action={action}
 			live={live}
 		/>
-	);
-}
-
-/* ==========================================================
-   MetricStrip — 一排 inline 大数字（无卡片，终端 status 感）
-   ========================================================== */
-function MetricStrip({
-	stats,
-	structureBuckets,
-	executionEffect,
-}: {
-	stats: WorkbenchStat[];
-	structureBuckets: StructureBucket[];
-	executionEffect: ExecutionEffect;
-}) {
-	const totalTerms = structureBuckets.reduce(
-		(sum, b) => sum + (Number(b.count) || 0),
-		0,
-	);
-	const stage = stats[0]?.value ?? "待分析";
-	const lastAnalysis = stats[1]?.value?.split(" · ")[0] ?? "—";
-	const snapshots = stats[2]?.value?.split(" ")[0] ?? "0";
-	const termsActivity = stats[3]?.value?.split(" ")[0] ?? totalTerms;
-
-	const items: Array<{ label: string; value: string; tone?: string }> = [
-		{ label: "stage", value: stage },
-		{ label: "terms", value: String(termsActivity) },
-		{ label: "snapshots", value: snapshots },
-		{ label: "last-run", value: lastAnalysis },
-		{ label: "effect", value: executionEffect.status },
-	];
-
-	return (
-		<div className="flex flex-wrap items-baseline gap-x-8 gap-y-3 border-b border-border pb-5">
-			{items.map((item, i) => {
-				const value = String(item.value ?? "");
-				const isNumeric = /^[0-9.,:%+\- ]+$/.test(value);
-				return (
-					<div key={item.label} className="flex items-baseline gap-2">
-						<span className="font-mono text-[11px] uppercase tracking-[0.16em] text-fg-subtle">
-							{item.label}
-						</span>
-						<span
-							className={
-								"font-semibold text-[14px] " +
-								(isNumeric ? "font-mono tabular-nums " : "") +
-								(i === 0 ? "text-accent-fg" : "text-fg")
-							}
-						>
-							{value}
-						</span>
-					</div>
-				);
-			})}
-		</div>
 	);
 }
 
@@ -211,7 +154,6 @@ export function WorkbenchOverview({
 	trendCards = defaultTrendCards,
 	trendBars = defaultTrendBars,
 	structureBuckets = defaultStructureBuckets,
-	executionEffect = defaultExecutionEffect,
 }: {
 	workbenchStats?: WorkbenchStat[];
 	topActions?: TopAction[];
@@ -220,7 +162,6 @@ export function WorkbenchOverview({
 	trendCards?: TrendCard[];
 	trendBars?: TrendBar[];
 	structureBuckets?: StructureBucket[];
-	executionEffect?: ExecutionEffect;
 }) {
 	const [localActivity, setLocalActivity] = useState<RecentActivityItem[]>([]);
 
@@ -261,7 +202,6 @@ export function WorkbenchOverview({
 
 	const termsValue = workbenchStats[3]?.value?.match(/(\d+)\s*条/)?.[1] ?? "—";
 	const stage = workbenchStats[0]?.value ?? "待分析";
-	const lastRun = workbenchStats[1]?.value?.split(" · ")[0] ?? "—";
 	const snapshots = workbenchStats[2]?.value?.split(" ")[0] ?? "0";
 
 	// Amazon Ads 风：从 trendCards[0].detail 解析订单/销售额/ACOS

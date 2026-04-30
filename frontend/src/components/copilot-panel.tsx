@@ -52,32 +52,6 @@ function buildStorageKey(
 	return `zeoprix-copilot:${productId ?? "global"}:${pageKey}`;
 }
 
-function deriveFallbackActionLinks(
-	actions: string[],
-	pageKey: string,
-): ActionLink[] {
-	const links = new Map<string, ActionLink>();
-	for (const action of actions) {
-		if (/(审核|拍板|分歧)/.test(action) && pageKey !== "review")
-			links.set("review", { label: "去审核中心", href: "/review" });
-		if (/(批次|执行|否词|手动投放|补量)/.test(action) && pageKey !== "actions")
-			links.set("actions", { label: "去操作清单", href: "/actions" });
-		if (
-			/(导入|上传|重跑分析|重新运行分析)/.test(action) &&
-			pageKey !== "upload"
-		)
-			links.set("upload", { label: "去数据导入", href: "/upload" });
-		if (/(备份|恢复|清空|数据管理)/.test(action) && pageKey !== "settings")
-			links.set("settings", { label: "去数据管理", href: "/settings" });
-		if (
-			/(筛选|结构|分布|趋势|搜索词分析)/.test(action) &&
-			pageKey !== "analysis"
-		)
-			links.set("analysis", { label: "去搜索词分析", href: "/analysis" });
-	}
-	return Array.from(links.values()).slice(0, 3);
-}
-
 export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
 	const router = useRouter();
 	const storageKey = useMemo(

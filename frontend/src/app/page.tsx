@@ -26,7 +26,6 @@ export default async function Page() {
 					trendCards={payload.trendCards}
 					trendBars={payload.trendBars}
 					structureBuckets={payload.structureBuckets}
-					executionEffect={payload.executionEffect}
 				/>
 				<OperationsStream
 					executionBatches={payload.executionBatches}
