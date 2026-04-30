@@ -99,6 +99,12 @@ def clear_product_runtime_data(db, product_id: int) -> None:
         (product_id,),
     )
     db.execute("DELETE FROM manual_reviews WHERE product_id = ?", (product_id,))
+    # Sprint B.4 follow-up: 清空 daily_pacing 快照
+    try:
+        db.execute("DELETE FROM daily_pacing WHERE product_id = ?", (product_id,))
+    except Exception:
+        # 旧 db 没有 daily_pacing 表时静默跳过
+        pass
     db.execute("DELETE FROM campaigns WHERE product_id = ?", (product_id,))
     db.commit()
 
