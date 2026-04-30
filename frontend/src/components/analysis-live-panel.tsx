@@ -8,7 +8,12 @@ import { useSearchParams, usePathname, useRouter } from "next/navigation";
 import { Search, Info } from "lucide-react";
 
 import { writePageContext } from "@/components/page-context";
-import type { AnalysisPayload, AnalysisRow } from "@/lib/mock-data";
+import type {
+	AnalysisPayload,
+	AnalysisRow,
+	CampaignAggRow,
+	AsinAggRow,
+} from "@/lib/mock-data";
 import { AnalysisTable } from "@/components/workbench-sections";
 import { AnalysisDetailDrawer } from "@/components/analysis-detail-drawer";
 
@@ -18,6 +23,159 @@ type Props = {
 
 type SortKey = "spend-desc" | "orders-desc" | "confidence-desc" | "term-asc";
 type FocusMode = "all" | "stoploss" | "scale" | "review";
+type ViewMode = "term" | "campaign" | "asin"; // Sprint B.1/B.2
+
+const VIEW_OPTIONS: Array<[ViewMode, string]> = [
+	["term", "搜索词"],
+	["campaign", "广告活动"],
+	["asin", "ASIN"],
+];
+
+function fmtMoney(n: number) {
+	return `$${n.toFixed(2)}`;
+}
+
+function fmtPct(n: number) {
+	return `${(n * 100).toFixed(1)}%`;
+}
+
+// Sprint B.1 — 简洁 campaign 聚合表
+function CampaignAggTable({ rows }: { rows: CampaignAggRow[] }) {
+	if (rows.length === 0) {
+		return (
+			<div className="bg-bg-elevated border border-border rounded-lg p-8 text-center text-[13px] text-fg-subtle">
+				暂无广告活动聚合数据
+			</div>
+		);
+	}
+	const sorted = [...rows].sort((a, b) => b.spend - a.spend);
+	return (
+		<div className="bg-bg-elevated border border-border rounded-lg overflow-hidden">
+			<div className="px-4 py-3 border-b border-border flex items-baseline gap-3">
+				<h2 className="text-fg">广告活动聚合 · {rows.length}</h2>
+				<span className="text-[12px] text-fg-muted">按花费降序</span>
+			</div>
+			<div className="overflow-x-auto">
+				<table className="w-full text-[12px]">
+					<thead className="bg-bg-subtle text-fg-muted">
+						<tr className="text-left">
+							<th className="px-3 py-2 font-semibold">活动</th>
+							<th className="px-3 py-2 font-semibold">匹配</th>
+							<th className="px-3 py-2 font-semibold text-right">花费</th>
+							<th className="px-3 py-2 font-semibold text-right">订单</th>
+							<th className="px-3 py-2 font-semibold text-right">销售</th>
+							<th className="px-3 py-2 font-semibold text-right">CVR</th>
+							<th className="px-3 py-2 font-semibold text-right">ACOS</th>
+							<th className="px-3 py-2 font-semibold text-right">词数</th>
+						</tr>
+					</thead>
+					<tbody>
+						{sorted.map((r, i) => (
+							<tr
+								key={`${r.campaignName}-${r.matchType}-${i}`}
+								className="border-t border-border hover:bg-bg-subtle/50"
+							>
+								<td className="px-3 py-2 font-mono text-fg truncate max-w-[280px]">
+									{r.campaignName}
+								</td>
+								<td className="px-3 py-2 text-fg-muted">{r.matchType}</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg">
+									{fmtMoney(r.spend)}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg">
+									{r.orders}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg">
+									{fmtMoney(r.sales)}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg">
+									{fmtPct(r.cvr)}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg">
+									{fmtPct(r.acos)}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg-muted">
+									{r.termCount}
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	);
+}
+
+// Sprint B.2 — 简洁 ASIN 聚合表
+function AsinAggTable({ rows }: { rows: AsinAggRow[] }) {
+	if (rows.length === 0) {
+		return (
+			<div className="bg-bg-elevated border border-border rounded-lg p-8 text-center text-[13px] text-fg-subtle">
+				暂无 ASIN 聚合数据
+			</div>
+		);
+	}
+	const sorted = [...rows].sort((a, b) => b.spend - a.spend);
+	return (
+		<div className="bg-bg-elevated border border-border rounded-lg overflow-hidden">
+			<div className="px-4 py-3 border-b border-border flex items-baseline gap-3">
+				<h2 className="text-fg">ASIN 聚合 · {rows.length}</h2>
+				<span className="text-[12px] text-fg-muted">按花费降序</span>
+			</div>
+			<div className="overflow-x-auto">
+				<table className="w-full text-[12px]">
+					<thead className="bg-bg-subtle text-fg-muted">
+						<tr className="text-left">
+							<th className="px-3 py-2 font-semibold">ASIN</th>
+							<th className="px-3 py-2 font-semibold">产品</th>
+							<th className="px-3 py-2 font-semibold text-right">花费</th>
+							<th className="px-3 py-2 font-semibold text-right">订单</th>
+							<th className="px-3 py-2 font-semibold text-right">销售</th>
+							<th className="px-3 py-2 font-semibold text-right">CVR</th>
+							<th className="px-3 py-2 font-semibold text-right">ACOS</th>
+							<th className="px-3 py-2 font-semibold text-right">词数</th>
+							<th className="px-3 py-2 font-semibold text-right">活动</th>
+						</tr>
+					</thead>
+					<tbody>
+						{sorted.map((r) => (
+							<tr
+								key={r.asin}
+								className="border-t border-border hover:bg-bg-subtle/50"
+							>
+								<td className="px-3 py-2 font-mono text-fg">{r.asin}</td>
+								<td className="px-3 py-2 text-fg-muted truncate max-w-[200px]">
+									{r.productName}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg">
+									{fmtMoney(r.spend)}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg">
+									{r.orders}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg">
+									{fmtMoney(r.sales)}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg">
+									{fmtPct(r.cvr)}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg">
+									{fmtPct(r.acos)}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg-muted">
+									{r.termCount}
+								</td>
+								<td className="px-3 py-2 text-right font-mono tabular-nums text-fg-muted">
+									{r.campaignCount}
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	);
+}
 
 const FOCUS_OPTIONS: Array<[FocusMode, string]> = [
 	["all", "全部视角"],
@@ -78,6 +236,10 @@ export function AnalysisLivePanel({ payload }: Props) {
 	const [focusMode, setFocusMode] = useState<FocusMode>(
 		(searchParams.get("focus") as FocusMode) || "all",
 	);
+	// Sprint B.1/B.2 — view mode（term/campaign/asin）
+	const [viewMode, setViewMode] = useState<ViewMode>(
+		(searchParams.get("view") as ViewMode) || "term",
+	);
 	// Sprint A.2: 详情抽屉状态 —— 选中 term 触发抽屉打开
 	const [selectedTerm, setSelectedTerm] = useState<string | null>(null);
 
@@ -89,11 +251,21 @@ export function AnalysisLivePanel({ payload }: Props) {
 		if (query) next.set("q", query);
 		if (sortKey !== "spend-desc") next.set("sort", sortKey);
 		if (focusMode !== "all") next.set("focus", focusMode);
+		if (viewMode !== "term") next.set("view", viewMode);
 		const nextStr = next.toString();
 		const url = nextStr ? `${pathname}?${nextStr}` : pathname;
 		// replaceState 不入 history，避免每次 filter 变化都创建一条历史
 		router.replace(url, { scroll: false });
-	}, [typeFilter, actionFilter, query, sortKey, focusMode, pathname, router]);
+	}, [
+		typeFilter,
+		actionFilter,
+		query,
+		sortKey,
+		focusMode,
+		viewMode,
+		pathname,
+		router,
+	]);
 
 	const filteredRows = useMemo(() => {
 		const normalizedQuery = query.trim().toLowerCase();
@@ -247,6 +419,30 @@ export function AnalysisLivePanel({ payload }: Props) {
 				</div>
 			</div>
 
+			{/* ═══ Sprint B.1/B.2 — view mode segmented tabs ═══ */}
+			<div className="inline-flex bg-bg-subtle border border-border rounded-md p-0.5">
+				{VIEW_OPTIONS.map(([value, label]) => {
+					const active = viewMode === value;
+					return (
+						<button
+							key={value}
+							type="button"
+							onClick={() => setViewMode(value)}
+							className={
+								"px-4 h-7 inline-flex items-center rounded text-[12px] font-semibold transition-colors " +
+								(active
+									? "bg-bg-elevated text-fg shadow-sm border border-border"
+									: "text-fg-muted hover:text-fg")
+							}
+						>
+							{label}
+						</button>
+					);
+				})}
+			</div>
+
+			{viewMode === "term" && (
+			<>
 			{/* ═══ 2. Focus tab pills ═══ */}
 			<div className="flex flex-wrap items-center gap-2">
 				{FOCUS_OPTIONS.map(([value, label]) => {
@@ -376,6 +572,14 @@ export function AnalysisLivePanel({ payload }: Props) {
 				analysisRows={filteredRows}
 				onRowClick={(term) => setSelectedTerm(term)}
 			/>
+			</>
+			)}
+
+			{viewMode === "campaign" && (
+				<CampaignAggTable rows={payload.campaignRows ?? []} />
+			)}
+
+			{viewMode === "asin" && <AsinAggTable rows={payload.asinRows ?? []} />}
 
 			{/* Sprint A.2: 详情抽屉 */}
 			<AnalysisDetailDrawer

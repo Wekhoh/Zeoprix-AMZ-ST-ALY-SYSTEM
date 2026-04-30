@@ -1626,6 +1626,67 @@ def build_analysis_page_payload(product_id: int | None = None) -> dict[str, Any]
         action_counts[row.get("action") or "unknown"] = (
             action_counts.get(row.get("action") or "unknown", 0) + 1
         )
+
+    # Sprint B.1 / B.2 — Campaign + ASIN 聚合视图
+    campaign_rows: list[dict[str, Any]] = []
+    asin_rows: list[dict[str, Any]] = []
+    resolved_pid = workbench.get("productId")
+    if resolved_pid is not None:
+        from src.data.aggregator import DataAggregator
+
+        db_path = _get_app_database_path()
+        with Database(str(db_path)) as db:
+            agg = DataAggregator(db)
+            try:
+                campaign_df = agg.aggregate_by_campaign(product_id=int(resolved_pid))
+                if not campaign_df.empty:
+                    campaign_rows = [
+                        {
+                            "campaignName": str(r.get("campaign_name") or ""),
+                            "matchType": str(r.get("match_type") or ""),
+                            "asin": str(r.get("product_asin") or ""),
+                            "productName": str(r.get("product_name") or ""),
+                            "impressions": int(r.get("total_impressions") or 0),
+                            "clicks": int(r.get("total_clicks") or 0),
+                            "spend": float(r.get("total_spend") or 0.0),
+                            "orders": int(r.get("total_orders") or 0),
+                            "sales": float(r.get("total_sales") or 0.0),
+                            "termCount": int(r.get("term_count") or 0),
+                            "ctr": float(r.get("ctr") or 0.0),
+                            "cpc": float(r.get("cpc") or 0.0),
+                            "acos": float(r.get("acos") or 0.0),
+                            "roas": float(r.get("roas") or 0.0),
+                            "cvr": float(r.get("conversion_rate") or 0.0),
+                        }
+                        for r in campaign_df.to_dict(orient="records")
+                    ]
+            except Exception:  # noqa: BLE001 — 聚合失败不影响主 payload
+                campaign_rows = []
+            try:
+                asin_df = agg.aggregate_by_asin(product_id=int(resolved_pid))
+                if not asin_df.empty:
+                    asin_rows = [
+                        {
+                            "asin": str(r.get("product_asin") or ""),
+                            "productName": str(r.get("product_name") or ""),
+                            "impressions": int(r.get("total_impressions") or 0),
+                            "clicks": int(r.get("total_clicks") or 0),
+                            "spend": float(r.get("total_spend") or 0.0),
+                            "orders": int(r.get("total_orders") or 0),
+                            "sales": float(r.get("total_sales") or 0.0),
+                            "termCount": int(r.get("term_count") or 0),
+                            "campaignCount": int(r.get("campaign_count") or 0),
+                            "ctr": float(r.get("ctr") or 0.0),
+                            "cpc": float(r.get("cpc") or 0.0),
+                            "acos": float(r.get("acos") or 0.0),
+                            "roas": float(r.get("roas") or 0.0),
+                            "cvr": float(r.get("conversion_rate") or 0.0),
+                        }
+                        for r in asin_df.to_dict(orient="records")
+                    ]
+            except Exception:  # noqa: BLE001
+                asin_rows = []
+
     return {
         **workbench,
         "analysis": {
@@ -1633,4 +1694,6 @@ def build_analysis_page_payload(product_id: int | None = None) -> dict[str, Any]
             "typeCounts": type_counts,
             "actionCounts": action_counts,
         },
+        "campaignRows": campaign_rows,
+        "asinRows": asin_rows,
     }

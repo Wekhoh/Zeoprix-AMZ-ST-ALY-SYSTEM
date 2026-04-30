@@ -121,12 +121,51 @@ export type UploadPayload = WorkbenchPayload & {
 	};
 };
 
+// Sprint B.1 — Campaign 聚合行（来自 DataAggregator.aggregate_by_campaign）
+export type CampaignAggRow = {
+	campaignName: string;
+	matchType: string;
+	asin: string;
+	productName: string;
+	impressions: number;
+	clicks: number;
+	spend: number;
+	orders: number;
+	sales: number;
+	termCount: number;
+	ctr: number;
+	cpc: number;
+	acos: number;
+	roas: number;
+	cvr: number;
+};
+
+// Sprint B.2 — ASIN 聚合行（来自 DataAggregator.aggregate_by_asin）
+export type AsinAggRow = {
+	asin: string;
+	productName: string;
+	impressions: number;
+	clicks: number;
+	spend: number;
+	orders: number;
+	sales: number;
+	termCount: number;
+	campaignCount: number;
+	ctr: number;
+	cpc: number;
+	acos: number;
+	roas: number;
+	cvr: number;
+};
+
 export type AnalysisPayload = WorkbenchPayload & {
 	analysis?: {
 		rowCount: number;
 		typeCounts: Record<string, number>;
 		actionCounts: Record<string, number>;
 	};
+	campaignRows?: CampaignAggRow[];
+	asinRows?: AsinAggRow[];
 };
 
 export type ActionsPayload = WorkbenchPayload & {
