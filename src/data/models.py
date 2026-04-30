@@ -368,6 +368,27 @@ CREATE TABLE IF NOT EXISTS manual_reviews (
 );
 """
 
+# 每日 pacing 快照表（Sprint B.4）
+# 每天每 campaign 一条快照；NULL campaign_id 表示 product 级聚合
+# UNIQUE 约束 + INSERT OR REPLACE 保证同 (product, date, campaign) 单条
+DAILY_PACING_SCHEMA = """
+CREATE TABLE IF NOT EXISTS daily_pacing (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    snapshot_date DATE NOT NULL,
+    campaign_id INTEGER,
+    impressions INTEGER DEFAULT 0,
+    clicks INTEGER DEFAULT 0,
+    spend REAL DEFAULT 0.0,
+    orders INTEGER DEFAULT 0,
+    sales REAL DEFAULT 0.0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(product_id, snapshot_date, campaign_id),
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE SET NULL
+);
+"""
+
 # 所有表Schema的有序列表（按依赖顺序）
 ALL_SCHEMAS = [
     ("products", PRODUCTS_SCHEMA),
@@ -382,6 +403,7 @@ ALL_SCHEMAS = [
     ("analysis_results", ANALYSIS_RESULTS_SCHEMA),
     ("action_plans", ACTION_PLANS_SCHEMA),
     ("manual_reviews", MANUAL_REVIEWS_SCHEMA),
+    ("daily_pacing", DAILY_PACING_SCHEMA),
 ]
 
 # 创建索引以提升查询性能
@@ -404,6 +426,9 @@ INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_manual_reviews_reviewed ON manual_reviews(product_id, reviewed);",
     "CREATE INDEX IF NOT EXISTS idx_manual_reviews_truth_action ON manual_reviews(product_id, truth_action_type);",
     "CREATE INDEX IF NOT EXISTS idx_strategy_profiles_name ON strategy_profiles(name);",
+    # Sprint B.4: 每日 pacing 快照查询索引
+    "CREATE INDEX IF NOT EXISTS idx_daily_pacing_product_date ON daily_pacing(product_id, snapshot_date DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_daily_pacing_campaign ON daily_pacing(campaign_id);",
 ]
 
 # 默认规则配置（系统初始化时插入）

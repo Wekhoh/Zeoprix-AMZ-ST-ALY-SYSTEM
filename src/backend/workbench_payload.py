@@ -1666,6 +1666,86 @@ def _build_weekly_compare(db: Database, product_id: int) -> dict[str, Any]:
     }
 
 
+def _snapshot_daily_pacing(db: Database, product_id: int) -> int:
+    """Sprint B.4 — 每日 pacing 静默写入。
+
+    每次访问 actions 页面时调用，按 campaign 维度聚合"今日"数据写入 daily_pacing。
+    UNIQUE(product_id, snapshot_date, campaign_id) + INSERT OR REPLACE 保证幂等；
+    NULL campaign_id 行（product 级聚合）通过显式 DELETE 防止 SQLite NULL!=NULL 重复。
+
+    失败时静默吞（schema 未创建等），不阻断 actions 页面渲染。
+    Returns: 写入的行数（含 campaign 级 + 1 个 product 级 NULL row）
+    """
+    today_iso = dt.date.today().isoformat()
+    try:
+        rows = db.execute(
+            """
+            SELECT
+                st.campaign_id,
+                COALESCE(SUM(st.impressions), 0) AS impressions,
+                COALESCE(SUM(st.clicks), 0) AS clicks,
+                COALESCE(SUM(st.spend), 0) AS spend,
+                COALESCE(SUM(st.orders), 0) AS orders,
+                COALESCE(SUM(st.sales), 0) AS sales
+            FROM search_terms st
+            JOIN campaigns c ON st.campaign_id = c.id
+            WHERE c.product_id = ?
+              AND COALESCE(st.report_date, date(st.created_at)) = ?
+            GROUP BY st.campaign_id
+            """,
+            (product_id, today_iso),
+        ).fetchall()
+
+        written = 0
+        for r in rows:
+            db.execute(
+                """
+                INSERT OR REPLACE INTO daily_pacing
+                  (product_id, snapshot_date, campaign_id, impressions, clicks, spend, orders, sales)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    product_id,
+                    today_iso,
+                    int(r["campaign_id"]) if r["campaign_id"] is not None else None,
+                    int(r["impressions"] or 0),
+                    int(r["clicks"] or 0),
+                    float(r["spend"] or 0.0),
+                    int(r["orders"] or 0),
+                    float(r["sales"] or 0.0),
+                ),
+            )
+            written += 1
+
+        if rows:
+            db.execute(
+                "DELETE FROM daily_pacing WHERE product_id = ? AND snapshot_date = ? AND campaign_id IS NULL",
+                (product_id, today_iso),
+            )
+            db.execute(
+                """
+                INSERT INTO daily_pacing
+                  (product_id, snapshot_date, campaign_id, impressions, clicks, spend, orders, sales)
+                VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
+                """,
+                (
+                    product_id,
+                    today_iso,
+                    int(sum(int(r["impressions"] or 0) for r in rows)),
+                    int(sum(int(r["clicks"] or 0) for r in rows)),
+                    float(sum(float(r["spend"] or 0.0) for r in rows)),
+                    int(sum(int(r["orders"] or 0) for r in rows)),
+                    float(sum(float(r["sales"] or 0.0) for r in rows)),
+                ),
+            )
+            written += 1
+
+        db.commit()
+        return written
+    except Exception:
+        return 0
+
+
 def build_actions_page_payload(product_id: int | None = None) -> dict[str, Any]:
     workbench = build_workbench_payload(product_id)
     if workbench.get("source") != "live":
@@ -1677,6 +1757,7 @@ def build_actions_page_payload(product_id: int | None = None) -> dict[str, Any]:
         product_id = int(product["id"])
         pending_stats = _get_pending_stats(db, product_id)
         weekly_compare = _build_weekly_compare(db, product_id)
+        _snapshot_daily_pacing(db, product_id)  # Sprint B.4 静默写入
         return {
             **workbench,
             "actions": {
