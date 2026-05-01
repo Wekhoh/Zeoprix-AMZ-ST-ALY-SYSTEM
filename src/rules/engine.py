@@ -976,7 +976,8 @@ def _get_db_data_version(db: Database) -> int:
     try:
         row = db.conn.execute("PRAGMA data_version").fetchone()
         return int(row[0]) if row else -1
-    except Exception:
+    except Exception as exc:
+        logger.debug("PRAGMA data_version 失败，缓存键 fallback: %s", exc)
         return -1
 
 

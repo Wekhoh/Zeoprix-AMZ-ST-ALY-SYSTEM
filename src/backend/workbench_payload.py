@@ -1924,7 +1924,8 @@ def build_analysis_page_payload(product_id: int | None = None) -> dict[str, Any]
                         }
                         for r in campaign_df.to_dict(orient="records")
                     ]
-            except Exception:  # noqa: BLE001 — 聚合失败不影响主 payload
+            except Exception as exc:  # noqa: BLE001 — 聚合失败不影响主 payload
+                logger.warning("campaign 聚合失败，返回空列表: %s", exc, exc_info=True)
                 campaign_rows = []
             try:
                 asin_df = agg.aggregate_by_asin(product_id=int(resolved_pid))
@@ -1948,7 +1949,8 @@ def build_analysis_page_payload(product_id: int | None = None) -> dict[str, Any]
                         }
                         for r in asin_df.to_dict(orient="records")
                     ]
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("asin 聚合失败，返回空列表: %s", exc, exc_info=True)
                 asin_rows = []
 
     return {
