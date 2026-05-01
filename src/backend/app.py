@@ -6,6 +6,7 @@ V1 先提供可部署、可探活的后端骨架，并补最小登录能力。
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time as _time_module
 import uuid
@@ -670,38 +671,49 @@ def create_app() -> FastAPI:
     )
     async def read_frontend_workbench(product_id: int | None = None) -> dict:
         """为独立前端壳返回首页/共享壳聚合数据。"""
-        return build_workbench_payload(product_id=product_id)
+        # Audit C-4: sync sqlite/pandas → to_thread 不阻塞 event loop
+        return await asyncio.to_thread(build_workbench_payload, product_id=product_id)
 
     @app.get("/frontend/upload", tags=["frontend"])
     async def read_frontend_upload(product_id: int | None = None) -> dict:
-        return build_upload_page_payload(product_id=product_id)
+        return await asyncio.to_thread(build_upload_page_payload, product_id=product_id)
 
     @app.get("/frontend/analysis", tags=["frontend"])
     async def read_frontend_analysis(product_id: int | None = None) -> dict:
-        return build_analysis_page_payload(product_id=product_id)
+        return await asyncio.to_thread(
+            build_analysis_page_payload, product_id=product_id
+        )
 
     @app.get("/frontend/analysis/term/{term}", tags=["frontend"])
     async def read_frontend_term_detail(
         term: str, product_id: int | None = None, days: int = 30
     ) -> dict:
         """Sprint A.2 — 单 term 30 天详情：日聚合 + 应用过的规则 + 历史决策"""
-        return build_term_detail_payload(product_id, term, days=days)
+        return await asyncio.to_thread(
+            build_term_detail_payload, product_id, term, days=days
+        )
 
     @app.get("/frontend/actions", tags=["frontend"])
     async def read_frontend_actions(product_id: int | None = None) -> dict:
-        return build_actions_page_payload(product_id=product_id)
+        return await asyncio.to_thread(
+            build_actions_page_payload, product_id=product_id
+        )
 
     @app.get("/frontend/review", tags=["frontend"])
     async def read_frontend_review(product_id: int | None = None) -> dict:
-        return build_review_page_payload(product_id=product_id)
+        return await asyncio.to_thread(build_review_page_payload, product_id=product_id)
 
     @app.get("/frontend/settings", tags=["frontend"])
     async def read_frontend_settings(product_id: int | None = None) -> dict:
-        return build_settings_page_payload(product_id=product_id)
+        return await asyncio.to_thread(
+            build_settings_page_payload, product_id=product_id
+        )
 
     @app.post("/frontend/upload/run-analysis", tags=["frontend"])
     async def run_frontend_analysis(payload: FrontendProductRequest) -> dict:
-        return run_analysis_for_frontend(product_id=payload.product_id)
+        return await asyncio.to_thread(
+            run_analysis_for_frontend, product_id=payload.product_id
+        )
 
     @app.post("/frontend/upload/files", tags=["frontend"])
     async def upload_frontend_files(
@@ -709,7 +721,8 @@ def create_app() -> FastAPI:
         auto_analyze: bool = Form(True),
         files: list[UploadFile] = File(...),
     ) -> dict:
-        return upload_files_for_frontend(
+        return await asyncio.to_thread(
+            upload_files_for_frontend,
             product_id=product_id,
             files=files,
             auto_analyze=auto_analyze,
@@ -717,17 +730,22 @@ def create_app() -> FastAPI:
 
     @app.post("/frontend/settings/clear-runtime", tags=["frontend"])
     async def clear_frontend_runtime(payload: FrontendProductRequest) -> dict:
-        return clear_runtime_for_frontend(product_id=payload.product_id)
+        return await asyncio.to_thread(
+            clear_runtime_for_frontend, product_id=payload.product_id
+        )
 
     @app.get("/frontend/settings/full-backup", tags=["frontend"])
     async def export_frontend_full_backup(product_id: int) -> dict:
-        return export_full_backup_for_frontend(product_id=product_id)
+        return await asyncio.to_thread(
+            export_full_backup_for_frontend, product_id=product_id
+        )
 
     @app.post("/frontend/settings/product-config", tags=["frontend"])
     async def update_frontend_settings_config(
         payload: FrontendSettingsConfigUpdateRequest,
     ) -> dict:
-        return update_settings_config_for_frontend(
+        return await asyncio.to_thread(
+            update_settings_config_for_frontend,
             product_id=payload.product_id,
             core_keywords=payload.core_keywords,
             related_keywords=payload.related_keywords,
@@ -739,14 +757,16 @@ def create_app() -> FastAPI:
     async def restore_frontend_rule_version(
         payload: FrontendRuleVersionRestoreRequest,
     ) -> dict:
-        return restore_settings_rule_version_for_frontend(
+        return await asyncio.to_thread(
+            restore_settings_rule_version_for_frontend,
             product_id=payload.product_id,
             version=payload.version,
         )
 
     @app.get("/frontend/settings/rule-versions/{version}", tags=["frontend"])
     async def preview_frontend_rule_version(version: int, product_id: int) -> dict:
-        return preview_settings_rule_version_for_frontend(
+        return await asyncio.to_thread(
+            preview_settings_rule_version_for_frontend,
             product_id=product_id,
             version=version,
         )
@@ -755,7 +775,8 @@ def create_app() -> FastAPI:
     async def restore_frontend_full_backup(
         payload: FrontendRestoreBackupRequest,
     ) -> dict:
-        return restore_full_backup_for_frontend(
+        return await asyncio.to_thread(
+            restore_full_backup_for_frontend,
             product_id=payload.product_id,
             restore_as_new_product=payload.restore_as_new_product,
             backup_data=payload.backup_data,
@@ -765,7 +786,8 @@ def create_app() -> FastAPI:
     async def create_frontend_execution_batch(
         payload: FrontendExecutionBatchCreateRequest,
     ) -> dict:
-        return create_execution_batch_for_frontend(
+        return await asyncio.to_thread(
+            create_execution_batch_for_frontend,
             product_id=payload.product_id,
             batch_type=payload.batch_type,
             draft_note=payload.draft_note,
@@ -775,7 +797,8 @@ def create_app() -> FastAPI:
     async def update_frontend_execution_batch(
         batch_id: int, payload: FrontendExecutionBatchUpdateRequest
     ) -> dict:
-        return update_execution_batch_for_frontend(
+        return await asyncio.to_thread(
+            update_execution_batch_for_frontend,
             batch_id=batch_id,
             status=payload.status,
             execution_note=payload.execution_note,
@@ -787,7 +810,7 @@ def create_app() -> FastAPI:
         """Sprint D.2 — 当前产品所有 negative 推荐导出为 Amazon SP Bulk CSV。"""
         from urllib.parse import quote
 
-        result = build_amazon_bulk_csv_export(product_id)
+        result = await asyncio.to_thread(build_amazon_bulk_csv_export, product_id)
         if result is None:
             raise HTTPException(status_code=404, detail="无可导出否词")
         csv_bytes, file_name = result
@@ -810,7 +833,8 @@ def create_app() -> FastAPI:
     async def create_frontend_review_decision(
         payload: FrontendReviewDecisionRequest,
     ) -> dict:
-        return submit_review_decision_for_frontend(
+        return await asyncio.to_thread(
+            submit_review_decision_for_frontend,
             product_id=payload.product_id,
             term=payload.term,
             term_type=payload.term_type,
@@ -826,7 +850,8 @@ def create_app() -> FastAPI:
         response_model=CopilotChatResponse,
     )
     async def chat_frontend_copilot(payload: FrontendCopilotChatRequest) -> dict:
-        return process_frontend_copilot_turn(
+        return await asyncio.to_thread(
+            process_frontend_copilot_turn,
             product_id=payload.product_id,
             page_key=payload.page_key,
             page_title=payload.page_title,
@@ -858,7 +883,7 @@ def create_app() -> FastAPI:
     @app.get("/frontend/competitors", tags=["frontend"])
     async def frontend_competitors(product_id: int | None = None) -> dict:
         """Sprint C.1 — 内部竞品 ASIN 监控（实时计算，无 schema migration）。"""
-        return build_competitors_payload(product_id)
+        return await asyncio.to_thread(build_competitors_payload, product_id)
 
     @app.get(
         "/frontend/insights/today",
@@ -870,10 +895,13 @@ def create_app() -> FastAPI:
         from src.backend.workbench_payload import _get_app_database_path
         from src.data.db import Database
 
-        db_path = _get_app_database_path()
-        with Database(str(db_path)) as db:
-            today = get_today_insight(db, product_id)
-        return {"today": today}
+        def _read() -> dict:
+            db_path = _get_app_database_path()
+            with Database(str(db_path)) as db:
+                today = get_today_insight(db, product_id)
+            return {"today": today}
+
+        return await asyncio.to_thread(_read)
 
     @app.post(
         "/frontend/insights/generate",
@@ -885,10 +913,12 @@ def create_app() -> FastAPI:
         from src.backend.workbench_payload import _get_app_database_path
         from src.data.db import Database
 
-        db_path = _get_app_database_path()
-        with Database(str(db_path)) as db:
-            result = generate_and_store_insight(db, product_id)
-        return result
+        def _run() -> dict:
+            db_path = _get_app_database_path()
+            with Database(str(db_path)) as db:
+                return generate_and_store_insight(db, product_id)
+
+        return await asyncio.to_thread(_run)
 
     @app.post("/auth/login", response_model=LoginResponse, tags=["auth"])
     async def login(payload: LoginRequest, request: Request) -> LoginResponse:
