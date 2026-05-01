@@ -238,10 +238,12 @@ def test_submit_review_decision_returns_conflict_without_force():
     db_cm.__enter__ = MagicMock(return_value=mock_db)
     db_cm.__exit__ = MagicMock(return_value=False)
 
+    # Step 3 H2: submit_review_decision_for_frontend 已迁到 workbench_mutations，
+    # patch 目标必须随之更新到查找名所在模块（workbench_payload 仅做 re-export）
     with (
-        patch("src.backend.workbench_payload.Database", return_value=db_cm),
+        patch("src.backend.workbench_mutations.Database", return_value=db_cm),
         patch(
-            "src.backend.workbench_payload._get_app_database_path",
+            "src.backend.workbench_mutations._get_app_database_path",
             return_value="/tmp/x.db",
         ),
     ):
