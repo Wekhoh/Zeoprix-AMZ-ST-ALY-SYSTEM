@@ -170,6 +170,11 @@ async def process_frontend_copilot_turn_stream(
 
     Frames: context → N×delta → envelope → done (or error → done on failure).
     Applies 45s cap on each pump step; logs start/completed/cancelled/error.
+
+    错误恢复（Phase 7）：
+    - 流前 (yielded_anything=False) 超时 → 自动重试 1 次（共 2 次尝试）
+    - 流中 (已 yield 任意 frame) 超时 → 不重试，发 partial=true 错误帧让前端
+      展示 "响应中断，已接收 N 个 chunk，可重试"
     """
     import time
     from src.config.logger import get_logger
@@ -179,12 +184,16 @@ async def process_frontend_copilot_turn_stream(
     history = history or []
     page_context = page_context or {}
 
+    PER_FRAME_TIMEOUT_S = 45
+    MAX_ATTEMPTS = 2  # 1 次重试
+
     logger.info(
         f"SSE started product={product_id} page={page_key} msg_len={len(user_message)}"
     )
     start = time.perf_counter()
     chunks_count = 0
     total_chars = 0
+    yielded_anything = False
 
     def _frame(obj: dict[str, Any]) -> bytes:
         return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n".encode("utf-8")
@@ -201,13 +210,9 @@ async def process_frontend_copilot_turn_stream(
             assistant = get_chat_assistant(db=db, product_id=product_id)
             prompt = _build_safe_prompt(user_message, page_context, history)
 
-            stream = assistant.process_message_stream(
-                prompt, context_label=context_pack.context_label
-            )
-
-            async def _pump():
+            async def _pump(stream_iter):
                 nonlocal chunks_count, total_chars
-                async for frame_type, payload in stream:
+                async for frame_type, payload in stream_iter:
                     if frame_type == "context":
                         yield _frame({"type": "context", "contextLabel": payload})
                     elif frame_type == "delta":
@@ -234,19 +239,57 @@ async def process_frontend_copilot_turn_stream(
                             {"type": "error", "message": payload.get("message", "")}
                         )
 
-            pump = _pump()
-            try:
-                while True:
-                    piece = await asyncio.wait_for(pump.__anext__(), timeout=45)
-                    yield piece
-            except StopAsyncIteration:
-                pass
-            except asyncio.TimeoutError:
-                yield _frame({"type": "error", "message": "响应超时，请简化问题重试"})
-                logger.warning(
-                    f"SSE timeout product={product_id} page={page_key} "
-                    f"chunks_so_far={chunks_count}"
+            for attempt in range(1, MAX_ATTEMPTS + 1):
+                stream = assistant.process_message_stream(
+                    prompt, context_label=context_pack.context_label
                 )
+                pump = _pump(stream)
+                try:
+                    while True:
+                        piece = await asyncio.wait_for(
+                            pump.__anext__(), timeout=PER_FRAME_TIMEOUT_S
+                        )
+                        yielded_anything = True
+                        yield piece
+                except StopAsyncIteration:
+                    break  # 全程成功
+                except asyncio.TimeoutError:
+                    if yielded_anything:
+                        # 流中断 — 不重试，给前端可恢复的部分错误帧
+                        yield _frame(
+                            {
+                                "type": "error",
+                                "message": "响应中断（已接收部分内容，可重试）",
+                                "partial": True,
+                                "chunksReceived": chunks_count,
+                                "recoverable": True,
+                            }
+                        )
+                        logger.warning(
+                            f"SSE timeout (mid-stream) product={product_id} "
+                            f"page={page_key} chunks={chunks_count}"
+                        )
+                        break
+                    if attempt < MAX_ATTEMPTS:
+                        logger.info(
+                            f"SSE pre-stream timeout, retry "
+                            f"{attempt}/{MAX_ATTEMPTS - 1} "
+                            f"product={product_id} page={page_key}"
+                        )
+                        continue
+                    yield _frame(
+                        {
+                            "type": "error",
+                            "message": "响应超时，已重试，请简化问题再试",
+                            "partial": False,
+                            "recoverable": False,
+                        }
+                    )
+                    logger.warning(
+                        f"SSE timeout (pre-stream exhausted) "
+                        f"product={product_id} page={page_key}"
+                    )
+                    break
 
             yield _frame({"type": "done"})
 

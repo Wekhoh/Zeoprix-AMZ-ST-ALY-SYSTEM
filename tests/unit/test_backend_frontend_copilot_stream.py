@@ -451,3 +451,128 @@ def test_copilot_stream_reraises_cancelled_error(tmp_path, monkeypatch):
 
     with _pytest.raises(asyncio.CancelledError):
         asyncio.run(run())
+
+
+# ── Phase 7 · SSE 错误恢复（pre-stream retry + mid-stream partial）─────────
+
+
+def test_copilot_stream_retries_once_on_pre_stream_timeout(tmp_path, monkeypatch):
+    """流前 timeout（未 yield 任何 frame）→ 自动重试 1 次。
+    第 1 次 raise TimeoutError，第 2 次正常完成 → 用户看到完整流，无 error frame。
+
+    用 generator 内部 raise 模拟 timeout（避免 monkeypatch asyncio.wait_for 的副作用）。
+    """
+    from src.backend import copilot_chat as cc
+
+    attempt_log: list[int] = []
+
+    async def first_timeout_then_ok(*args, **kwargs):
+        attempt_log.append(len(attempt_log) + 1)
+        if len(attempt_log) == 1:
+            raise asyncio.TimeoutError("simulated pre-stream timeout")
+        yield ("context", "ctx-2")
+        yield ("delta", "OK")
+        yield (
+            "envelope",
+            {
+                "message": "OK",
+                "followUpPrompts": [],
+                "recommendedNextActions": [],
+                "warning": None,
+                "intent": "general",
+            },
+        )
+
+    mock_assistant = MagicMock()
+    mock_assistant.process_message_stream = first_timeout_then_ok
+    monkeypatch.setattr(cc, "get_chat_assistant", lambda **kwargs: mock_assistant)
+    monkeypatch.setattr(cc, "_get_app_database_path", lambda: tmp_path / "t.db")
+    (tmp_path / "t.db").write_bytes(b"")
+    monkeypatch.setattr(
+        cc,
+        "build_ai_context_pack",
+        lambda *a, **k: MagicMock(context_label="ctx", warning=None),
+    )
+
+    async def run():
+        buf = b""
+        async for piece in cc.process_frontend_copilot_turn_stream(
+            product_id=None,
+            page_key="workbench",
+            page_title="工作台",
+            user_message="hi",
+        ):
+            buf += piece
+        return buf
+
+    body = asyncio.run(run()).decode("utf-8")
+    frames = [
+        json.loads(evt.strip()[len("data: ") :])
+        for evt in body.split("\n\n")
+        if evt.strip().startswith("data: ")
+    ]
+    types = [f["type"] for f in frames]
+    # 重试成功 → 不应有 error frame
+    assert "error" not in types, f"重试成功不应留 error frame, got {types}"
+    assert "delta" in types
+    assert types[-2] == "envelope"
+    assert types[-1] == "done"
+    # 验证真的重试了
+    assert len(attempt_log) == 2, "应调用 process_message_stream 两次"
+
+
+def test_copilot_stream_does_not_retry_after_partial_emits_partial_flag(
+    tmp_path, monkeypatch
+):
+    """流中 timeout（已 yield context+delta）→ 不重试，发 partial=true 错误帧。"""
+    from src.backend import copilot_chat as cc
+
+    call_log: list[int] = []
+
+    async def yields_then_timeout(*args, **kwargs):
+        call_log.append(1)
+        yield ("context", "ctx-x")
+        yield ("delta", "Hel")
+        # 已 yield 部分内容后再 raise → 模拟流中断
+        raise asyncio.TimeoutError("simulated mid-stream timeout")
+
+    mock_assistant = MagicMock()
+    mock_assistant.process_message_stream = yields_then_timeout
+    monkeypatch.setattr(cc, "get_chat_assistant", lambda **kwargs: mock_assistant)
+    monkeypatch.setattr(cc, "_get_app_database_path", lambda: tmp_path / "t.db")
+    (tmp_path / "t.db").write_bytes(b"")
+    monkeypatch.setattr(
+        cc,
+        "build_ai_context_pack",
+        lambda *a, **k: MagicMock(context_label="ctx", warning=None),
+    )
+
+    async def run():
+        buf = b""
+        async for piece in cc.process_frontend_copilot_turn_stream(
+            product_id=None,
+            page_key="workbench",
+            page_title="工作台",
+            user_message="hi",
+        ):
+            buf += piece
+        return buf
+
+    body = asyncio.run(run()).decode("utf-8")
+    frames = [
+        json.loads(evt.strip()[len("data: ") :])
+        for evt in body.split("\n\n")
+        if evt.strip().startswith("data: ")
+    ]
+    types = [f["type"] for f in frames]
+
+    # 流中 timeout：partial=true 错误帧 + done
+    error_frames = [f for f in frames if f["type"] == "error"]
+    assert len(error_frames) == 1, f"应只有一个 error frame, got types={types}"
+    err = error_frames[0]
+    assert err.get("partial") is True
+    assert err.get("recoverable") is True
+    assert err.get("chunksReceived") == 1  # 一个 delta yielded
+    assert types[-1] == "done"
+    # 不应重试
+    assert len(call_log) == 1, "流中 timeout 不应重试"
