@@ -83,12 +83,14 @@ export function CopilotRichText({ text }: { text: string }) {
 	const nodes: ReactNode[] = [];
 	for (let i = 0; i < tokens.length; i++) {
 		const t = tokens[i];
+		// 复合 key = kind + 位置 + 内容指纹；同 kind 同 value 多次出现仍唯一
+		const tokKey = `${t.kind}-${i}-${t.value}`;
 		if (t.kind === "text") {
-			nodes.push(<span key={i}>{t.value}</span>);
+			nodes.push(<span key={tokKey}>{t.value}</span>);
 		} else if (t.kind === "asin") {
 			nodes.push(
 				<Link
-					key={i}
+					key={tokKey}
 					href={`/review?focus=${encodeURIComponent(t.value)}`}
 					className="font-mono text-link hover:underline"
 					title={`在审核中心聚焦 ASIN ${t.value}`}
@@ -99,7 +101,7 @@ export function CopilotRichText({ text }: { text: string }) {
 		} else {
 			nodes.push(
 				<Link
-					key={i}
+					key={tokKey}
 					href={`/analysis?focus=${encodeURIComponent(t.value)}`}
 					className="text-link hover:underline"
 					title={`在搜索词分析中聚焦「${t.value}」`}

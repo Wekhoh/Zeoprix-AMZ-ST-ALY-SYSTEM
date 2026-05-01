@@ -317,9 +317,9 @@ export function AnalysisDetailDrawer({ term, productId, onClose }: Props) {
 										HISTORICAL DECISIONS
 									</div>
 									<ul className="space-y-2 text-[12px]">
-										{data.historicalDecisions.map((h, i) => (
+										{data.historicalDecisions.map((h) => (
 											<li
-												key={i}
+												key={`${h.decidedAt}-${h.decision}-${h.scope}`}
 												className="rounded border border-border bg-bg-subtle/40 p-2"
 											>
 												<div className="flex justify-between">

@@ -321,8 +321,11 @@ export function ReviewMutationPanel({
 								{pendingConfirmation.message}
 							</div>
 							<ul className="mt-2 space-y-1.5 text-[12px] text-zinc-700">
-								{pendingConfirmation.conflicts.slice(0, 3).map((c, i) => (
-									<li key={i} className="rounded bg-white/60 p-2">
+								{pendingConfirmation.conflicts.slice(0, 3).map((c) => (
+									<li
+										key={`${c.decidedAt}-${c.previousDecision}-${c.scope}`}
+										className="rounded bg-white/60 p-2"
+									>
 										<div>
 											<span className="font-medium">{c.previousDecision}</span>
 											<span className="ml-1 font-mono text-zinc-500">
