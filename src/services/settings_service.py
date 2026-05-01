@@ -24,6 +24,7 @@ from __future__ import annotations
 import datetime
 import json
 import sqlite3
+from uuid import uuid4
 
 from src.config.logger import get_logger
 
@@ -543,6 +544,14 @@ def restore_full_backup(
         )
 
     for batch in backup_data.get("execution_batches", []):
+        # restore_as_new_product 模式下源产品的 batch_code 仍占着 UNIQUE 槽位，
+        # 给恢复进来的批次加 -RST<uuid6> 后缀防冲突；保留原 code 便于追溯。
+        raw_code = batch.get("batch_code")
+        batch_code = (
+            f"{raw_code}-RST{uuid4().hex[:6].upper()}"
+            if restore_as_new_product and raw_code
+            else raw_code
+        )
         db.execute(
             """
             INSERT INTO execution_batches (
@@ -554,7 +563,7 @@ def restore_full_backup(
             """,
             (
                 target_product_id,
-                batch.get("batch_code"),
+                batch_code,
                 batch.get("batch_type", "general"),
                 batch.get("status", "prepared"),
                 batch.get("item_count", 0),
