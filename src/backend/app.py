@@ -498,6 +498,31 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # ── Audit HIGH-2: /frontend/* 仅 loopback ─────────────────────────
+    # 个人本机 dashboard 工具，/frontend/* 没有 auth 保护。如果用户绑定
+    # 0.0.0.0 或在公司局域网启动，攻击面会暴露。这里在 router 之前 reject
+    # 任何非 loopback 客户端访问 /frontend/*。其它路径（如 /api/auth/*）
+    # 不受限，不影响未来若引入鉴权系统的 LAN 访问。
+    #
+    # 'testclient' 是 starlette TestClient 的固定 client.host，必须放行
+    # 否则 pytest 会全员 403。
+    _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+    @app.middleware("http")
+    async def restrict_frontend_to_loopback(request: Request, call_next):
+        if request.url.path.startswith("/frontend/"):
+            client = request.client
+            host = client.host if client else None
+            if host not in _LOOPBACK_HOSTS:
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "detail": "/frontend/* 仅允许本地 loopback 访问",
+                        "clientHost": host,
+                    },
+                )
+        return await call_next(request)
+
     # ── Sprint 5 B.6 · 统一异常处理 ────────────────────────────────────
     # FastAPI 默认把未捕获异常变成 500 + Python traceback 字符串，
     # 前端只能吃 plain-text 5xx。这里把 service 层 3 种常见异常映射为

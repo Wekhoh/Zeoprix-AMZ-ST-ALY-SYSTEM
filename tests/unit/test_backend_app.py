@@ -199,3 +199,47 @@ def test_health_response_shape_matches_pydantic_contract():
 
     assert set(body.keys()) == {"service", "status", "version"}
     assert body["status"] == "ok"
+
+
+# ── Audit HIGH-2: /frontend/* loopback 中间件单元测试 ──────────────────
+
+
+def _request_with_client_host(path: str, host: str) -> tuple[int, dict]:
+    """Helper · 用自定义 client.host 模拟非 loopback 请求。
+
+    httpx.Client 同步版本不支持 ASGITransport 的 __enter__；所以走
+    httpx.AsyncClient + asyncio.run。返回 (status_code, json_body)。
+    """
+    import asyncio
+
+    import httpx
+
+    app = create_app()
+
+    async def _go():
+        transport = httpx.ASGITransport(app=app, client=(host, 12345))
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            return await client.get(path)
+
+    response = asyncio.run(_go())
+    return response.status_code, response.json()
+
+
+def test_frontend_route_rejects_non_loopback_client():
+    """非 loopback 客户端（例如 LAN IP）访问 /frontend/* 应得 403。"""
+    status, body = _request_with_client_host("/frontend/workbench", "8.8.8.8")
+    assert status == 403
+    assert body["detail"].endswith("loopback 访问")
+    assert body["clientHost"] == "8.8.8.8"
+
+
+def test_non_frontend_route_unaffected_by_loopback_guard():
+    """非 /frontend/* 路径（如 /health）不受 loopback guard 影响。
+
+    保证 guard 不误伤未来可能从 LAN 访问的鉴权 endpoint。
+    """
+    status, body = _request_with_client_host("/health", "10.0.0.5")
+    assert status == 200
+    assert body["status"] == "ok"
