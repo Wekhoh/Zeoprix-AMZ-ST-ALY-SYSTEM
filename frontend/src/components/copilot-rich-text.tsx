@@ -1,115 +1,142 @@
 "use client";
 /**
- * CopilotRichText — Sprint 4 · A2
+ * CopilotRichText — Phase 7.3 真 markdown 渲染
  *
- * 把 Copilot 回复文本里的 ASIN (B0 + 8 alnum) 和反引号包裹的关键词
- * 渲染成可点击链接：
- *   - ASIN `B0XXXXXXXX` → /review?focus={asin}
- *   - `关键词` (反引号) → /analysis?focus={term}
- *
- * 手写 regex tokenizer（无依赖 / 无 react-markdown，以降低 bundle 开销）。
+ * Gemini 回复常含 markdown：## headers / **bold** / `code` / 列表 / fenced code。
+ * 之前手写 tokenizer 仅识别 ASIN 和反引号 keyword，其它符号原样显示。
+ * 现在用 react-markdown 全量渲染，并在外层注入 2 个特殊跳转：
+ *   - ASIN (B0+8 alnum) → /review?focus={asin}
+ *   - 反引号 `term` → /analysis?focus={term}（内部 inline code 渲染为链接）
  */
 import Link from "next/link";
-import type { ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 
-// ASIN: B0 prefix + 8 alphanumeric chars, case-insensitive, word-boundary
 const ASIN_RE = /\bB0[A-Z0-9]{8}\b/gi;
-// Backtick-wrapped keyword: `abc def` (non-greedy, no embedded backtick)
-const TERM_RE = /`([^`\n]+)`/g;
 
-type Token =
-	| { kind: "text"; value: string }
-	| { kind: "asin"; value: string }
-	| { kind: "term"; value: string };
-
-type Match = {
-	start: number;
-	end: number;
-	kind: "asin" | "term";
-	value: string;
-};
-
-export function tokenize(input: string): Token[] {
-	const tokens: Token[] = [];
-	let cursor = 0;
-	const matches: Match[] = [];
-
-	for (const m of input.matchAll(ASIN_RE)) {
-		matches.push({
-			start: m.index ?? 0,
-			end: (m.index ?? 0) + m[0].length,
-			kind: "asin",
-			value: m[0].toUpperCase(),
-		});
-	}
-	for (const m of input.matchAll(TERM_RE)) {
-		const start = m.index ?? 0;
-		matches.push({
-			start,
-			end: start + m[0].length,
-			kind: "term",
-			value: m[1],
-		});
-	}
-
-	matches.sort((a, b) => a.start - b.start || b.end - a.end);
-
-	// Drop overlapping matches (keep the earliest-starting one).
-	const filtered: Match[] = [];
-	let lastEnd = -1;
-	for (const m of matches) {
-		if (m.start >= lastEnd) {
-			filtered.push(m);
-			lastEnd = m.end;
-		}
-	}
-
-	for (const m of filtered) {
-		if (m.start > cursor) {
-			tokens.push({ kind: "text", value: input.slice(cursor, m.start) });
-		}
-		tokens.push({ kind: m.kind, value: m.value });
-		cursor = m.end;
-	}
-	if (cursor < input.length) {
-		tokens.push({ kind: "text", value: input.slice(cursor) });
-	}
-	return tokens;
+/**
+ * 把 plain prose 中的 ASIN 转 markdown link，避开 fenced code 和反引号。
+ */
+export function injectAsinLinks(input: string): string {
+	const fences: string[] = [];
+	let s = input.replace(/```[\s\S]*?```/g, (m) => {
+		fences.push(m);
+		return ` FENCE${fences.length - 1}`;
+	});
+	const codes: string[] = [];
+	s = s.replace(/`[^`\n]+`/g, (m) => {
+		codes.push(m);
+		return ` CODE${codes.length - 1}`;
+	});
+	s = s.replace(ASIN_RE, (m) => {
+		const upper = m.toUpperCase();
+		return `[${upper}](/review?focus=${upper})`;
+	});
+	s = s.replace(/ CODE(\d+)/g, (_, i) => codes[Number(i)]);
+	s = s.replace(/ FENCE(\d+)/g, (_, i) => fences[Number(i)]);
+	return s;
 }
+
+const components: Components = {
+	// 反引号 `term` → 跳到 /analysis；fenced ```code``` 保持代码样式
+	code({ className, children, ...props }) {
+		const isBlock = !!(className && /^language-/.test(className));
+		if (isBlock) {
+			return (
+				<code className={`${className ?? ""} font-mono text-[12px]`} {...props}>
+					{children}
+				</code>
+			);
+		}
+		const term = String(children).trim();
+		if (!term) {
+			return <code {...props}>{children}</code>;
+		}
+		return (
+			<Link
+				href={`/analysis?focus=${encodeURIComponent(term)}`}
+				className="font-mono text-link hover:underline"
+				title={`在搜索词分析中聚焦「${term}」`}
+			>
+				{term}
+			</Link>
+		);
+	},
+	pre({ children, ...props }) {
+		return (
+			<pre
+				className="my-2 rounded bg-bg-subtle px-3 py-2 text-[12px] font-mono overflow-x-auto"
+				{...props}
+			>
+				{children}
+			</pre>
+		);
+	},
+	a({ href, children, ...props }) {
+		if (href && (href.startsWith("/review") || href.startsWith("/analysis"))) {
+			return (
+				<Link href={href} className="font-mono text-link hover:underline">
+					{children}
+				</Link>
+			);
+		}
+		return (
+			<a
+				href={href}
+				target="_blank"
+				rel="noopener noreferrer"
+				className="text-link hover:underline"
+				{...props}
+			>
+				{children}
+			</a>
+		);
+	},
+	p({ children }) {
+		return <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>;
+	},
+	h1({ children }) {
+		return <h1 className="text-[15px] font-bold mt-3 mb-1.5">{children}</h1>;
+	},
+	h2({ children }) {
+		return <h2 className="text-[14px] font-bold mt-2.5 mb-1">{children}</h2>;
+	},
+	h3({ children }) {
+		return (
+			<h3 className="text-[13.5px] font-semibold mt-2 mb-1">{children}</h3>
+		);
+	},
+	h4({ children }) {
+		return <h4 className="text-[13px] font-semibold mt-2 mb-1">{children}</h4>;
+	},
+	ul({ children }) {
+		return <ul className="list-disc pl-5 my-1.5 space-y-0.5">{children}</ul>;
+	},
+	ol({ children }) {
+		return <ol className="list-decimal pl-5 my-1.5 space-y-0.5">{children}</ol>;
+	},
+	li({ children }) {
+		return <li className="leading-[1.55]">{children}</li>;
+	},
+	strong({ children }) {
+		return <strong className="font-semibold">{children}</strong>;
+	},
+	em({ children }) {
+		return <em className="italic">{children}</em>;
+	},
+	blockquote({ children }) {
+		return (
+			<blockquote className="my-2 border-l-2 border-border pl-3 text-fg-muted italic">
+				{children}
+			</blockquote>
+		);
+	},
+	hr() {
+		return <hr className="my-3 border-border" />;
+	},
+};
 
 export function CopilotRichText({ text }: { text: string }) {
 	if (!text) return null;
-	const tokens = tokenize(text);
-	const nodes: ReactNode[] = [];
-	for (let i = 0; i < tokens.length; i++) {
-		const t = tokens[i];
-		// 复合 key = kind + 位置 + 内容指纹；同 kind 同 value 多次出现仍唯一
-		const tokKey = `${t.kind}-${i}-${t.value}`;
-		if (t.kind === "text") {
-			nodes.push(<span key={tokKey}>{t.value}</span>);
-		} else if (t.kind === "asin") {
-			nodes.push(
-				<Link
-					key={tokKey}
-					href={`/review?focus=${encodeURIComponent(t.value)}`}
-					className="font-mono text-link hover:underline"
-					title={`在审核中心聚焦 ASIN ${t.value}`}
-				>
-					{t.value}
-				</Link>,
-			);
-		} else {
-			nodes.push(
-				<Link
-					key={tokKey}
-					href={`/analysis?focus=${encodeURIComponent(t.value)}`}
-					className="text-link hover:underline"
-					title={`在搜索词分析中聚焦「${t.value}」`}
-				>
-					{t.value}
-				</Link>,
-			);
-		}
-	}
-	return <>{nodes}</>;
+	const processed = injectAsinLinks(text);
+	return <ReactMarkdown components={components}>{processed}</ReactMarkdown>;
 }
