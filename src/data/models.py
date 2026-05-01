@@ -3,20 +3,22 @@
 定义数据库表结构的SQL Schema
 """
 
+from enum import StrEnum
+
 
 # ==================== 枚举常量定义 ====================
 
 
-class NegativeType:
-    """否定类型常量"""
+class NegativeType(StrEnum):
+    """否定类型枚举（StrEnum：成员即字符串，向后兼容 == 比较）"""
 
     EXACT = "negative_exact"  # 否定精准
     PHRASE = "negative_phrase"  # 否定词组
     NONE = "none"  # 不否定
 
 
-class ManualType:
-    """手动投放类型常量"""
+class ManualType(StrEnum):
+    """手动投放类型枚举"""
 
     EXACT = "manual_exact"  # 手动精准匹配
     PHRASE = "manual_phrase"  # 手动词组匹配
@@ -49,8 +51,8 @@ class RelevanceLevel:
         return value
 
 
-class ActionType:
-    """动作类型常量"""
+class ActionType(StrEnum):
+    """动作类型枚举（StrEnum：成员即字符串，旧字符串比较仍然成立）"""
 
     # ==================== 单一否定动作 ====================
     NEGATIVE_EXACT = "negative_exact"  # 否定精准
