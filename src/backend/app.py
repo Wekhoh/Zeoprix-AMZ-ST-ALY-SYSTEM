@@ -25,7 +25,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from src.backend.auth import (
@@ -201,7 +201,7 @@ class FrontendCopilotChatRequest(BaseModel):
     product_id: int | None = None
     page_key: str
     page_title: str
-    user_message: str
+    user_message: str = Field(..., max_length=4000)
     history: list[FrontendCopilotMessage] = []
     page_context: dict[str, Any] | None = None
 
