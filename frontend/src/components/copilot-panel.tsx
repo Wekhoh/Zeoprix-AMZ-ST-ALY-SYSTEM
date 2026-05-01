@@ -10,10 +10,9 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+	Copy,
 	MessageSquarePlus,
-	History,
-	MoreHorizontal,
-	Plus,
+	RotateCcw,
 	Send,
 	Sparkles,
 } from "lucide-react";
@@ -166,11 +165,58 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
 		inputRef.current?.focus();
 	}
 
-	async function sendMessage(message: string) {
+	// Phase 7.3 UX: Esc 中止流式响应
+	useEffect(() => {
+		if (!pending) return;
+		function onKey(e: KeyboardEvent) {
+			if (e.key === "Escape") {
+				abortRef.current?.abort();
+			}
+		}
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [pending]);
+
+	const [copiedAt, setCopiedAt] = useState<number | null>(null);
+	async function copyText(text: string, idx: number) {
+		try {
+			await navigator.clipboard.writeText(text);
+			setCopiedAt(idx);
+			setTimeout(() => setCopiedAt(null), 1200);
+		} catch {
+			// 浏览器不支持 / 权限拒绝时静默失败
+		}
+	}
+
+	function regenerate() {
+		// 找最后一条 user 消息，回退到它之前的状态再重发
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i].role === "user") {
+				const lastUser = messages[i].content;
+				sendMessage(lastUser, { regenerate: true });
+				return;
+			}
+		}
+	}
+
+	async function sendMessage(
+		message: string,
+		options?: { regenerate?: boolean },
+	) {
 		const trimmed = message.trim();
 		if (!trimmed) return;
+		// regenerate：截掉最后一条匹配的 user 消息及其后的所有内容
+		let baseMessages = messages;
+		if (options?.regenerate) {
+			for (let i = messages.length - 1; i >= 0; i--) {
+				if (messages[i].role === "user" && messages[i].content === trimmed) {
+					baseMessages = messages.slice(0, i);
+					break;
+				}
+			}
+		}
 		const nextMessages = [
-			...messages,
+			...baseMessages,
 			{ role: "user" as const, content: trimmed },
 			{ role: "assistant" as const, content: "" },
 		];
@@ -311,20 +357,6 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
 					>
 						<MessageSquarePlus className="h-4 w-4" />
 					</button>
-					<button
-						type="button"
-						title="历史"
-						className="inline-flex h-7 w-7 items-center justify-center rounded-full text-fg-muted hover:bg-bg-subtle hover:text-fg transition-colors"
-					>
-						<History className="h-4 w-4" />
-					</button>
-					<button
-						type="button"
-						title="更多"
-						className="inline-flex h-7 w-7 items-center justify-center rounded-full text-fg-muted hover:bg-bg-subtle hover:text-fg transition-colors"
-					>
-						<MoreHorizontal className="h-4 w-4" />
-					</button>
 				</div>
 			</header>
 
@@ -366,30 +398,68 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
 						</div>
 					</>
 				) : (
-					recentMessages.map((message, index) =>
-						message.role === "assistant" ? (
-							<div
-								key={`${message.role}-${index}`}
-								className="flex items-start gap-2.5"
-							>
-								<span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border">
-									<Sparkles className="h-3 w-3 text-fg-muted" aria-hidden />
-								</span>
-								<div className="flex-1 min-w-0 text-[13.5px] leading-[1.6] text-fg whitespace-pre-wrap">
-									<CopilotRichText text={message.content} />
+					(() => {
+						let lastAsstIdx = -1;
+						for (let i = recentMessages.length - 1; i >= 0; i--) {
+							if (recentMessages[i].role === "assistant") {
+								lastAsstIdx = i;
+								break;
+							}
+						}
+						return recentMessages.map((message, index) =>
+							message.role === "assistant" ? (
+								<div
+									key={`${message.role}-${index}`}
+									className="group flex items-start gap-2.5"
+								>
+									<span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border">
+										<Sparkles className="h-3 w-3 text-fg-muted" aria-hidden />
+									</span>
+									<div className="flex-1 min-w-0">
+										<div className="text-[13.5px] leading-[1.6] text-fg whitespace-pre-wrap">
+											<CopilotRichText text={message.content} />
+										</div>
+										{message.content && !pending ? (
+											<div className="mt-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+												<button
+													type="button"
+													title={copiedAt === index ? "已复制" : "复制"}
+													onClick={() => copyText(message.content, index)}
+													className="inline-flex h-6 w-6 items-center justify-center rounded text-fg-subtle hover:bg-bg-subtle hover:text-fg transition-colors"
+												>
+													<Copy className="h-3 w-3" />
+												</button>
+												{index === lastAsstIdx ? (
+													<button
+														type="button"
+														title="重新生成"
+														onClick={regenerate}
+														className="inline-flex h-6 w-6 items-center justify-center rounded text-fg-subtle hover:bg-bg-subtle hover:text-fg transition-colors"
+													>
+														<RotateCcw className="h-3 w-3" />
+													</button>
+												) : null}
+												{copiedAt === index ? (
+													<span className="text-[11px] text-fg-subtle">
+														已复制
+													</span>
+												) : null}
+											</div>
+										) : null}
+									</div>
 								</div>
-							</div>
-						) : (
-							<div
-								key={`${message.role}-${index}`}
-								className="flex justify-end"
-							>
-								<div className="max-w-[85%] rounded-2xl bg-bg-subtle px-3.5 py-2 text-[13.5px] leading-[1.55] text-fg whitespace-pre-wrap">
-									{message.content}
+							) : (
+								<div
+									key={`${message.role}-${index}`}
+									className="flex justify-end"
+								>
+									<div className="max-w-[85%] rounded-2xl bg-bg-subtle px-3.5 py-2 text-[13.5px] leading-[1.55] text-fg whitespace-pre-wrap">
+										{message.content}
+									</div>
 								</div>
-							</div>
-						),
-					)
+							),
+						);
+					})()
 				)}
 
 				{pending ? (
@@ -454,14 +524,7 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
 
 			{/* ═══ Input ═══ */}
 			<div className="px-3 pb-3 pt-2 border-t border-border">
-				<div className="flex items-center gap-2 bg-bg-subtle rounded-full pl-1 pr-1 py-1">
-					<button
-						type="button"
-						title="添加"
-						className="inline-flex h-7 w-7 items-center justify-center rounded-full text-fg-muted hover:bg-bg-elevated transition-colors shrink-0"
-					>
-						<Plus className="h-4 w-4" />
-					</button>
+				<div className="flex items-center gap-2 bg-bg-subtle rounded-full pl-3 pr-1 py-1">
 					<textarea
 						ref={inputRef}
 						value={input}
@@ -482,13 +545,14 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
 						onClick={() => sendMessage(input)}
 						className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-link text-white hover:bg-link-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
 						aria-label="发送"
-						title="发送 (Enter)"
+						title={pending ? "Esc 中止" : "发送 (Enter，Shift+Enter 换行)"}
 					>
 						<Send className="h-3.5 w-3.5" />
 					</button>
 				</div>
 				<p className="text-center text-[11px] text-fg-subtle mt-2 px-2">
 					Zeoprix Assistant 仍在学习中，请核对回复。
+					{pending ? " · Esc 中止" : ""}
 				</p>
 			</div>
 		</section>
