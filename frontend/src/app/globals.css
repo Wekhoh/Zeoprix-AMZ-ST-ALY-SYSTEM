@@ -19,7 +19,8 @@
 
   --fg: #0F1111;
   --fg-muted: #565959;
-  --fg-subtle: #888C8C;
+  /* a11y: 原 #888C8C on white 仅 3.20:1；#666A6A 达 4.87:1 — WCAG AA */
+  --fg-subtle: #666A6A;
 
   --border: #D5D9D9;
   --border-strong: #888C8C;
@@ -28,10 +29,14 @@
   --primary-hover: #37475A;
   --on-primary: #FFFFFF;
 
+  /* --accent #FF9900 仅 2.01:1 on white：保留为品牌/装饰/SVG fill；
+     文本一律用 --accent-fg / --accent-strong */
   --accent: #FF9900;
-  --accent-fg: #C77700;
+  /* a11y: 原 #C77700 on white 仅 3.46:1；#995A00 → 5.02:1 on accent-bg */
+  --accent-fg: #995A00;
   --accent-bg: #FFF3E0;
-  --accent-strong: #E88B00;
+  /* a11y: 原 #E88B00 on accent-bg 仅 3.99:1；与 accent-fg 合并 */
+  --accent-strong: #995A00;
 
   --link: #007185;
   --link-hover: #004A52;
@@ -41,7 +46,8 @@
   --success-fg: #155724;
   --success-bg: #D4EDDA;
 
-  --warning: #B45309;
+  /* a11y: 原 #B45309 on bg-subtle 仅 4.47:1；#A04A0B → 5.37:1 */
+  --warning: #A04A0B;
   --warning-fg: #7A4F00;
   --warning-bg: #FFF4D5;
 
@@ -60,7 +66,8 @@
 
   --fg: #FFFFFF;
   --fg-muted: #B8BCBC;
-  --fg-subtle: #888C8C;
+  /* a11y: 原 #888C8C on bg-elevated 仅 3.99:1；#A8ACAC → 5.92:1 — WCAG AA */
+  --fg-subtle: #A8ACAC;
 
   --border: #3F4750;
   --border-strong: #565E64;
@@ -86,7 +93,8 @@
   --warning-fg: #FDD48A;
   --warning-bg: #2A1F0A;
 
-  --error: #EF6A5C;
+  /* a11y: 原 #EF6A5C on bg-elevated 仅 4.45:1；#F47B6E → 5.11:1 */
+  --error: #F47B6E;
   --error-fg: #F5918A;
   --error-bg: #2A0F0F;
 
