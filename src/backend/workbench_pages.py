@@ -358,14 +358,25 @@ def build_settings_page_payload(product_id: int | None = None) -> dict[str, Any]
         }
 
 
-def _build_weekly_compare(db: Database, product_id: int) -> dict[str, Any]:
+def _build_weekly_compare(
+    db: Database,
+    product_id: int,
+    *,
+    reference_date: dt.date | None = None,
+) -> dict[str, Any]:
     """Sprint B.3 — 最近 14 天日序列 + 本周 vs 上周对比。
 
     返回 4 字段：dailySeries / thisWeek / lastWeek / delta。
     delta 是比例（-0.12 = -12%），无上周数据时返回 1.0（增长）或 0.0（持平）。
 
+    Args:
+      reference_date: 把"今天"锚到指定日期，便于测试注入固定日期。
+                      None 时取 dt.date.today()。
+
     复用现有 search_terms.report_date 字段，无需 schema migration。
     """
+    today = reference_date or dt.date.today()
+    cutoff_iso = (today - dt.timedelta(days=14)).isoformat()
     rows = db.execute(
         """
         SELECT
@@ -376,11 +387,11 @@ def _build_weekly_compare(db: Database, product_id: int) -> dict[str, Any]:
         FROM search_terms st
         JOIN campaigns c ON st.campaign_id = c.id
         WHERE c.product_id = ?
-          AND COALESCE(st.report_date, date(st.created_at)) >= date('now', '-14 days')
+          AND COALESCE(st.report_date, date(st.created_at)) >= ?
         GROUP BY bucket_date
         ORDER BY bucket_date ASC
         """,
-        (product_id,),
+        (product_id, cutoff_iso),
     ).fetchall()
 
     daily = [
@@ -394,7 +405,6 @@ def _build_weekly_compare(db: Database, product_id: int) -> dict[str, Any]:
     ]
 
     # 本周 = 最近 7 天日期范围（calendar），上周 = 之前 7 天日期范围
-    today = dt.date.today()
     this_week_start = today - dt.timedelta(days=6)  # 含今天共 7 天
     last_week_start = today - dt.timedelta(days=13)
     last_week_end = today - dt.timedelta(days=7)

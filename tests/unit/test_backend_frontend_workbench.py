@@ -259,3 +259,62 @@ def test_submit_review_decision_returns_conflict_without_force():
     assert "conflicts" in result
     # 关键：未写 manual_review
     mock_db.upsert_manual_review.assert_not_called()
+
+
+def test_build_weekly_compare_accepts_reference_date(monkeypatch, tmp_path):
+    """Audit M-1：reference_date 参数让测试可注入固定日期。
+
+    构造 14 天日期跨度的 search_terms，用 reference_date=2026-05-01 锚定，
+    本周（4-25 ~ 5-1）总和应只算最近 7 天，上周（4-18 ~ 4-24）算前 7 天。
+    """
+    import datetime as _dt
+
+    from src.backend.workbench_pages import _build_weekly_compare
+
+    legacy_db_path = tmp_path / "legacy-app.db"
+    monkeypatch.setenv("DATABASE_PATH", str(legacy_db_path))
+    db = Database(str(legacy_db_path))
+    db.init_schema()
+    product_id = db.create_product(name="日历测试", asin="B0CAL12345", category="Home")
+    campaign_id = db.get_or_create_campaign(
+        product_id=product_id, name="Cal Camp", match_type="auto"
+    )
+    df = pd.DataFrame(
+        [
+            {
+                "term": "this-week",
+                "term_type": "keyword",
+                "spend": 10.0,
+                "orders": 1,
+                "sales": 50.0,
+                "report_date": "2026-04-29",
+            },
+            {
+                "term": "last-week",
+                "term_type": "keyword",
+                "spend": 20.0,
+                "orders": 2,
+                "sales": 80.0,
+                "report_date": "2026-04-22",
+            },
+            {
+                "term": "ancient",
+                "term_type": "keyword",
+                "spend": 999.0,
+                "orders": 99,
+                "sales": 9999.0,
+                "report_date": "2026-04-10",  # 14d cutoff 之外
+            },
+        ]
+    )
+    db.save_search_terms(df, campaign_id)
+
+    # 锚定 today=2026-05-01；本周 4-25~5-1，上周 4-18~4-24
+    result = _build_weekly_compare(db, product_id, reference_date=_dt.date(2026, 5, 1))
+    assert result["thisWeek"] == {"spend": 10.0, "orders": 1, "sales": 50.0}
+    assert result["lastWeek"] == {"spend": 20.0, "orders": 2, "sales": 80.0}
+    # delta = (10-20)/20 = -0.5
+    assert result["delta"]["spend"] == -0.5
+    # ancient term 在 cutoff 之外，daily 里不应出现 4-10
+    assert all(d["date"] != "2026-04-10" for d in result["dailySeries"])
+    db.close()
