@@ -147,4 +147,53 @@ describe("streamCopilotChat", () => {
 
 		expect(errors).toEqual(["gemini down"]);
 	});
+
+	it("forwards partial/recoverable/chunksReceived metadata on error frame", async () => {
+		// Phase 7 SSE error recovery：流中断错误帧带 partial=true / chunksReceived
+		const sse = [
+			'data: {"type":"context","contextLabel":"x"}\n\n',
+			'data: {"type":"delta","text":"Hel"}\n\n',
+			'data: {"type":"error","message":"响应中断（已接收部分内容，可重试）","partial":true,"chunksReceived":1,"recoverable":true}\n\n',
+			'data: {"type":"done"}\n\n',
+		];
+		(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+			makeSseResponse(sse),
+		);
+
+		const errorMetas: Array<{
+			msg: string;
+			meta?: {
+				partial?: boolean;
+				recoverable?: boolean;
+				chunksReceived?: number;
+			};
+		}> = [];
+
+		await streamCopilotChat(
+			{
+				page_key: "workbench",
+				page_title: "工作台",
+				user_message: "hi",
+				history: [],
+				page_context: {},
+				product_id: null,
+			},
+			{
+				onContext: () => {},
+				onDelta: () => {},
+				onEnvelope: () => {},
+				onError: (msg, meta) => {
+					errorMetas.push({ msg, meta });
+				},
+			},
+		);
+
+		expect(errorMetas).toHaveLength(1);
+		expect(errorMetas[0].msg).toMatch(/响应中断/);
+		expect(errorMetas[0].meta).toMatchObject({
+			partial: true,
+			recoverable: true,
+			chunksReceived: 1,
+		});
+	});
 });

@@ -16,11 +16,17 @@ export type CopilotEnvelopeFrame = {
 	warning: string | null;
 };
 
+export type CopilotErrorMeta = {
+	partial?: boolean;
+	recoverable?: boolean;
+	chunksReceived?: number;
+};
+
 export type CopilotFrame =
 	| { type: "context"; contextLabel: string | null }
 	| { type: "delta"; text: string }
 	| ({ type: "envelope" } & CopilotEnvelopeFrame)
-	| { type: "error"; message: string }
+	| ({ type: "error"; message: string } & CopilotErrorMeta)
 	| { type: "done" };
 
 export type CopilotChatPayload = {
@@ -36,7 +42,13 @@ export type StreamHandlers = {
 	onContext?: (label: string | null) => void;
 	onDelta: (text: string) => void;
 	onEnvelope: (env: CopilotEnvelopeFrame) => void;
-	onError: (message: string) => void;
+	/**
+	 * 错误回调；后端在以下场景透传 meta：
+	 * - 流前 timeout 已重试仍失败 → recoverable=false
+	 * - 流中 timeout 中断 → partial=true / recoverable=true / chunksReceived=N
+	 * 旧调用方忽略 meta 时仍按原 message 兜底（向后兼容）。
+	 */
+	onError: (message: string, meta?: CopilotErrorMeta) => void;
 	signal?: AbortSignal;
 };
 
@@ -102,7 +114,11 @@ export async function streamCopilotChat(
 						});
 						break;
 					case "error":
-						handlers.onError(frame.message);
+						handlers.onError(frame.message, {
+							partial: frame.partial,
+							recoverable: frame.recoverable,
+							chunksReceived: frame.chunksReceived,
+						});
 						break;
 					case "done":
 						return;

@@ -256,7 +256,17 @@ export function CopilotPanel({ productId, pageKey, pageTitle, aiCard }: Props) {
 					{
 						onDelta: appendToLastAssistant,
 						onEnvelope: applyEnvelope,
-						onError: async (msg) => {
+						onError: async (msg, meta) => {
+							// 流中断（已收到部分内容）：保留 partial 内容，不触发 fallback
+							// 避免重复请求 Gemini 把已收到的内容覆盖掉
+							if (meta?.partial && meta?.recoverable) {
+								appendToLastAssistant(
+									`\n\n（响应被中断，已接收 ${meta.chunksReceived ?? 0} 个 chunk）`,
+								);
+								setWarning(`${msg}，可重新发送以重试`);
+								return;
+							}
+							// 流前/不可恢复错误：清掉空占位 + 回退到稳定模式
 							setMessages((current) => {
 								const last = current[current.length - 1];
 								if (last?.role === "assistant" && last.content === "") {
