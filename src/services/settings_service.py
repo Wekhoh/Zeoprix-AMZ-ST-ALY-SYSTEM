@@ -274,6 +274,71 @@ def build_full_backup_export_payload(db, product_id: int) -> dict | None:
     }
 
 
+_BACKUP_LIST_KEYS = (
+    "campaigns",
+    "search_terms",
+    "analysis_results",
+    "action_plans",
+    "manual_reviews",
+    "execution_batches",
+    "analysis_run_snapshots",
+)
+
+# 必须含 id (int) 的 list — 跨表外键映射依赖
+_BACKUP_LISTS_NEEDING_ID = ("campaigns", "search_terms", "analysis_results")
+
+
+def _validate_backup_schema(backup_data: object) -> None:
+    """Audit HIGH-1 — schema 校验 backup JSON。
+
+    防止恶意/损坏文件破坏数据库：在写循环开始前一次性 validate，校验失败
+    raise ValueError 不进 DB。否则中途 TypeError/KeyError 会留下半写入的
+    脏数据（campaign 已插入但 search_terms 失败回不去）。
+
+    校验规则：
+      - 顶层必须 dict
+      - export_type == "full_backup"
+      - product 必须 dict
+      - 列表字段（若存在）必须 list of dict
+      - campaigns/search_terms/analysis_results 每项必须有 int id
+      - analysis_results 每项必须有 int search_term_id
+      - action_plans 每项必须有 int analysis_result_id
+    """
+    if not isinstance(backup_data, dict):
+        raise ValueError("备份文件不是有效的 JSON 对象。")
+    if backup_data.get("export_type") != "full_backup":
+        raise ValueError("当前文件不是完整数据备份。")
+    if not isinstance(backup_data.get("product"), dict):
+        raise ValueError("备份缺少 product 字段或类型错误。")
+
+    for key in _BACKUP_LIST_KEYS:
+        value = backup_data.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            raise ValueError(f"备份字段 {key} 类型错误，应为 list。")
+        for idx, item in enumerate(value):
+            if not isinstance(item, dict):
+                raise ValueError(f"备份字段 {key}[{idx}] 类型错误，应为 object。")
+
+    for key in _BACKUP_LISTS_NEEDING_ID:
+        for idx, item in enumerate(backup_data.get(key) or []):
+            if not isinstance(item.get("id"), int):
+                raise ValueError(f"备份 {key}[{idx}].id 缺失或非整数。")
+
+    for idx, item in enumerate(backup_data.get("analysis_results") or []):
+        if not isinstance(item.get("search_term_id"), int):
+            raise ValueError(
+                f"备份 analysis_results[{idx}].search_term_id 缺失或非整数。"
+            )
+
+    for idx, item in enumerate(backup_data.get("action_plans") or []):
+        if not isinstance(item.get("analysis_result_id"), int):
+            raise ValueError(
+                f"备份 action_plans[{idx}].analysis_result_id 缺失或非整数。"
+            )
+
+
 def restore_full_backup(
     db,
     backup_data: dict,
@@ -282,8 +347,8 @@ def restore_full_backup(
     restore_as_new_product: bool = False,
 ) -> int:
     """从完整备份恢复产品数据，支持覆盖当前产品或恢复为新产品副本。"""
-    if backup_data.get("export_type") != "full_backup":
-        raise ValueError("当前文件不是完整数据备份。")
+    # Audit HIGH-1: 写库之前先 schema 校验，杜绝半写入留脏数据
+    _validate_backup_schema(backup_data)
 
     product_payload = backup_data.get("product") or {}
     product_name = str(product_payload.get("name") or "恢复产品").strip() or "恢复产品"

@@ -150,3 +150,107 @@ def test_frontend_settings_preview_rule_version_endpoint(monkeypatch, tmp_path):
     assert body["status"] == "success"
     assert body["configEditor"]["coreKeywords"] == ["neck pillow"]
     assert "neck pillow" in body["diff"]["coreKeywords"]["added"]
+
+
+# ── Audit HIGH-1: backup schema 校验单元测试 ────────────────────────────
+
+
+def test_validate_backup_schema_rejects_non_dict():
+    import pytest
+
+    from src.services.settings_service import _validate_backup_schema
+
+    with pytest.raises(ValueError, match="不是有效的 JSON 对象"):
+        _validate_backup_schema("not a dict")
+    with pytest.raises(ValueError, match="不是有效的 JSON 对象"):
+        _validate_backup_schema([])
+
+
+def test_validate_backup_schema_rejects_wrong_export_type():
+    import pytest
+
+    from src.services.settings_service import _validate_backup_schema
+
+    with pytest.raises(ValueError, match="不是完整数据备份"):
+        _validate_backup_schema({"export_type": "rule_config", "product": {}})
+
+
+def test_validate_backup_schema_rejects_missing_product():
+    import pytest
+
+    from src.services.settings_service import _validate_backup_schema
+
+    with pytest.raises(ValueError, match="product 字段"):
+        _validate_backup_schema({"export_type": "full_backup"})
+    with pytest.raises(ValueError, match="product 字段"):
+        _validate_backup_schema({"export_type": "full_backup", "product": "wrong"})
+
+
+def test_validate_backup_schema_rejects_list_with_wrong_type():
+    import pytest
+
+    from src.services.settings_service import _validate_backup_schema
+
+    with pytest.raises(ValueError, match="campaigns 类型错误"):
+        _validate_backup_schema(
+            {
+                "export_type": "full_backup",
+                "product": {"name": "x"},
+                "campaigns": "not a list",
+            }
+        )
+    with pytest.raises(ValueError, match=r"search_terms\[0\] 类型错误"):
+        _validate_backup_schema(
+            {
+                "export_type": "full_backup",
+                "product": {"name": "x"},
+                "search_terms": ["should be dict"],
+            }
+        )
+
+
+def test_validate_backup_schema_rejects_missing_id():
+    import pytest
+
+    from src.services.settings_service import _validate_backup_schema
+
+    with pytest.raises(ValueError, match=r"campaigns\[0\]\.id"):
+        _validate_backup_schema(
+            {
+                "export_type": "full_backup",
+                "product": {"name": "x"},
+                "campaigns": [{"name": "无 id 的活动"}],
+            }
+        )
+    with pytest.raises(ValueError, match=r"analysis_results\[0\]\.search_term_id"):
+        _validate_backup_schema(
+            {
+                "export_type": "full_backup",
+                "product": {"name": "x"},
+                "analysis_results": [{"id": 1}],
+            }
+        )
+    with pytest.raises(ValueError, match=r"action_plans\[0\]\.analysis_result_id"):
+        _validate_backup_schema(
+            {
+                "export_type": "full_backup",
+                "product": {"name": "x"},
+                "action_plans": [{"action": "negate"}],
+            }
+        )
+
+
+def test_validate_backup_schema_accepts_minimal_valid():
+    """最小合法 backup（只有 export_type + product）不应 raise。"""
+    from src.services.settings_service import _validate_backup_schema
+
+    _validate_backup_schema({"export_type": "full_backup", "product": {}})
+    _validate_backup_schema(
+        {
+            "export_type": "full_backup",
+            "product": {},
+            "campaigns": [],
+            "search_terms": [],
+            "analysis_results": [],
+        }
+    )
